@@ -1,5 +1,7 @@
 # tvjoe
 
+> **Privates Hobbyprojekt – nicht gepflegt / unmaintained.**
+
 Streaming-Client für Live-TV unter Linux (Rust, GTK4/libadwaita, libmpv). Die Sender kommen aus
 eigenen M3U-Listen; tvjoe liefert keine Senderlisten mit. Ziele: schneller Start, geringe
 CPU-Last durch Hardware-Decoding.
