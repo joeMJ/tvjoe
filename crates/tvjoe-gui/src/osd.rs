@@ -87,7 +87,14 @@ impl Osd {
             .height_request(40)
             .css_classes(["tvjoe-osd-logo"])
             .build();
-        let logo_slot: gtk::Widget = crate::logo_box(&logo, 64).upcast();
+        // In Breite und Höhe begrenzt: hochkante Logos (z. B. ARTE) dürfen die Anzeige nicht strecken.
+        let logo_slot: gtk::Widget = adw::Clamp::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .maximum_size(40)
+            .tightening_threshold(40)
+            .child(&crate::logo_box(&logo, 64))
+            .build()
+            .upcast();
         logo_slot.set_valign(gtk::Align::Center);
 
         let name = label("tvjoe-osd-name");
@@ -202,9 +209,10 @@ impl Osd {
         Self::set_text(&self.desc, info.desc.as_deref());
         Self::set_text(&self.next, info.next.as_deref());
         Self::set_text(&self.extra, info.extra.as_deref());
-        let right_visible = [&self.now, &self.desc, &self.next, &self.extra]
+        // Aus dem Inhalt bestimmen: `is_visible()` meldet bei noch ausgeblendeter Anzeige immer „nein“.
+        let right_visible = [&info.now, &info.desc, &info.next, &info.extra]
             .iter()
-            .any(|l| l.is_visible());
+            .any(|t| t.as_deref().is_some_and(|t| !t.is_empty()));
         self.right.set_visible(right_visible);
         self.sep_right.set_visible(right_visible);
         self.present(secs);
