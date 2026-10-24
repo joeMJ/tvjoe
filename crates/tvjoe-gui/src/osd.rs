@@ -19,6 +19,39 @@ pub enum Origin {
     Satellite,
 }
 
+/// Stand eines Mediathek-Videos für die Fortschrittszeile.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct VideoState {
+    pub position: f64,
+    pub duration: f64,
+    pub paused: bool,
+}
+
+/// Bedienung über die Knöpfe der Video-Bauchbinde.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VideoAction {
+    /// Relativ springen (Sekunden).
+    Seek(f64),
+    /// An einen Anteil der Dauer springen (Klick in die Leiste).
+    SeekTo(f64),
+    TogglePause,
+    /// Nächste Tonspur.
+    Audio,
+}
+
+type ActionHandler = Box<dyn Fn(VideoAction)>;
+
+/// „1:05:09“ bzw. „5:09“.
+pub fn clock(secs: f64) -> String {
+    let s = secs.max(0.0) as u64;
+    let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
+}
+
 /// Inhalt der Senderanzeige; `None` bzw. leer blendet den Teil aus.
 #[derive(Debug, Default, Clone)]
 pub struct ChannelInfo {
@@ -33,6 +66,8 @@ pub struct ChannelInfo {
     pub next: Option<String>,
     /// Zusätzliche Meldung, z. B. „Stream gestört …“ oder Videodaten.
     pub extra: Option<String>,
+    /// Mediathek-Video: Fortschrittszeile mit Knöpfen statt „Danach“.
+    pub video: Option<VideoState>,
     /// Bauchbinde eines Senders: rechts immer Platz für Jetzt, zwei Zeilen Beschreibung und
     /// Danach, auch wenn nicht gefüllt (gleiche Höhe beim Zappen).
     pub full: bool,
@@ -54,7 +89,21 @@ pub struct Osd {
     desc: gtk::Label,
     next: gtk::Label,
     extra: gtk::Label,
+    video_row: gtk::Box,
+    progress: gtk::ProgressBar,
+    time: gtk::Label,
+    pause: gtk::Button,
+    on_action: RefCell<Option<ActionHandler>>,
     timer: RefCell<Option<glib::SourceId>>,
+}
+
+fn osd_button(icon: &str, tip: &str) -> gtk::Button {
+    gtk::Button::builder()
+        .icon_name(icon)
+        .tooltip_text(tip)
+        .css_classes(["flat", "circular", "tvjoe-osd-button"])
+        .valign(gtk::Align::Center)
+        .build()
 }
 
 fn label(class: &str) -> gtk::Label {
@@ -86,7 +135,6 @@ impl Osd {
             .content_fit(gtk::ContentFit::Contain)
             .can_shrink(true)
             .height_request(40)
-            .css_classes(["tvjoe-osd-logo"])
             .build();
         // In Breite und Höhe begrenzt: hochkante Logos (z. B. ARTE) dürfen die Anzeige nicht strecken.
         let logo_slot: gtk::Widget = adw::Clamp::builder()
@@ -134,12 +182,45 @@ impl Osd {
         let next = label("tvjoe-osd-sub");
         let extra = label("tvjoe-osd-extra");
         extra.set_wrap(true);
+
+        // Mediathek: Knöpfe, Fortschrittsleiste, Zeit (anstelle von „Danach“).
+        let back_min = osd_button("media-skip-backward-symbolic", "1 Minute zurück (Bild ↑)");
+        let back = osd_button("media-seek-backward-symbolic", "10 Sekunden zurück (←)");
+        let pause = osd_button("media-playback-pause-symbolic", "Pause (Leertaste)");
+        let fwd = osd_button("media-seek-forward-symbolic", "10 Sekunden vor (→)");
+        let fwd_min = osd_button("media-skip-forward-symbolic", "1 Minute vor (Bild ↓)");
+        let audio = osd_button(
+            "preferences-desktop-locale-symbolic",
+            "Tonspur wechseln (A)",
+        );
+        let progress = gtk::ProgressBar::builder()
+            .hexpand(true)
+            .valign(gtk::Align::Center)
+            .css_classes(["tvjoe-osd-progress"])
+            .build();
+        let time = gtk::Label::builder()
+            .css_classes(["tvjoe-osd-sub", "tvjoe-osd-time"])
+            .xalign(1.0)
+            .build();
+        let video_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        for b in [&back_min, &back, &pause, &fwd, &fwd_min] {
+            video_row.append(b);
+        }
+        progress.set_margin_start(8);
+        progress.set_margin_end(8);
+        video_row.append(&progress);
+        video_row.append(&time);
+        video_row.append(&audio);
+        video_row.set_visible(false);
+
         let right = gtk::Box::new(gtk::Orientation::Vertical, 2);
         right.set_hexpand(true);
         right.set_valign(gtk::Align::Center);
-        for w in [&now, &desc, &next, &extra] {
+        for w in [&now, &desc, &next] {
             right.append(w);
         }
+        right.append(&video_row);
+        right.append(&extra);
 
         let sep_number = vsep();
         let sep_logo = vsep();
@@ -164,7 +245,7 @@ impl Osd {
         root.append(&sep_right);
         root.append(&right);
 
-        Rc::new(Self {
+        let osd = Rc::new(Self {
             root,
             number,
             origin,
@@ -180,8 +261,74 @@ impl Osd {
             desc,
             next,
             extra,
+            video_row,
+            progress: progress.clone(),
+            time,
+            pause: pause.clone(),
+            on_action: RefCell::new(None),
             timer: RefCell::new(None),
-        })
+        });
+        let wire = |b: &gtk::Button, action: VideoAction| {
+            let weak = Rc::downgrade(&osd);
+            b.connect_clicked(move |_| {
+                if let Some(osd) = weak.upgrade() {
+                    osd.act(action);
+                }
+            });
+        };
+        wire(&back_min, VideoAction::Seek(-60.0));
+        wire(&back, VideoAction::Seek(-10.0));
+        wire(&pause, VideoAction::TogglePause);
+        wire(&fwd, VideoAction::Seek(10.0));
+        wire(&fwd_min, VideoAction::Seek(60.0));
+        wire(&audio, VideoAction::Audio);
+        let click = gtk::GestureClick::new();
+        let weak = Rc::downgrade(&osd);
+        click.connect_pressed(move |g, _, x, _| {
+            // Beansprucht: sonst schaltet ein Doppelklick in die Leiste auf Vollbild.
+            g.set_state(gtk::EventSequenceState::Claimed);
+            let Some(osd) = weak.upgrade() else { return };
+            let width = g.widget().map_or(0, |w| w.width());
+            if width > 0 {
+                osd.act(VideoAction::SeekTo(x / f64::from(width)));
+            }
+        });
+        progress.add_controller(click);
+        osd
+    }
+
+    /// Empfänger für die Knöpfe der Video-Bauchbinde.
+    pub fn set_action_handler(&self, f: impl Fn(VideoAction) + 'static) {
+        *self.on_action.borrow_mut() = Some(Box::new(f));
+    }
+
+    fn act(&self, action: VideoAction) {
+        if let Some(f) = self.on_action.borrow().as_ref() {
+            f(action);
+        }
+    }
+
+    pub fn is_shown(&self) -> bool {
+        self.root.is_visible()
+    }
+
+    /// Nur die Fortschrittszeile auffrischen (ohne neue Anzeigedauer).
+    pub fn update_video(&self, v: &VideoState) {
+        let fraction = if v.duration > 0.0 {
+            v.position / v.duration
+        } else {
+            0.0
+        };
+        self.progress.set_fraction(fraction.clamp(0.0, 1.0));
+        self.time
+            .set_label(&format!("{} / {}", clock(v.position), clock(v.duration)));
+        let (icon, tip) = if v.paused {
+            ("media-playback-start-symbolic", "Weiter (Leertaste)")
+        } else {
+            ("media-playback-pause-symbolic", "Pause (Leertaste)")
+        };
+        self.pause.set_icon_name(icon);
+        self.pause.set_tooltip_text(Some(tip));
     }
 
     fn set_text(l: &gtk::Label, text: Option<&str>) {
@@ -212,7 +359,7 @@ impl Osd {
         self.sep_number.set_visible(has_number);
         match &info.logo {
             Some(p) => {
-                self.logo.set_filename(Some(p));
+                crate::logos::set_bright(&self.logo, p);
                 self.logo_slot.set_visible(true);
                 self.sep_logo.set_visible(true);
             }
@@ -241,6 +388,19 @@ impl Osd {
             self.desc.set_size_request(-1, -1);
         }
         Self::set_text(&self.extra, info.extra.as_deref());
+        // Mediathek: Fortschrittszeile statt „Danach“; nur dann nimmt die Anzeige Klicks an.
+        match &info.video {
+            Some(v) => {
+                self.next.set_visible(false);
+                self.video_row.set_visible(true);
+                self.update_video(v);
+                self.root.set_can_target(true);
+            }
+            None => {
+                self.video_row.set_visible(false);
+                self.root.set_can_target(false);
+            }
+        }
         // Aus dem Inhalt bestimmen: `is_visible()` meldet bei noch ausgeblendeter Anzeige immer „nein“.
         let right_visible = info.full
             || [&info.now, &info.desc, &info.next, &info.extra]

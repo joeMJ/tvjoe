@@ -68,8 +68,8 @@ pub struct Settings {
     pub mediathek_days: u32,
     /// Mediathek: Fassungen mit Audiodeskription ausblenden.
     pub mediathek_hide_ad: bool,
-    /// Mediathek: ORF, SRF und ARTE.FR anzeigen.
-    pub mediathek_foreign: bool,
+    /// Mediathek: ausgeblendete Sender (Kurzname aus der Filmliste).
+    pub mediathek_hidden: Vec<String>,
 }
 
 impl Default for Settings {
@@ -98,8 +98,11 @@ impl Default for Settings {
             inhibit_windowed: false,
             mediathek_refresh_hours: 24,
             mediathek_days: 14,
-            mediathek_hide_ad: false,
-            mediathek_foreign: false,
+            mediathek_hide_ad: true,
+            mediathek_hidden: crate::mediathek::HIDDEN_DEFAULT
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         }
     }
 }

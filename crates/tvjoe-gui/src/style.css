@@ -56,10 +56,6 @@
   color: #c9c8c5;
 }
 
-.tvjoe-osd-logo {
-  filter: grayscale(1);
-}
-
 .tvjoe-osd-sep {
   background-color: #5c5c62;
   min-width: 1px;
@@ -83,6 +79,29 @@
 .tvjoe-osd-extra {
   font-size: 12pt;
   color: #78aeed;
+}
+
+/* Video-Bauchbinde (Mediathek): Knöpfe, Fortschrittsleiste, Zeit */
+.tvjoe-osd-button {
+  color: #f6f6f6;
+  min-width: 34px;
+  min-height: 34px;
+}
+
+.tvjoe-osd-progress trough {
+  min-height: 8px;
+  border-radius: 4px;
+  background-color: #5c5c62;
+}
+
+.tvjoe-osd-progress progress {
+  min-height: 8px;
+  border-radius: 4px;
+  background-color: #78aeed;
+}
+
+.tvjoe-osd-time {
+  font-feature-settings: "tnum";
 }
 
 /* Programmraster */

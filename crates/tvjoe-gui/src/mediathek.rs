@@ -51,7 +51,7 @@ fn filter_of(app: &App) -> Filter {
     let s = app.settings();
     Filter {
         hide_ad: s.mediathek_hide_ad,
-        show_foreign: s.mediathek_foreign,
+        hidden: s.mediathek_hidden.clone(),
     }
 }
 
@@ -239,7 +239,7 @@ fn load_thumb(agent: &net::Agent, website: &str, path: &Path) -> Result<(), (Str
 const ALIASES: &[(&str, &str)] = &[("ard", "daserste"), ("arte.de", "arte")];
 
 /// Logo eines Mediathek-Senders aus der Senderliste (schon geladene Logodatei), sonst `None`.
-fn sender_logo(app: &App, sender: &str) -> Option<PathBuf> {
+pub fn sender_logo(app: &App, sender: &str) -> Option<PathBuf> {
     let key = ALIASES
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(sender))
@@ -279,15 +279,10 @@ struct MtWindow {
     thumbs_of: RefCell<HashMap<i64, gtk::Picture>>,
     thumbs: Option<Thumbs>,
     db: RefCell<Option<Mediathek>>,
-    /// Daten oder Einstellungen geändert, während das Fenster verborgen war.
-    dirty: Cell<bool>,
 }
 
 pub fn open(app: &Rc<App>) {
     if let Some(w) = current() {
-        if w.dirty.replace(false) {
-            w.rebuild();
-        }
         w.win.present();
         return;
     }
@@ -327,18 +322,7 @@ pub fn probe_play_first(app: &Rc<App>) {
     }
 }
 
-/// Nach geänderten Einstellungen (Filter): offenes Fenster neu aufbauen.
-pub fn settings_changed() {
-    if let Some(w) = current() {
-        if w.win.is_visible() {
-            w.rebuild();
-        } else {
-            w.dirty.set(true);
-        }
-    }
-}
-
-fn day_time(ts: i64) -> String {
+pub fn day_time(ts: i64) -> String {
     glib::DateTime::from_unix_local(ts)
         .ok()
         .and_then(|d| d.format("%a %d.%m. · %H:%M").ok())
@@ -367,6 +351,11 @@ impl MtWindow {
         let stand = gtk::Label::builder().css_classes(["tvjoe-sub"]).build();
         let header = adw::HeaderBar::builder().title_widget(&tab_box).build();
         header.pack_start(&stand);
+        let prefs_button = gtk::Button::builder()
+            .icon_name("emblem-system-symbolic")
+            .tooltip_text("Einstellungen der Mediathek")
+            .build();
+        header.pack_end(&prefs_button);
 
         let search = gtk::SearchEntry::builder()
             .placeholder_text("Titel, Thema oder Beschreibung")
@@ -464,7 +453,6 @@ impl MtWindow {
             thumbs_of: RefCell::new(HashMap::new()),
             thumbs,
             db: RefCell::new(db),
-            dirty: Cell::new(false),
         });
 
         if let Some(results) = results {
@@ -497,6 +485,12 @@ impl MtWindow {
             });
         }
         let weak = Rc::downgrade(&w);
+        prefs_button.connect_clicked(move |_| {
+            if let Some(w) = weak.upgrade() {
+                w.open_prefs();
+            }
+        });
+        let weak = Rc::downgrade(&w);
         w.search.connect_search_changed(move |_| {
             if let Some(w) = weak.upgrade() {
                 w.reload();
@@ -516,6 +510,93 @@ impl MtWindow {
         w
     }
 
+    /// Einstellungen der Mediathek (Zahnrad): Filmliste, Audiodeskription, Sender einzeln.
+    fn open_prefs(self: &Rc<Self>) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let s = app.settings().clone();
+        let dialog = adw::PreferencesDialog::new();
+        dialog.set_title("Mediathek");
+        let page = adw::PreferencesPage::new();
+
+        let list = adw::PreferencesGroup::builder()
+            .title("Filmliste")
+            .description("Von MediathekView, im Hintergrund geladen, sobald die Mediathek einmal geöffnet wurde")
+            .build();
+        let hours = adw::SpinRow::with_range(1.0, 168.0, 1.0);
+        hours.set_title("Neu laden nach");
+        hours.set_subtitle("Stunden");
+        hours.set_value(f64::from(s.mediathek_refresh_hours.max(1)));
+        let days = adw::SpinRow::with_range(1.0, 90.0, 1.0);
+        days.set_title("Beiträge behalten");
+        days.set_subtitle("Tage; gilt ab der nächsten Aktualisierung");
+        days.set_value(f64::from(s.mediathek_days.max(1)));
+        list.add(&hours);
+        list.add(&days);
+
+        let view = adw::PreferencesGroup::builder().title("Anzeige").build();
+        let hide_ad = adw::SwitchRow::builder()
+            .title("Fassungen mit Audiodeskription ausblenden")
+            .active(s.mediathek_hide_ad)
+            .build();
+        view.add(&hide_ad);
+
+        let senders = adw::PreferencesGroup::builder()
+            .title("Sender")
+            .description("Ausgeschaltete Sender erscheinen weder in der Senderleiste noch in Listen und Suche")
+            .build();
+        let mut names: Vec<String> = self
+            .db
+            .borrow()
+            .as_ref()
+            .map(|db| db.senders().into_iter().map(|(n, _)| n).collect())
+            .unwrap_or_default();
+        // Ausgeblendete, die gerade nicht in der Filmliste stehen, trotzdem anbieten.
+        for h in &s.mediathek_hidden {
+            if !names.contains(h) {
+                names.push(h.clone());
+            }
+        }
+        names.sort_by_key(|n| n.to_lowercase());
+        let rows: Vec<(String, adw::SwitchRow)> = names
+            .into_iter()
+            .map(|n| {
+                let row = adw::SwitchRow::builder()
+                    .title(&n)
+                    .active(!s.mediathek_hidden.contains(&n))
+                    .build();
+                senders.add(&row);
+                (n, row)
+            })
+            .collect();
+
+        page.add(&list);
+        page.add(&view);
+        page.add(&senders);
+        dialog.add(&page);
+
+        let weak = Rc::downgrade(self);
+        dialog.connect_closed(move |_| {
+            let Some(w) = weak.upgrade() else { return };
+            let Some(app) = w.app.upgrade() else { return };
+            {
+                let mut s = app.settings_mut();
+                s.mediathek_refresh_hours = hours.value() as u32;
+                s.mediathek_days = days.value() as u32;
+                s.mediathek_hide_ad = hide_ad.is_active();
+                s.mediathek_hidden = rows
+                    .iter()
+                    .filter(|(_, r)| !r.is_active())
+                    .map(|(n, _)| n.clone())
+                    .collect();
+            }
+            app.save_settings();
+            w.rebuild();
+        });
+        dialog.present(Some(&self.win));
+    }
+
     /// Senderleiste, Stand und Kacheln neu aufbauen (nach Aktualisierung oder Einstellungen).
     fn rebuild(self: &Rc<Self>) {
         self.build_senders();
@@ -533,7 +614,7 @@ impl MtWindow {
             .db
             .borrow()
             .as_ref()
-            .map(|db| db.senders_filtered(filter_of(&app)))
+            .map(|db| db.senders_filtered(&filter_of(&app)))
             .unwrap_or_default();
         // Gewählter Sender nicht mehr vorhanden (z. B. ausgeblendet) → „Alle“.
         if self
@@ -566,13 +647,8 @@ impl MtWindow {
                 .build();
             match sender_logo(&app, &name) {
                 Some(path) => {
-                    let pic = gtk::Picture::builder()
-                        .content_fit(gtk::ContentFit::Contain)
-                        .can_shrink(true)
-                        .height_request(28)
-                        .css_classes(["tvjoe-osd-logo"])
-                        .build();
-                    pic.set_filename(Some(&path));
+                    let pic = crate::logos::bright_picture(&path);
+                    pic.set_height_request(28);
                     button.set_child(Some(
                         &adw::Clamp::builder()
                             .orientation(gtk::Orientation::Vertical)
@@ -662,14 +738,14 @@ impl MtWindow {
                 Mode::Episodes => db.latest_filtered(
                     Some(Kind::Episode),
                     sender.as_deref(),
-                    filter,
+                    &filter,
                     epg::now(),
                     LIMIT,
                 ),
                 Mode::Films => db.latest_filtered(
                     Some(Kind::Film),
                     sender.as_deref(),
-                    filter,
+                    &filter,
                     epg::now(),
                     LIMIT,
                 ),
@@ -680,7 +756,7 @@ impl MtWindow {
                         self.show_empty("Suche", "Mindestens zwei Zeichen eingeben.");
                         return;
                     }
-                    db.search_filtered(text.trim(), sender.as_deref(), filter, LIMIT)
+                    db.search_filtered(text.trim(), sender.as_deref(), &filter, LIMIT)
                 }
             }
         };
@@ -728,16 +804,11 @@ impl MtWindow {
 fn tile(film: &Film, logo: Option<&Path>) -> (gtk::Box, gtk::Picture) {
     let fallback: gtk::Widget = match logo {
         Some(path) => {
-            let pic = gtk::Picture::builder()
-                .content_fit(gtk::ContentFit::Contain)
-                .can_shrink(true)
-                .css_classes(["tvjoe-osd-logo"])
-                .margin_start(70)
-                .margin_end(70)
-                .margin_top(40)
-                .margin_bottom(40)
-                .build();
-            pic.set_filename(Some(path));
+            let pic = crate::logos::bright_picture(path);
+            pic.set_margin_start(70);
+            pic.set_margin_end(70);
+            pic.set_margin_top(40);
+            pic.set_margin_bottom(40);
             pic.upcast()
         }
         None => gtk::Label::builder()
@@ -773,7 +844,7 @@ fn tile(film: &Film, logo: Option<&Path>) -> (gtk::Box, gtk::Picture) {
         .build();
 
     let title = gtk::Label::builder()
-        .label(&film.title)
+        .label(film.display_title())
         .css_classes(["tvjoe-name"])
         .xalign(0.0)
         .wrap(true)
@@ -809,6 +880,6 @@ fn tile(film: &Film, logo: Option<&Path>) -> (gtk::Box, gtk::Picture) {
     tile.append(&topic);
     tile.append(&meta);
     let desc: String = film.description.chars().take(400).collect();
-    tile.set_tooltip_text(Some(&format!("{}\n\n{desc}", film.title)));
+    tile.set_tooltip_text(Some(&format!("{}\n\n{desc}", film.display_title())));
     (tile, thumb)
 }

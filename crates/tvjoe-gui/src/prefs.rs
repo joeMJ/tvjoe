@@ -121,31 +121,6 @@ pub fn open(app: &Rc<App>) {
     hours.set_value(f64::from(s.epg_refresh_hours));
     guide.add(&hours);
 
-    let media = adw::PreferencesGroup::builder()
-        .title("Mediathek")
-        .description("Filmliste von MediathekView, im Hintergrund geladen, sobald die Mediathek einmal geöffnet wurde")
-        .build();
-    let media_hours = adw::SpinRow::with_range(1.0, 168.0, 1.0);
-    media_hours.set_title("Filmliste neu laden nach");
-    media_hours.set_subtitle("Stunden");
-    media_hours.set_value(f64::from(s.mediathek_refresh_hours.max(1)));
-    let media_days = adw::SpinRow::with_range(1.0, 90.0, 1.0);
-    media_days.set_title("Beiträge behalten");
-    media_days.set_subtitle("Tage; gilt ab der nächsten Aktualisierung");
-    media_days.set_value(f64::from(s.mediathek_days.max(1)));
-    let media_ad = adw::SwitchRow::builder()
-        .title("Fassungen mit Audiodeskription ausblenden")
-        .active(s.mediathek_hide_ad)
-        .build();
-    let media_foreign = adw::SwitchRow::builder()
-        .title("ORF, SRF und ARTE.FR anzeigen")
-        .active(s.mediathek_foreign)
-        .build();
-    media.add(&media_hours);
-    media.add(&media_days);
-    media.add(&media_ad);
-    media.add(&media_foreign);
-
     let updates = adw::PreferencesGroup::builder()
         .title("Updates")
         .description(format!(
@@ -170,7 +145,6 @@ pub fn open(app: &Rc<App>) {
     page.add(&osd);
     page.add(&quality);
     page.add(&guide);
-    page.add(&media);
     page.add(&updates);
     dialog.add(&page);
 
@@ -201,10 +175,6 @@ pub fn open(app: &Rc<App>) {
                 Fallback::Down
             };
             s.epg_refresh_hours = hours.value() as u32;
-            s.mediathek_refresh_hours = media_hours.value() as u32;
-            s.mediathek_days = media_days.value() as u32;
-            s.mediathek_hide_ad = media_ad.is_active();
-            s.mediathek_foreign = media_foreign.is_active();
             s.quality = levels.get(level.selected() as usize).copied().flatten();
             s.quality_cap = cap.is_active();
             s.osd_number = osd_number.is_active();
@@ -219,7 +189,6 @@ pub fn open(app: &Rc<App>) {
         app.save_settings();
         app.reapply_quality();
         app.update_inhibit();
-        crate::mediathek::settings_changed();
     });
     dialog.present(Some(&app.window));
 }

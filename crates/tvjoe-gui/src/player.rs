@@ -77,6 +77,8 @@ impl Player {
             init.set_option("input-default-bindings", false)?;
             init.set_option("input-vo-keyboard", false)?;
             init.set_option("osc", false)?;
+            // Tonspur bevorzugt Deutsch, wenn ein Stream mehrere hat.
+            init.set_option("alang", "de,deu,ger")?;
             init.set_option("mute", mute)?;
             init.set_option("volume", i64::from(volume.min(130)))?;
             // Stellschraube für Messungen: TVJOE_MPV="option=wert;option=wert".
@@ -177,9 +179,82 @@ impl Player {
         if let Err(e) = self.mpv.set_property("hls-bitrate", limit.as_str()) {
             eprintln!("tvjoe: hls-bitrate={limit}: {e:?}");
         }
+        // Eine Pause aus einem Mediathek-Video gilt nicht für den nächsten Stream.
+        let _ = self.mpv.set_property("pause", false);
         if let Err(e) = self.mpv.command("loadfile", &[url]) {
             eprintln!("tvjoe: Laden fehlgeschlagen: {e:?}");
         }
+    }
+
+    /// Springt um `secs` Sekunden (negativ = zurück).
+    pub fn seek_relative(&self, secs: f64) {
+        let _ = self.mpv.command("seek", &[&format!("{secs}"), "relative"]);
+    }
+
+    /// Springt an einen Anteil der Dauer (0.0–1.0).
+    pub fn seek_fraction(&self, fraction: f64) {
+        let pct = (fraction.clamp(0.0, 1.0) * 100.0).to_string();
+        let _ = self.mpv.command("seek", &[&pct, "absolute-percent"]);
+    }
+
+    /// Pause umschalten; gibt zurück, ob jetzt pausiert ist.
+    pub fn toggle_pause(&self) -> Option<bool> {
+        self.mpv.command("cycle", &["pause"]).ok()?;
+        self.mpv.get_property::<bool>("pause").ok()
+    }
+
+    /// Nächste Tonspur wählen; gibt (Nummer, Anzahl, Bezeichnung) zurück.
+    pub fn cycle_audio(&self) -> Option<(usize, usize, String)> {
+        let count = self.mpv.get_property::<i64>("track-list/count").ok()?;
+        let tracks: Vec<(i64, String)> = (0..count)
+            .filter(|i| {
+                self.mpv
+                    .get_property::<String>(&format!("track-list/{i}/type"))
+                    .is_ok_and(|t| t == "audio")
+            })
+            .map(|i| {
+                let get = |k: &str| {
+                    self.mpv
+                        .get_property::<String>(&format!("track-list/{i}/{k}"))
+                        .ok()
+                        .filter(|v| !v.is_empty())
+                };
+                let id = self
+                    .mpv
+                    .get_property::<i64>(&format!("track-list/{i}/id"))
+                    .unwrap_or(0);
+                let label = match (get("title"), get("lang")) {
+                    (Some(t), Some(l)) => format!("{t} ({l})"),
+                    (Some(t), None) => t,
+                    (None, Some(l)) => language_name(&l).to_string(),
+                    (None, None) => format!("Spur {id}"),
+                };
+                (id, label)
+            })
+            .collect();
+        if tracks.is_empty() {
+            return None;
+        }
+        // Selbst weiterzählen: `cycle aid` würde auch „kein Ton“ durchlaufen.
+        let current = self.mpv.get_property::<i64>("aid").ok();
+        let mut pos = tracks
+            .iter()
+            .position(|(id, _)| Some(*id) == current)
+            .unwrap_or(0);
+        if tracks.len() > 1 {
+            pos = (pos + 1) % tracks.len();
+            self.mpv.set_property("aid", tracks[pos].0).ok()?;
+        }
+        Some((pos + 1, tracks.len(), tracks[pos].1.clone()))
+    }
+
+    /// Position, Dauer (Sekunden) und Pause des laufenden Videos.
+    pub fn position(&self) -> (Option<f64>, Option<f64>, bool) {
+        (
+            self.mpv.get_property::<f64>("time-pos").ok(),
+            self.mpv.get_property::<f64>("duration").ok(),
+            self.mpv.get_property::<bool>("pause").unwrap_or(false),
+        )
     }
 
     /// Ereignisse aus mpv (eigener Thread, `wait_event` darf nur dort laufen).
@@ -238,6 +313,18 @@ impl Player {
             s("container-fps"),
             s("frame-drop-count"),
         )
+    }
+}
+
+/// Deutscher Name einer Sprachkennung (ISO 639), sonst die Kennung.
+fn language_name(code: &str) -> &str {
+    match code {
+        "de" | "deu" | "ger" => "Deutsch",
+        "en" | "eng" => "Englisch",
+        "fr" | "fra" | "fre" => "Französisch",
+        "mis" | "qaa" | "und" => "Original",
+        "qad" => "Audiodeskription",
+        _ => code,
     }
 }
 

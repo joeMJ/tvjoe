@@ -17,7 +17,7 @@ use tvjoe_core::mediathek::Film;
 use tvjoe_core::{Channel, Library, Quality, Settings, SourceKind, Strategy, Stream, net, paths};
 
 use crate::logos::Logos;
-use crate::osd::{ChannelInfo, MessageBar, Origin, Osd};
+use crate::osd::{ChannelInfo, MessageBar, Origin, Osd, VideoAction, VideoState};
 use crate::player::{Player, PlayerEvent};
 use crate::trace;
 
@@ -80,6 +80,8 @@ pub struct App {
     epg_timer: Cell<bool>,
     /// Laufender Mediathek-Beitrag (statt eines Senders).
     vod: RefCell<Option<Film>>,
+    /// Zeitgeber für die Fortschrittszeile läuft.
+    vod_timer: Cell<bool>,
 }
 
 impl App {
@@ -201,6 +203,13 @@ impl App {
             guide: RefCell::new(None),
             epg_timer: Cell::new(false),
             vod: RefCell::new(None),
+            vod_timer: Cell::new(false),
+        });
+        let weak = Rc::downgrade(&app);
+        app.osd.set_action_handler(move |a| {
+            if let Some(app) = weak.upgrade() {
+                app.video_action(a);
+            }
         });
 
         app.build_rows();
@@ -397,6 +406,7 @@ impl App {
             desc,
             next,
             extra,
+            video: None,
             full: true,
         }
     }
@@ -761,23 +771,95 @@ impl App {
         };
         let url = film.url_for(self.wanted_for_switch()).to_string();
         player.load(&url, None);
-        trace(&format!("lade Mediathek {} ({url})", film.title));
+        trace(&format!("lade Mediathek {} ({url})", film.display_title()));
         self.vod.replace(Some(film.clone()));
         self.window
-            .set_title(Some(&format!("{} – tvjoe", film.title)));
+            .set_title(Some(&format!("{} – tvjoe", film.display_title())));
         self.list.unselect_all();
         self.show_film_info(film, self.overlay_secs());
         self.update_inhibit();
+        if !self.vod_timer.replace(true) {
+            let weak = Rc::downgrade(self);
+            glib::timeout_add_local(Duration::from_millis(500), move || {
+                let Some(app) = weak.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                if app.vod.borrow().is_none() {
+                    app.vod_timer.set(false);
+                    return glib::ControlFlow::Break;
+                }
+                if app.osd.is_shown() {
+                    app.osd.update_video(&app.video_state());
+                }
+                glib::ControlFlow::Continue
+            });
+        }
     }
 
-    /// Vorläufige Anzeige eines Mediathek-Beitrags (die Bauchbinde folgt mit Schritt 3).
+    fn video_state(&self) -> VideoState {
+        let (pos, dur, paused) = self
+            .player
+            .as_ref()
+            .map_or((None, None, false), |p| p.position());
+        let duration = dur
+            .or_else(|| self.vod.borrow().as_ref().map(|f| f.duration as f64))
+            .unwrap_or(0.0);
+        VideoState {
+            position: pos.unwrap_or(0.0),
+            duration,
+            paused,
+        }
+    }
+
+    /// Bauchbinde eines Mediathek-Beitrags im Format der Senderanzeige: Logo | Sender, darunter
+    /// „Mediathek · Datum“ | Titel, Beschreibung, Fortschrittszeile.
+    fn film_info(&self, film: &Film) -> ChannelInfo {
+        let st = self.settings.borrow();
+        let logo = crate::mediathek::sender_logo(self, &film.sender).filter(|_| st.osd_logo);
+        let desc = st
+            .osd_description
+            .then(|| {
+                let d = if film.description.is_empty() {
+                    &film.topic
+                } else {
+                    &film.description
+                };
+                d.split_whitespace().collect::<Vec<_>>().join(" ")
+            })
+            .filter(|d| !d.is_empty());
+        ChannelInfo {
+            logo,
+            name: film.sender.clone(),
+            meta: format!("Mediathek · {}", crate::mediathek::day_time(film.timestamp)),
+            now: Some(film.display_title()),
+            desc,
+            video: Some(self.video_state()),
+            full: true,
+            ..ChannelInfo::default()
+        }
+    }
+
+    /// Bauchbinde für `secs` Sekunden; bei Pause bleibt sie stehen.
     fn show_film_info(self: &Rc<Self>, film: &Film, secs: u32) {
-        self.osd.show(
-            "",
-            &film.title,
-            &format!("{} · {}", film.sender, film.topic),
-            secs,
-        );
+        let info = self.film_info(film);
+        let paused = info.video.is_some_and(|v| v.paused);
+        self.osd.show_channel(&info, if paused { 0 } else { secs });
+    }
+
+    /// Knöpfe und Tasten der Video-Bauchbinde.
+    fn video_action(self: &Rc<Self>, action: VideoAction) {
+        let (Some(player), Some(film)) = (self.player.clone(), self.vod.borrow().clone()) else {
+            return;
+        };
+        match action {
+            VideoAction::Seek(secs) => player.seek_relative(secs),
+            VideoAction::SeekTo(f) => player.seek_fraction(f),
+            VideoAction::TogglePause => {
+                player.toggle_pause();
+            }
+            VideoAction::Audio => self.cycle_audio(),
+        }
+        self.show_film_info(&film, self.overlay_secs());
     }
 
     /// Bildschirmsperre verhindern: im Vollbild immer, im Fenster nur mit der Einstellung
@@ -811,9 +893,12 @@ impl App {
     /// Stream gestört: nächsten noch nicht versuchten Stream des Senders nehmen.
     fn on_stream_failed(self: &Rc<Self>, ev: PlayerEvent) {
         if self.vod.borrow().is_some() {
-            trace(&format!("Mediathek-Video gestört: {ev:?}"));
-            self.msg
-                .show("Video nicht abspielbar oder beendet", self.overlay_secs());
+            trace(&format!("Mediathek-Video: {ev:?}"));
+            let text = match ev {
+                PlayerEvent::Ended => "Beitrag zu Ende",
+                _ => "Video nicht abspielbar",
+            };
+            self.msg.show(text, self.overlay_secs());
             return;
         }
         let (Some(player), Some(id)) = (self.player.clone(), self.current.get()) else {
@@ -1034,6 +1119,17 @@ impl App {
         self.msg.show(&format!("Lautstärke {v} %"), 2);
     }
 
+    /// Nächste Tonspur (Taste A, Knopf in der Video-Bauchbinde).
+    fn cycle_audio(&self) {
+        let Some(player) = &self.player else { return };
+        let text = match player.cycle_audio() {
+            Some((n, count, label)) if count > 1 => format!("Ton: {label} ({n}/{count})"),
+            Some((_, _, label)) => format!("Nur eine Tonspur: {label}"),
+            None => "Keine Tonspur".to_string(),
+        };
+        self.msg.show(&text, self.overlay_secs());
+    }
+
     fn toggle_mute(&self) {
         if let Some(muted) = self.player.as_ref().and_then(|p| p.toggle_mute()) {
             self.msg.show(if muted { "Ton aus" } else { "Ton an" }, 2);
@@ -1066,6 +1162,22 @@ impl App {
                 return glib::Propagation::Stop;
             }
         }
+        // Mediathek-Video: Leertaste Pause, ←/→ 10 s, Bild ↑/↓ 1 min (Ziffern führen zurück
+        // zum Fernsehen).
+        if self.vod.borrow().is_some() && !ctrl {
+            let action = match key.to_lower() {
+                Key::space => Some(VideoAction::TogglePause),
+                Key::Left | Key::KP_Left => Some(VideoAction::Seek(-10.0)),
+                Key::Right | Key::KP_Right => Some(VideoAction::Seek(10.0)),
+                Key::Page_Up | Key::KP_Page_Up => Some(VideoAction::Seek(-60.0)),
+                Key::Page_Down | Key::KP_Page_Down => Some(VideoAction::Seek(60.0)),
+                _ => None,
+            };
+            if let Some(a) = action {
+                self.video_action(a);
+                return glib::Propagation::Stop;
+            }
+        }
         match key.to_lower() {
             Key::Return | Key::KP_Enter if !self.digits.borrow().is_empty() => self.commit_digits(),
             Key::Left | Key::KP_Left | Key::Page_Up => self.step(-1),
@@ -1079,6 +1191,7 @@ impl App {
             Key::f => self.window.set_fullscreened(!self.window.is_fullscreen()),
             Key::Escape => self.window.set_fullscreened(false),
             Key::m => self.toggle_mute(),
+            Key::a => self.cycle_audio(),
             Key::l => self.toggle_sidebar(),
             Key::i => self.show_info(),
             Key::g => crate::grid::open(self),

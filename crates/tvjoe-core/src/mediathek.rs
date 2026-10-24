@@ -59,7 +59,77 @@ pub struct Film {
     pub kind: Kind,
 }
 
+/// Fassung eines Beitrags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Version {
+    Normal,
+    Audiodeskription,
+    Original,
+}
+
+/// Kennzeichen im Dateinamen der ARD-Anstalten; sie stimmen, wo der Titel in der Filmliste
+/// falsch beschriftet ist (z. B. „(Audiodeskription)“ mit Datei `…_internationalerton_…`).
+const URL_MARKERS: &[(&str, Version)] = &[
+    ("_audiodeskription_", Version::Audiodeskription),
+    ("_internationalerton_", Version::Original),
+    ("_originalversion_", Version::Original),
+    ("_sendeton_", Version::Normal),
+];
+
+/// Zusätze im Titel, die eine Fassung bezeichnen (am Ende des Titels).
+const TITLE_SUFFIXES: &[(&str, Version)] = &[
+    ("(Audiodeskription)", Version::Audiodeskription),
+    ("- Audiodeskription", Version::Audiodeskription),
+    ("| Audiodeskription", Version::Audiodeskription),
+    ("(Originalversion)", Version::Original),
+    ("(OV)", Version::Original),
+];
+
+fn version_in_title(title: &str) -> Version {
+    if title.contains("Audiodeskription") {
+        Version::Audiodeskription
+    } else if title.contains("Originalversion")
+        || title.contains("(OV)")
+        || title.contains("Originalfassung")
+    {
+        Version::Original
+    } else {
+        Version::Normal
+    }
+}
+
+/// Fassung nach Dateiname (falls gekennzeichnet), sonst nach Titel.
+pub fn version_of(title: &str, url: &str) -> Version {
+    let lower = url.to_ascii_lowercase();
+    URL_MARKERS
+        .iter()
+        .find(|(m, _)| lower.contains(m))
+        .map_or_else(|| version_in_title(title), |(_, v)| *v)
+}
+
 impl Film {
+    pub fn version(&self) -> Version {
+        version_of(&self.title, &self.url)
+    }
+
+    /// Titel mit der tatsächlichen Fassung: ein falscher Zusatz wird ersetzt.
+    pub fn display_title(&self) -> String {
+        let actual = self.version();
+        if version_in_title(&self.title) == actual {
+            return self.title.clone();
+        }
+        let mut base = self.title.trim_end().to_string();
+        while let Some((suffix, _)) = TITLE_SUFFIXES.iter().find(|(s, _)| base.ends_with(s)) {
+            base.truncate(base.len() - suffix.len());
+            base = base.trim_end().to_string();
+        }
+        match actual {
+            Version::Normal => base,
+            Version::Audiodeskription => format!("{base} (Audiodeskription)"),
+            Version::Original => format!("{base} (Originalversion)"),
+        }
+    }
+
     /// Video-URL zur gewünschten Stufe: SD = kleine, 720p = normale, sonst HD; fehlende
     /// Fassungen werden durch die normale ersetzt.
     pub fn url_for(&self, quality: Option<crate::Quality>) -> &str {
@@ -242,32 +312,45 @@ pub fn parse_filmliste<R: Read>(reader: R, mut on_film: impl FnMut(Film)) -> Res
         .map_err(|e| format!("Filmliste unlesbar: {e}"))
 }
 
-/// Ausländische bzw. fremdsprachige Sender, standardmäßig ausgeblendet (Einstellung).
-pub const FOREIGN: &[&str] = &["ORF", "SRF", "ARTE.FR"];
+/// Ausländische bzw. fremdsprachige Sender, standardmäßig ausgeblendet (Einstellung je Sender).
+pub const HIDDEN_DEFAULT: &[&str] = &[
+    "ORF", "SRF", "ARTE.FR", "ARTE.EN", "ARTE.ES", "ARTE.IT", "ARTE.PL",
+];
 
 /// Anzeigefilter aus den Einstellungen.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Filter {
     /// Fassungen mit „Audiodeskription“ im Titel ausblenden.
     pub hide_ad: bool,
-    /// ORF, SRF und ARTE.FR anzeigen.
-    pub show_foreign: bool,
+    /// Ausgeblendete Sender (Kurzname aus der Filmliste).
+    pub hidden: Vec<String>,
 }
 
 impl Filter {
     /// Ohne Einschränkung (alles anzeigen).
     pub const ALL: Filter = Filter {
         hide_ad: false,
-        show_foreign: true,
+        hidden: Vec::new(),
     };
 
-    fn sql(self, alias: &str) -> String {
+    fn sql(&self, alias: &str) -> String {
         let mut s = String::new();
         if self.hide_ad {
-            s.push_str(&format!(" AND {alias}title NOT LIKE '%Audiodeskription%'"));
+            // Wie `version_of`: Kennzeichen im Dateinamen gehen dem Titel vor.
+            let u = format!("lower({alias}url)");
+            s.push_str(&format!(
+                " AND NOT ({u} LIKE '%\\_audiodeskription\\_%' ESCAPE '\\' OR ({alias}title LIKE '%Audiodeskription%' \
+                 AND {u} NOT LIKE '%\\_internationalerton\\_%' ESCAPE '\\' \
+                 AND {u} NOT LIKE '%\\_originalversion\\_%' ESCAPE '\\' \
+                 AND {u} NOT LIKE '%\\_sendeton\\_%' ESCAPE '\\'))"
+            ));
         }
-        if !self.show_foreign {
-            let list: Vec<String> = FOREIGN.iter().map(|f| format!("'{f}'")).collect();
+        if !self.hidden.is_empty() {
+            let list: Vec<String> = self
+                .hidden
+                .iter()
+                .map(|f| format!("'{}'", f.replace('\'', "''")))
+                .collect();
             s.push_str(&format!(" AND {alias}sender NOT IN ({})", list.join(",")));
         }
         s
@@ -456,7 +539,7 @@ impl Mediathek {
         now: i64,
         limit: usize,
     ) -> Vec<Film> {
-        self.latest_filtered(kind, sender, Filter::ALL, now, limit)
+        self.latest_filtered(kind, sender, &Filter::ALL, now, limit)
     }
 
     /// Wie [`Mediathek::latest`], mit Anzeigefilter.
@@ -464,7 +547,7 @@ impl Mediathek {
         &self,
         kind: Option<Kind>,
         sender: Option<&str>,
-        filter: Filter,
+        filter: &Filter,
         now: i64,
         limit: usize,
     ) -> Vec<Film> {
@@ -487,7 +570,7 @@ impl Mediathek {
 
     /// Volltextsuche in Titel, Thema und Beschreibung (alle Wörter, Wortanfänge genügen).
     pub fn search(&self, text: &str, sender: Option<&str>, limit: usize) -> Vec<Film> {
-        self.search_filtered(text, sender, Filter::ALL, limit)
+        self.search_filtered(text, sender, &Filter::ALL, limit)
     }
 
     /// Wie [`Mediathek::search`], mit Anzeigefilter.
@@ -495,7 +578,7 @@ impl Mediathek {
         &self,
         text: &str,
         sender: Option<&str>,
-        filter: Filter,
+        filter: &Filter,
         limit: usize,
     ) -> Vec<Film> {
         let query: Vec<String> = text
@@ -526,11 +609,11 @@ impl Mediathek {
 
     /// Sender mit Anzahl der Beiträge (absteigend).
     pub fn senders(&self) -> Vec<(String, i64)> {
-        self.senders_filtered(Filter::ALL)
+        self.senders_filtered(&Filter::ALL)
     }
 
     /// Wie [`Mediathek::senders`], mit Anzeigefilter.
-    pub fn senders_filtered(&self, filter: Filter) -> Vec<(String, i64)> {
+    pub fn senders_filtered(&self, filter: &Filter) -> Vec<(String, i64)> {
         let sql = format!(
             "SELECT sender, COUNT(*) AS n FROM films WHERE 1=1{} GROUP BY sender ORDER BY n DESC",
             filter.sql("")
@@ -680,6 +763,54 @@ mod tests {
     }
 
     #[test]
+    fn fassung_nach_dateiname() {
+        let film = |title: &str, url: &str| Film {
+            id: 0,
+            sender: String::new(),
+            topic: String::new(),
+            title: title.into(),
+            timestamp: 0,
+            duration: 0,
+            description: String::new(),
+            url: url.into(),
+            url_low: None,
+            url_hd: None,
+            website: None,
+            subtitle: None,
+            kind: Kind::Episode,
+        };
+        // Filmliste vertauscht: „(Audiodeskription)“ ist der internationale Ton.
+        let f = film(
+            "Kommissar Van der Valk (S03/E09) (Audiodeskription)",
+            "https://x.invalid/JOB_547268__internationalerton_1280x720.mp4",
+        );
+        assert_eq!(f.version(), Version::Original);
+        assert_eq!(
+            f.display_title(),
+            "Kommissar Van der Valk (S03/E09) (Originalversion)"
+        );
+        let f = film(
+            "Kommissar Van der Valk (S03/E09) (Originalversion)",
+            "https://x.invalid/JOB_547269__audiodeskription_1280x720.mp4",
+        );
+        assert_eq!(
+            f.display_title(),
+            "Kommissar Van der Valk (S03/E09) (Audiodeskription)"
+        );
+        let f = film(
+            "Folge 1 (Audiodeskription)",
+            "https://x.invalid/0242432_sendeton_1280.mp4",
+        );
+        assert_eq!(f.display_title(), "Folge 1");
+        let f = film(
+            "Film (Audiodeskription)",
+            "https://zdf.invalid/a3a4_3360k.mp4",
+        );
+        assert_eq!(f.version(), Version::Audiodeskription);
+        assert_eq!(f.display_title(), "Film (Audiodeskription)");
+    }
+
+    #[test]
     fn url_nach_qualitaet() {
         let f = Film {
             id: 0,
@@ -705,34 +836,44 @@ mod tests {
     fn filter_audiodeskription_und_ausland() {
         let list = r#"{"X":["ARD","T","Film","1","1","00:10:00","1","","https://x.invalid/1.mp4","","","","","","","","1792800000","","",""],
 "X":["ARD","T","Film (Audiodeskription)","1","1","00:10:00","1","","https://x.invalid/2.mp4","","","","","","","","1792800001","","",""],
-"X":["ORF","T","Sendung","1","1","00:10:00","1","","https://x.invalid/3.mp4","","","","","","","","1792800002","","",""]}"#;
+"X":["ORF","T","Sendung","1","1","00:10:00","1","","https://x.invalid/3.mp4","","","","","","","","1792800002","","",""],
+"X":["ARD","T","Falsch (Audiodeskription)","1","1","00:10:00","1","","https://x.invalid/J_internationalerton_1.mp4","","","","","","","","1792700000","","",""],
+"X":["ARD","T","Falsch (Originalversion)","1","1","00:10:00","1","","https://x.invalid/J_audiodeskription_1.mp4","","","","","","","","1792700001","","",""]}"#;
         let path = tmp("filter");
         let mut mt = Mediathek::open(&path).unwrap();
         let now = 1_792_900_000;
         mt.import(list.as_bytes(), true, 14, now).unwrap();
         let standard = Filter {
             hide_ad: false,
-            show_foreign: false,
+            hidden: vec!["ORF".into(), "O'Bscure".into()],
         };
-        let titles = |f: Filter| -> Vec<String> {
+        let titles = |f: &Filter| -> Vec<String> {
             mt.latest_filtered(None, None, f, now, 10)
                 .into_iter()
                 .map(|x| x.title)
                 .collect()
         };
-        assert_eq!(titles(standard), ["Film (Audiodeskription)", "Film"]);
         assert_eq!(
-            titles(Filter {
-                hide_ad: true,
-                show_foreign: false
-            }),
-            ["Film"]
+            titles(&standard),
+            [
+                "Film (Audiodeskription)",
+                "Film",
+                "Falsch (Originalversion)",
+                "Falsch (Audiodeskription)"
+            ]
         );
-        assert_eq!(titles(Filter::ALL).len(), 3);
-        assert_eq!(mt.senders_filtered(standard), [("ARD".to_string(), 2)]);
-        assert_eq!(mt.search_filtered("sendung", None, standard, 10).len(), 0);
         assert_eq!(
-            mt.search_filtered("sendung", None, Filter::ALL, 10).len(),
+            titles(&Filter {
+                hide_ad: true,
+                ..standard.clone()
+            }),
+            ["Film", "Falsch (Audiodeskription)"]
+        );
+        assert_eq!(titles(&Filter::ALL).len(), 5);
+        assert_eq!(mt.senders_filtered(&standard), [("ARD".to_string(), 4)]);
+        assert_eq!(mt.search_filtered("sendung", None, &standard, 10).len(), 0);
+        assert_eq!(
+            mt.search_filtered("sendung", None, &Filter::ALL, 10).len(),
             1
         );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -788,19 +929,22 @@ mod tests {
             "Sender: {:?}",
             mt.senders().iter().take(25).collect::<Vec<_>>()
         );
-        let standard = Filter::default();
+        let standard = Filter {
+            hide_ad: false,
+            hidden: HIDDEN_DEFAULT.iter().map(|s| s.to_string()).collect(),
+        };
         println!(
             "Sender mit Standardfilter: {:?}",
-            mt.senders_filtered(standard)
+            mt.senders_filtered(&standard)
                 .iter()
                 .map(|(s, _)| s.as_str())
                 .collect::<Vec<_>>()
         );
         // Vorschaubilder: je Sender die Seite des neuesten Beitrags.
         let agent = net::agent(Duration::from_secs(10));
-        for (sender, _) in mt.senders_filtered(standard) {
+        for (sender, _) in mt.senders_filtered(&standard) {
             let Some(site) = mt
-                .latest_filtered(None, Some(&sender), standard, now, 1)
+                .latest_filtered(None, Some(&sender), &standard, now, 1)
                 .into_iter()
                 .find_map(|f| f.website)
             else {
