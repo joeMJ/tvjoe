@@ -73,6 +73,8 @@ pub struct App {
     digits: RefCell<String>,
     digit_timer: RefCell<Option<glib::SourceId>>,
     sidebar_before_fullscreen: Cell<bool>,
+    /// Kennung der Meldung „Leerlauf verhindern“ an GNOME (keine Bildschirmsperre).
+    inhibit_cookie: Cell<Option<u32>>,
     guide: RefCell<Option<Rc<Guide>>>,
     epg_timer: Cell<bool>,
 }
@@ -187,6 +189,7 @@ impl App {
             digits: RefCell::new(String::new()),
             digit_timer: RefCell::new(None),
             sidebar_before_fullscreen: Cell::new(true),
+            inhibit_cookie: Cell::new(None),
             guide: RefCell::new(None),
             epg_timer: Cell::new(false),
         });
@@ -556,6 +559,7 @@ impl App {
                     .set_show_sidebar(app.sidebar_before_fullscreen.get());
                 app.content_bar.set_reveal_top_bars(true);
             }
+            app.update_inhibit();
         });
 
         let keys = gtk::EventControllerKey::new();
@@ -727,6 +731,34 @@ impl App {
             self.list.select_row(Some(&r.row));
         }
         self.osd.show_channel(&info, self.overlay_secs());
+        self.update_inhibit();
+    }
+
+    /// Bildschirmsperre verhindern: im Vollbild immer, im Fenster nur mit der Einstellung
+    /// „Bildschirmsperre auch im Fenster verhindern“, solange ein Sender läuft.
+    pub fn update_inhibit(&self) {
+        let want = self.window.is_fullscreen()
+            || (self.settings.borrow().inhibit_windowed && self.current.get().is_some());
+        let Some(application) = self.window.application() else {
+            return;
+        };
+        match (want, self.inhibit_cookie.get()) {
+            (true, None) => {
+                let cookie = application.inhibit(
+                    Some(&self.window),
+                    gtk::ApplicationInhibitFlags::IDLE,
+                    Some("Fernsehen läuft"),
+                );
+                self.inhibit_cookie.set((cookie != 0).then_some(cookie));
+                trace(&format!("Bildschirmsperre verhindert (Kennung {cookie})"));
+            }
+            (false, Some(cookie)) => {
+                application.uninhibit(cookie);
+                self.inhibit_cookie.set(None);
+                trace("Bildschirmsperre wieder erlaubt");
+            }
+            _ => {}
+        }
     }
 
     /// Stream gestört: nächsten noch nicht versuchten Stream des Senders nehmen.

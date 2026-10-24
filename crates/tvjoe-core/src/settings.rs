@@ -60,6 +60,8 @@ pub struct Settings {
     pub osd_quality: bool,
     pub osd_epg: bool,
     pub osd_description: bool,
+    /// Bildschirmsperre auch im Fenster verhindern (im Vollbild immer).
+    pub inhibit_windowed: bool,
 }
 
 impl Default for Settings {
@@ -85,6 +87,7 @@ impl Default for Settings {
             osd_quality: true,
             osd_epg: true,
             osd_description: true,
+            inhibit_windowed: false,
         }
     }
 }

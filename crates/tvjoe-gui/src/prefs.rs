@@ -27,9 +27,15 @@ pub fn open(app: &Rc<App>) {
         .title("Letzten Sender beim Start")
         .active(s.resume_last)
         .build();
+    let inhibit = adw::SwitchRow::builder()
+        .title("Bildschirmsperre auch im Fenster verhindern")
+        .subtitle("Im Vollbild wird sie immer verhindert, solange tvjoe läuft")
+        .active(s.inhibit_windowed)
+        .build();
     control.add(&pause);
     control.add(&overlay);
     control.add(&resume);
+    control.add(&inhibit);
 
     let osd = adw::PreferencesGroup::builder()
         .title("Senderanzeige")
@@ -157,6 +163,7 @@ pub fn open(app: &Rc<App>) {
             s.numpad_pause_ms = pause.value() as u32;
             s.overlay_secs = overlay.value() as u32;
             s.resume_last = resume.is_active();
+            s.inhibit_windowed = inhibit.is_active();
             s.strategy = if strategy.selected() == 1 {
                 Strategy::Highest
             } else {
@@ -181,6 +188,7 @@ pub fn open(app: &Rc<App>) {
         }
         app.save_settings();
         app.reapply_quality();
+        app.update_inhibit();
     });
     dialog.present(Some(&app.window));
 }
