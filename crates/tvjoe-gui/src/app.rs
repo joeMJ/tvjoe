@@ -801,17 +801,32 @@ impl App {
             b.extend(char::from_digit(d, 10));
             b.clone()
         };
-        let preview = typed
-            .parse::<u32>()
-            .ok()
-            .and_then(|n| {
-                self.lib
-                    .borrow()
-                    .by_number(n)
-                    .map(|c| c.display_name().to_string())
-            })
-            .unwrap_or_else(|| "…".into());
-        self.osd.show(&typed, &preview, "", 0);
+        // Vorschau des Zielsenders schon in voller Bauchbinde (alle Daten liegen vor);
+        // nach der Pause wird umgeschaltet, die Bauchbinde bleibt gleich.
+        let preview = {
+            let lib = self.lib.borrow();
+            let (wanted, fallback, cap) = {
+                let st = self.settings.borrow();
+                let wanted = match st.strategy {
+                    Strategy::Keep => st.quality,
+                    Strategy::Highest => None,
+                };
+                (wanted, st.fallback, st.quality_cap)
+            };
+            typed
+                .parse::<u32>()
+                .ok()
+                .and_then(|n| lib.by_number(n))
+                .filter(|c| usable(c))
+                .map(|ch| {
+                    let stream = ch.pick_stream_capped(wanted, fallback, cap);
+                    self.channel_info(ch, stream, None)
+                })
+        };
+        match preview {
+            Some(info) => self.osd.show_channel(&info, 0),
+            None => self.osd.show(&typed, "…", "", 0),
+        }
         if let Some(id) = self.digit_timer.take() {
             id.remove();
         }
