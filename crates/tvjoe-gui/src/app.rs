@@ -338,7 +338,11 @@ impl App {
                     next = nxt.map(|p| format!("Danach {}  {}", hm(p.start), p.title));
                 }
                 if st.osd_description {
-                    desc = cur.and_then(|p| p.desc.clone().or_else(|| p.subtitle.clone()));
+                    // Absätze zu einem Text zusammenziehen: die Anzeige kürzt dann auf
+                    // insgesamt zwei Zeilen (die Zeilengrenze von GTK gilt je Absatz).
+                    desc = cur
+                        .and_then(|p| p.desc.as_deref().or(p.subtitle.as_deref()))
+                        .map(|d| d.split_whitespace().collect::<Vec<_>>().join(" "));
                 }
             }
         }
