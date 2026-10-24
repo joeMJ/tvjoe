@@ -33,6 +33,9 @@ pub struct ChannelInfo {
     pub next: Option<String>,
     /// Zusätzliche Meldung, z. B. „Stream gestört …“ oder Videodaten.
     pub extra: Option<String>,
+    /// Bauchbinde eines Senders: rechts immer Platz für Jetzt, zwei Zeilen Beschreibung und
+    /// Danach, auch wenn nicht gefüllt (gleiche Höhe beim Zappen).
+    pub full: bool,
 }
 
 pub struct Osd {
@@ -220,14 +223,29 @@ impl Osd {
         }
         self.name.set_label(&info.name);
         Self::set_text(&self.meta, Some(&info.meta));
-        Self::set_text(&self.now, info.now.as_deref());
-        Self::set_text(&self.desc, info.desc.as_deref());
-        Self::set_text(&self.next, info.next.as_deref());
+        if info.full {
+            // Leere Zeilen behalten ihre Höhe; die Beschreibung ist immer zwei Zeilen hoch.
+            let fill = |l: &gtk::Label, t: Option<&str>| {
+                l.set_label(t.filter(|t| !t.is_empty()).unwrap_or(" "));
+                l.set_visible(true);
+            };
+            fill(&self.now, info.now.as_deref());
+            fill(&self.desc, info.desc.as_deref());
+            fill(&self.next, info.next.as_deref());
+            let two_lines = self.desc.create_pango_layout(Some("Ag\nAg")).pixel_size().1;
+            self.desc.set_size_request(-1, two_lines);
+        } else {
+            Self::set_text(&self.now, info.now.as_deref());
+            Self::set_text(&self.desc, info.desc.as_deref());
+            Self::set_text(&self.next, info.next.as_deref());
+            self.desc.set_size_request(-1, -1);
+        }
         Self::set_text(&self.extra, info.extra.as_deref());
         // Aus dem Inhalt bestimmen: `is_visible()` meldet bei noch ausgeblendeter Anzeige immer „nein“.
-        let right_visible = [&info.now, &info.desc, &info.next, &info.extra]
-            .iter()
-            .any(|t| t.as_deref().is_some_and(|t| !t.is_empty()));
+        let right_visible = info.full
+            || [&info.now, &info.desc, &info.next, &info.extra]
+                .iter()
+                .any(|t| t.as_deref().is_some_and(|t| !t.is_empty()));
         self.right.set_visible(right_visible);
         self.sep_right.set_visible(right_visible);
         self.present(secs);

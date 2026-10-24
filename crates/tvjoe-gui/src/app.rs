@@ -374,6 +374,7 @@ impl App {
             desc,
             next,
             extra,
+            full: true,
         }
     }
 
