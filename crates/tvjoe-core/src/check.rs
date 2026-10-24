@@ -93,7 +93,7 @@ impl Finding {
 }
 
 /// Schlüssel für „derselbe Sender“: normalisierte `tvg-id`, sonst normalisierter Name.
-fn channel_key(e: &Entry) -> String {
+pub(crate) fn channel_key(e: &Entry) -> String {
     normalize_id(e.tvg_id().unwrap_or(&e.name))
 }
 

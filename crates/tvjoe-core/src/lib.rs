@@ -3,11 +3,18 @@
 
 pub mod check;
 pub mod ids;
+pub mod library;
 pub mod m3u;
+pub mod paths;
+pub mod settings;
+pub mod store;
 
 pub use check::{Finding, FindingKind, Severity};
 pub use ids::normalize_id;
+pub use library::{Channel, ImportOutcome, Library, NumberTaken, Source, Stream};
 pub use m3u::{Entry, ParseError, Playlist, Quality, SourceKind};
+pub use settings::{Fallback, Settings, Strategy};
+pub use store::StoreError;
 
 /// Versionsangabe des Programms (aus `Cargo.toml`).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

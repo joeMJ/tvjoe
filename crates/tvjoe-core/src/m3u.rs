@@ -3,10 +3,13 @@
 //! Der Parser ist tolerant gegenüber unbekannten Zeilen, meldet aber Auffälligkeiten als
 //! [`Finding`]s (siehe `check`). Fehler, die die ganze Datei betreffen, sind [`ParseError`].
 
+use serde::{Deserialize, Serialize};
+
 use crate::check::{self, Finding, FindingKind};
 
 /// Quelltyp eines Eintrags (`tvjoe-type`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SourceKind {
     Hls,
     /// Zurückgestellt; wird nur erkannt, nicht abgespielt.
@@ -39,11 +42,15 @@ impl SourceKind {
 }
 
 /// Qualitätsstufe (`tvjoe-quality`), aufsteigend sortiert: SD < 720p < 1080p < UHD.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Quality {
+    #[serde(rename = "sd")]
     Sd,
+    #[serde(rename = "720")]
     P720,
+    #[serde(rename = "1080")]
     P1080,
+    #[serde(rename = "uhd")]
     Uhd,
 }
 
