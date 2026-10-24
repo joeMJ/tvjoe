@@ -379,6 +379,11 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
         c.store(true, Ordering::Relaxed);
         glib::Propagation::Proceed
     });
+    // Die Signale halten nur schwache Referenzen; das Fenster hält die Vorschau bis zum Schließen.
+    let keep = p.clone();
+    p.win.connect_destroy(move |_| {
+        let _ = &keep;
+    });
     p.start_probes(stop);
     p.win.present();
     Some(p)
