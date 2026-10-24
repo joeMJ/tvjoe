@@ -113,6 +113,14 @@ const STEPS: &[Step] = &[
         },
         1200,
     ),
+    (
+        "13-einstellungen",
+        |p| {
+            crate::prefs::open(&p.app);
+            main_window(p)
+        },
+        1500,
+    ),
 ];
 
 const IMPORT_STEPS: &[Step] = &[

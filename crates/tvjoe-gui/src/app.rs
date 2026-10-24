@@ -214,6 +214,13 @@ impl App {
                 crate::manage::open(&app);
             }
         });
+        // Alle Signale halten nur schwache Referenzen. Das Fenster hält das Programmobjekt,
+        // bis es zerstört wird; sonst wäre es nach den Start-Zeitgebern freigegeben und
+        // Knöpfe und Tasten blieben stumm.
+        let keep = app.clone();
+        app.window.connect_destroy(move |_| {
+            let _ = &keep;
+        });
         app
     }
 
