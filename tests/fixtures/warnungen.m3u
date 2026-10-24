@@ -1,0 +1,20 @@
+#EXTM3U
+#EXTINF:-1 tvg-chno="1" tvg-id="Eins.de" tvg-logo="https://example.invalid/l.png" group-title="G" tvjoe-type="hls" tvjoe-quality="sd",Eins SD
+https://example.invalid/eins/sd.m3u8
+#EXTINF:-1,Ohne Alles
+http://example.invalid/stream
+#EXTINF:-1 tvg-chno="5" tvg-id="Drei.de" tvg-logo="https://example.invalid/l.png" group-title="G" tvjoe-type="hls" tvjoe-quality="hd",Drei Schema und Qualität
+ftp://example.invalid/drei.m3u8
+#EXTINF:-1 tvg-id="Eins.de" tvg-logo="https://example.invalid/l.png" group-title="G" tvjoe-type="hls" tvjoe-quality="sd",Eins SD doppelt
+https://example.invalid/eins/sd-zweite.m3u8
+#EXTINF:-1 tvg-id="Eins.de" tvg-logo="https://example.invalid/l.png" group-title="G" tvjoe-type="hls" tvjoe-quality="720",Eins URL doppelt
+https://example.invalid/eins/sd.m3u8
+#EXTINF:-1 tvg-chno="1" tvg-id="Vier.de" tvg-logo="https://example.invalid/l.png" group-title="G",Vier A
+https://example.invalid/vier/a.m3u8
+#EXTINF:-1 tvg-id="Vier.de" tvg-logo="https://example.invalid/l.png" group-title="G",Vier B
+https://example.invalid/vier/b.m3u8
+#EXTINF:-1,Ohne URL
+#EXTINF:-1 tvg-id="Fuenf.de" tvg-logo="https://example.invalid/l.png" group-title="G" tvjoe-type="satip" tvjoe-quality="sd",Fünf
+rtsp://example.invalid/?src=1&freq=11494&pol=h&msys=dvbs2
+https://example.invalid/lose-url.m3u8
+#EXTINF:-1,Am Ende ohne URL
