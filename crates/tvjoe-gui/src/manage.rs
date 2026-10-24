@@ -268,6 +268,7 @@ impl Manager {
                 Some((id, kind)) => {
                     let how = match kind {
                         tvjoe_core::epg::MatchKind::Manual => "manuell",
+                        tvjoe_core::epg::MatchKind::Fuzzy => "unscharf",
                         _ => "automatisch",
                     };
                     format!("{} ({how})", g.display_name(&id).unwrap_or(&id))

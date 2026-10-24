@@ -36,6 +36,8 @@ pub struct Guide {
     pub programmes: HashMap<String, Vec<Programme>>,
     by_id: HashMap<String, String>,
     by_name: HashMap<String, String>,
+    /// Kurze Kürzel (2–3 Zeichen) der Kanal-IDs für die unscharfe Zuordnung, z. B. „swr“, „sr“.
+    by_stem: Vec<(String, String)>,
 }
 
 /// Wie ein Sender zugeordnet wurde.
@@ -44,6 +46,8 @@ pub enum MatchKind {
     Manual,
     TvgId,
     Name,
+    /// Unscharf: das erste Wort des Namens ist das Kürzel eines EPG-Kanals (z. B. „MDR Sachsen“).
+    Fuzzy,
 }
 
 fn strip_hd(n: &str) -> &str {
@@ -54,7 +58,19 @@ impl Guide {
     fn index(&mut self) {
         self.by_id.clear();
         self.by_name.clear();
+        self.by_stem.clear();
         for (id, names) in &self.channels {
+            // „SWR/SR.de“ → „swr“, „sr“; Länderkürzel am Ende entfällt.
+            let base = match id.rsplit_once('.') {
+                Some((b, suffix)) if suffix.len() <= 3 => b,
+                _ => id.as_str(),
+            };
+            for part in base.split('/') {
+                let stem = normalize_id(part);
+                if (2..=3).contains(&stem.chars().count()) {
+                    self.by_stem.push((stem, id.clone()));
+                }
+            }
             self.by_id
                 .entry(normalize_id(id))
                 .or_insert_with(|| id.clone());
@@ -109,6 +125,32 @@ impl Guide {
                 .or_else(|| self.by_name.get(strip_hd(&n)))
             {
                 return Some((id.clone(), MatchKind::Name));
+            }
+        }
+        self.match_fuzzy(names)
+    }
+
+    /// Das erste Wort des Sendernamens ist das Kürzel eines EPG-Kanals („SWR Baden-Württemberg“
+    /// → SWR/SR). Nur Kürzel mit 2–3 Zeichen (Anstaltskürzel); passen mehrere Kanäle, keine
+    /// Zuordnung. Die Kennung wird hier bewusst nicht verwendet (z. B. „srf-online“ ≠ SR).
+    fn match_fuzzy(&self, names: &[&str]) -> Option<(String, MatchKind)> {
+        for name in names {
+            let Some(word) = name
+                .split(|c: char| c.is_whitespace() || c == '-' || c == '/')
+                .find(|w| !w.is_empty())
+            else {
+                continue;
+            };
+            let word = normalize_id(word);
+            let mut ids: Vec<&String> = self
+                .by_stem
+                .iter()
+                .filter(|(s, _)| *s == word)
+                .map(|(_, id)| id)
+                .collect();
+            ids.dedup();
+            if let [id] = ids[..] {
+                return Some((id.clone(), MatchKind::Fuzzy));
             }
         }
         None
@@ -564,6 +606,41 @@ mod tests {
         let ch = channel("NDR Niedersachsen HD", Some("NDRFernsehen.de"));
         assert_eq!(g.suggestions(&ch)[0].0, "NDR.de");
         assert_eq!(g.suggestions(&ch).len(), 3);
+    }
+
+    #[test]
+    fn unscharfe_zuordnung_fuer_dritte_programme() {
+        let xml = r#"<tv>
+          <channel id="SWR/SR.de"><display-name>SWR/SR</display-name></channel>
+          <channel id="MDR.de"><display-name>MDR</display-name></channel>
+          <channel id="RBB.de"><display-name>RBB</display-name></channel>
+          <channel id="BR.de"><display-name>BR</display-name></channel>
+          <channel id="WELT.de"><display-name>WELT</display-name></channel>
+          <channel id="ZDF.de"><display-name>ZDF</display-name></channel>
+          <channel id="ZDFneo.de"><display-name>ZDFneo</display-name></channel>
+        </tv>"#;
+        let g = parse_xmltv(xml.as_bytes()).unwrap();
+        let m = |name: &str, tvg: &str| g.match_channel(&channel(name, Some(tvg)));
+        assert_eq!(
+            m("SWR Baden-Württemberg HD", "SWRFernsehen.de"),
+            Some(("SWR/SR.de".into(), MatchKind::Fuzzy))
+        );
+        assert_eq!(
+            m("SR Fernsehen HD", "SRFernsehen.de"),
+            Some(("SWR/SR.de".into(), MatchKind::Fuzzy))
+        );
+        assert_eq!(m("MDR Sachsen HD", "MDRSachsen.de").unwrap().0, "MDR.de");
+        assert_eq!(m("rbb Berlin HD", "rbbBerlin.de").unwrap().0, "RBB.de");
+        assert_eq!(
+            m("BR Fernsehen Süd HD", "BRFernsehen.de").unwrap().0,
+            "BR.de"
+        );
+        // Genaue Treffer gehen vor; vier Zeichen lange IDs werden nicht unscharf genutzt.
+        assert_eq!(m("ZDFneo HD", "ZDFneo.de").unwrap().1, MatchKind::TvgId);
+        assert!(m("Welt der Wunder", "WeltderWunder.de").is_none());
+        assert!(m("Radio Bremen TV HD", "RadioBremen.de").is_none());
+        // Kennung beginnt zufällig mit einem Kürzel: keine Zuordnung.
+        assert!(m("Südthüringer Regionalfernsehen", "srf-online.de").is_none());
     }
 
     #[test]

@@ -351,6 +351,7 @@ fn epg_check(args: &[String]) -> ExitCode {
                     MatchKind::Manual => "manuell",
                     MatchKind::TvgId => "tvg-id",
                     MatchKind::Name => "Name",
+                    MatchKind::Fuzzy => "unscharf",
                 };
                 let current = guide
                     .now_next(&id, now)

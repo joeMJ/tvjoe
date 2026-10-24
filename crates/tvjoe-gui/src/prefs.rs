@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use gtk::glib;
-use tvjoe_core::{Fallback, Strategy, VERSION, epg, paths, update};
+use tvjoe_core::{Fallback, Quality, Strategy, VERSION, epg, paths, update};
 
 use crate::app::App;
 
@@ -32,6 +32,28 @@ pub fn open(app: &Rc<App>) {
     control.add(&resume);
 
     let quality = adw::PreferencesGroup::builder().title("Qualität").build();
+    let levels = [
+        None,
+        Some(Quality::Uhd),
+        Some(Quality::P1080),
+        Some(Quality::P720),
+        Some(Quality::Sd),
+    ];
+    let level = adw::ComboRow::builder()
+        .title("Qualität")
+        .subtitle("Gilt für alle Sender; Taste Q schaltet ebenfalls um")
+        .model(&gtk::StringList::new(&[
+            "Höchste", "UHD", "1080p", "720p", "SD",
+        ]))
+        .selected(levels.iter().position(|l| *l == s.quality).unwrap_or(0) as u32)
+        .build();
+    let cap = adw::SwitchRow::builder()
+        .title("Nie höher als die gewählte Stufe")
+        .subtitle("Fehlt sie, wird die nächstniedrigere genommen")
+        .active(s.quality_cap)
+        .build();
+    quality.add(&level);
+    quality.add(&cap);
     let strategy = adw::ComboRow::builder()
         .title("Beim Senderwechsel")
         .model(&gtk::StringList::new(&[
@@ -119,9 +141,12 @@ pub fn open(app: &Rc<App>) {
                 Fallback::Down
             };
             s.epg_refresh_hours = hours.value() as u32;
+            s.quality = levels.get(level.selected() as usize).copied().flatten();
+            s.quality_cap = cap.is_active();
             s.update_check = check.is_active();
         }
         app.save_settings();
+        app.reapply_quality();
     });
     dialog.present(Some(&app.window));
 }

@@ -103,7 +103,18 @@ impl Channel {
     /// - Fehlt die Stufe: die nächstgelegene; bei Gleichstand entscheidet `fallback`.
     /// - Streams ohne Qualitätsangabe zählen nur, wenn kein Stream eine Qualität hat.
     pub fn pick_stream(&self, wanted: Option<Quality>, fallback: Fallback) -> Option<&Stream> {
-        self.streams_by_preference(wanted, fallback)
+        self.pick_stream_capped(wanted, fallback, false)
+    }
+
+    /// Wie [`Channel::pick_stream`]; mit `cap` nie über der Wunschstufe, solange es eine
+    /// Stufe darunter gibt.
+    pub fn pick_stream_capped(
+        &self,
+        wanted: Option<Quality>,
+        fallback: Fallback,
+        cap: bool,
+    ) -> Option<&Stream> {
+        self.streams_ordered(wanted, fallback, cap)
             .into_iter()
             .next()
     }
@@ -115,6 +126,17 @@ impl Channel {
         wanted: Option<Quality>,
         fallback: Fallback,
     ) -> Vec<&Stream> {
+        self.streams_ordered(wanted, fallback, false)
+    }
+
+    /// Reihenfolge der Streams; mit `cap` zuerst die Stufen bis zur Wunschstufe (absteigend),
+    /// danach die darüber (aufsteigend), zuletzt Streams ohne Angabe.
+    pub fn streams_ordered(
+        &self,
+        wanted: Option<Quality>,
+        fallback: Fallback,
+        cap: bool,
+    ) -> Vec<&Stream> {
         let mut known: Vec<&Stream> = self
             .streams
             .iter()
@@ -122,6 +144,10 @@ impl Channel {
             .collect();
         match wanted {
             None => known.sort_by_key(|s| std::cmp::Reverse(s.quality)),
+            Some(wanted) if cap => known.sort_by_key(|s| {
+                let diff = s.quality.map_or(0, |q| q as i32) - wanted as i32;
+                if diff <= 0 { (0, -diff) } else { (1, diff) }
+            }),
             Some(wanted) => known.sort_by_key(|s| {
                 let diff = s.quality.map_or(0, |q| q as i32) - wanted as i32;
                 let preferred = match fallback {
@@ -983,6 +1009,31 @@ mod tests {
         assert_eq!(urls(Some(P720), Fallback::Down), ["u1", "u2", "u3", "u0"]);
         assert_eq!(urls(Some(P720), Fallback::Up), ["u2", "u1", "u3", "u0"]);
         assert_eq!(urls(None, Fallback::Down), ["u3", "u2", "u1", "u0"]);
+    }
+
+    #[test]
+    fn obergrenze() {
+        use Quality::*;
+        let c = channel_with(&[Some(Sd), Some(P1080), Some(Uhd)]);
+        let url = |q, f, cap| c.pick_stream_capped(q, f, cap).unwrap().url.clone();
+        // Wunsch 720p, nach oben ausweichen: ohne Grenze 1080p, mit Grenze SD.
+        assert_eq!(url(Some(P720), Fallback::Up, false), "u1");
+        assert_eq!(url(Some(P720), Fallback::Up, true), "u0");
+        // Nur Stufen darüber: die niedrigste davon.
+        let hoch = channel_with(&[Some(Uhd), Some(P1080)]);
+        assert_eq!(
+            hoch.pick_stream_capped(Some(P720), Fallback::Down, true)
+                .unwrap()
+                .url,
+            "u1"
+        );
+        // Reihenfolge beim Ausweichen.
+        let order: Vec<_> = c
+            .streams_ordered(Some(P1080), Fallback::Down, true)
+            .iter()
+            .map(|s| s.url.clone())
+            .collect();
+        assert_eq!(order, ["u1", "u0", "u2"]);
     }
 
     #[test]

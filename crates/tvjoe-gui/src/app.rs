@@ -321,6 +321,26 @@ impl App {
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
+    /// Nach geänderter Qualitätseinstellung: laufenden Sender neu wählen, falls sich der
+    /// passende Stream geändert hat.
+    pub fn reapply_quality(self: &Rc<Self>) {
+        let Some(id) = self.current.get() else { return };
+        let target = {
+            let lib = self.lib.borrow();
+            let st = self.settings.borrow();
+            let wanted = match st.strategy {
+                Strategy::Keep => st.quality,
+                Strategy::Highest => None,
+            };
+            lib.channel(id)
+                .and_then(|ch| ch.pick_stream_capped(wanted, st.fallback, st.quality_cap))
+                .map(|s| (s.url.clone(), s.max_bitrate))
+        };
+        if target.is_some() && target != *self.current_stream.borrow() {
+            self.play_channel(id);
+        }
+    }
+
     /// Ziehen und Ablegen: Sender verschieben, Nummern nach Position neu vergeben.
     pub fn move_channel_relative(self: &Rc<Self>, id: u64, target: u64, after: bool) {
         let moved = {
@@ -621,9 +641,12 @@ impl App {
         let wanted = self.wanted_for_switch();
         let picked = {
             let lib = self.lib.borrow();
-            let fallback = self.settings.borrow().fallback;
+            let (fallback, cap) = {
+                let st = self.settings.borrow();
+                (st.fallback, st.quality_cap)
+            };
             lib.channel(id).and_then(|ch| {
-                ch.pick_stream(wanted, fallback).map(|s| {
+                ch.pick_stream_capped(wanted, fallback, cap).map(|s| {
                     let mut sub = sub_line(ch, s.quality);
                     if let Some(e) = self.epg_lines(ch) {
                         sub.push('\n');
@@ -664,11 +687,14 @@ impl App {
         trace(&format!("Stream gestört: {ev:?}"));
         let found = {
             let lib = self.lib.borrow();
-            let fallback = self.settings.borrow().fallback;
+            let (fallback, cap) = {
+                let st = self.settings.borrow();
+                (st.fallback, st.quality_cap)
+            };
             let tried = self.tried.borrow();
             lib.channel(id).map(|ch| {
                 let next = ch
-                    .streams_by_preference(self.wanted.get(), fallback)
+                    .streams_ordered(self.wanted.get(), fallback, cap)
                     .into_iter()
                     .find(|s| !tried.contains(&s.url))
                     .map(|s| (s.url.clone(), s.max_bitrate, s.quality));
@@ -800,9 +826,12 @@ impl App {
         self.wanted.set(Some(next));
         let picked = {
             let lib = self.lib.borrow();
-            let fallback = self.settings.borrow().fallback;
+            let (fallback, cap) = {
+                let st = self.settings.borrow();
+                (st.fallback, st.quality_cap)
+            };
             lib.channel(id).and_then(|ch| {
-                ch.pick_stream(Some(next), fallback).map(|s| {
+                ch.pick_stream_capped(Some(next), fallback, cap).map(|s| {
                     (
                         s.url.clone(),
                         s.max_bitrate,

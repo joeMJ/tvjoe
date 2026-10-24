@@ -50,6 +50,8 @@ pub struct Settings {
     pub epg_refresh_hours: u32,
     /// Zeitpunkt der letzten Updateprüfung (Sekunden seit 1970).
     pub update_last_check: Option<u64>,
+    /// Gewählte Qualität als Obergrenze (nie höher, solange es eine Stufe darunter gibt).
+    pub quality_cap: bool,
 }
 
 impl Default for Settings {
@@ -67,6 +69,7 @@ impl Default for Settings {
             epg_sources: Vec::new(),
             epg_refresh_hours: 24,
             update_last_check: None,
+            quality_cap: false,
         }
     }
 }
