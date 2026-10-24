@@ -22,23 +22,26 @@ pub struct Manager {
 }
 
 thread_local! {
-    static OPEN: RefCell<Option<glib::WeakRef<adw::Window>>> = const { RefCell::new(None) };
+    /// Der Verwalter lebt nach dem ersten Öffnen weiter; sein Fenster wird beim Schließen nur
+    /// ausgeblendet. Ein geschlossenes (zerstörtes) GTK-Fenster ließe sich zwar wieder zeigen,
+    /// reagierte aber nicht mehr auf das Schließen.
+    static OPEN: RefCell<Option<Rc<Manager>>> = const { RefCell::new(None) };
 }
 
-/// Öffnet das Fenster (oder holt ein offenes nach vorn).
+/// Öffnet das Fenster (oder zeigt es wieder, mit aktuellem Inhalt).
 pub fn open(app: &Rc<App>) {
     open_manager(app);
 }
 
-/// Wie [`open`], gibt aber den Verwalter zurück (Selbstprobe). Ein schon offenes Fenster wird
-/// nach vorn geholt; dann gibt es `None`.
+/// Wie [`open`], gibt aber den Verwalter zurück (Selbstprobe).
 pub fn open_manager(app: &Rc<App>) -> Option<Rc<Manager>> {
-    if let Some(w) = OPEN.with(|o| o.borrow().as_ref().and_then(|w| w.upgrade())) {
-        w.present();
-        return None;
+    if let Some(m) = OPEN.with(|o| o.borrow().clone()) {
+        m.refill();
+        m.win.present();
+        return Some(m);
     }
     let mgr = Manager::new(app.clone());
-    OPEN.with(|o| *o.borrow_mut() = Some(mgr.win.downgrade()));
+    OPEN.with(|o| *o.borrow_mut() = Some(mgr.clone()));
     mgr.win.present();
     Some(mgr)
 }
@@ -60,6 +63,7 @@ impl Manager {
             .default_width(1180)
             .default_height(760)
             .transient_for(&app.window)
+            .hide_on_close(true)
             .build();
 
         let header = adw::HeaderBar::new();

@@ -182,6 +182,12 @@ pub fn open_window(app: &Rc<App>) -> Option<adw::Window> {
         .content(&view)
         .build();
     OPEN.with(|o| *o.borrow_mut() = Some(win.downgrade()));
+    // Beim Schließen vergessen: das nächste Öffnen baut das Raster neu (aktuelle Uhrzeit)
+    // und holt kein zerstörtes Fenster zurück.
+    win.connect_close_request(|_| {
+        OPEN.with(|o| o.borrow_mut().take());
+        glib::Propagation::Proceed
+    });
     win.present();
     Some(win)
 }
