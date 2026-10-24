@@ -16,7 +16,7 @@ use tvjoe_core::epg::{self, Guide};
 use tvjoe_core::{Channel, Library, Quality, Settings, SourceKind, Strategy, Stream, net, paths};
 
 use crate::logos::Logos;
-use crate::osd::{ChannelInfo, Origin, Osd};
+use crate::osd::{ChannelInfo, MessageBar, Origin, Osd};
 use crate::player::{Player, PlayerEvent};
 use crate::trace;
 
@@ -57,6 +57,8 @@ pub struct App {
     list: gtk::ListBox,
     rows: RefCell<Vec<Row>>,
     osd: Rc<Osd>,
+    /// Meldungsstreifen oben (Lautstärke, Ton, Qualität, Störungen).
+    msg: Rc<MessageBar>,
     pub player: Option<Rc<Player>>,
     lib: RefCell<Library>,
     settings: RefCell<Settings>,
@@ -110,6 +112,7 @@ impl App {
         sidebar_bar.set_content(Some(&scroller));
 
         let osd = Osd::new();
+        let msg = MessageBar::new();
         let overlay = gtk::Overlay::new();
         match &player {
             Some(p) => overlay.set_child(Some(&p.area)),
@@ -119,6 +122,7 @@ impl App {
             ))),
         }
         overlay.add_overlay(&osd.root);
+        overlay.add_overlay(&msg.root);
 
         let header = adw::HeaderBar::new();
         let sidebar_button = gtk::ToggleButton::builder()
@@ -171,6 +175,7 @@ impl App {
             list,
             rows: RefCell::new(Vec::new()),
             osd,
+            msg,
             player,
             lib: RefCell::new(lib),
             settings: RefCell::new(settings),
@@ -754,10 +759,10 @@ impl App {
                         .iter()
                         .find(|s| &s.url == u && s.max_bitrate == *b)
                 });
-                (self.channel_info(ch, stream, Some(text)), next)
+                (self.channel_info(ch, stream, None), text, next)
             })
         };
-        let Some((info, next)) = found else {
+        let Some((info, text, next)) = found else {
             return;
         };
         match next {
@@ -766,8 +771,12 @@ impl App {
                 self.tried.borrow_mut().push(url.clone());
                 self.current_stream.replace(Some((url, bitrate)));
                 self.osd.show_channel(&info, self.overlay_secs());
+                self.msg.show(&text, self.overlay_secs());
             }
-            None => self.osd.show_channel(&info, 0),
+            None => {
+                self.osd.show_channel(&info, 0);
+                self.msg.show(&text, 0);
+            }
         }
     }
 
@@ -859,12 +868,11 @@ impl App {
             .map(|c| c.id);
         match target {
             Some(id) => self.play_channel(id),
-            None => self.osd.show(
-                &typed,
-                "Kein Sender mit dieser Nummer",
-                "",
-                self.overlay_secs(),
-            ),
+            None => {
+                self.osd.hide();
+                self.msg
+                    .show("Kein Sender mit dieser Nummer", self.overlay_secs());
+            }
         }
     }
 
@@ -911,12 +919,13 @@ impl App {
                     (
                         s.url.clone(),
                         s.max_bitrate,
-                        self.channel_info(ch, Some(s), Some(text)),
+                        self.channel_info(ch, Some(s), None),
+                        text,
                     )
                 })
             })
         };
-        let Some((url, bitrate, info)) = picked else {
+        let Some((url, bitrate, info, text)) = picked else {
             return;
         };
         let target = (url.clone(), bitrate);
@@ -926,6 +935,7 @@ impl App {
             self.current_stream.replace(Some(target));
         }
         self.osd.show_channel(&info, self.overlay_secs());
+        self.msg.show(&text, self.overlay_secs());
     }
 
     pub fn change_volume(&self, delta: i64) {
@@ -933,13 +943,12 @@ impl App {
             return;
         };
         self.settings.borrow_mut().volume = v.clamp(0, 130) as u32;
-        self.osd.show("", &format!("Lautstärke {v} %"), "", 2);
+        self.msg.show(&format!("Lautstärke {v} %"), 2);
     }
 
     fn toggle_mute(&self) {
         if let Some(muted) = self.player.as_ref().and_then(|p| p.toggle_mute()) {
-            self.osd
-                .show("", if muted { "Ton aus" } else { "Ton an" }, "", 2);
+            self.msg.show(if muted { "Ton aus" } else { "Ton an" }, 2);
         }
     }
 

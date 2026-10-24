@@ -262,6 +262,13 @@ impl Osd {
         self.show_channel(&info, secs);
     }
 
+    pub fn hide(&self) {
+        if let Some(id) = self.timer.take() {
+            id.remove();
+        }
+        self.root.set_visible(false);
+    }
+
     fn present(self: &Rc<Self>, secs: u32) {
         self.root.set_visible(true);
         if let Some(id) = self.timer.take() {
@@ -273,6 +280,56 @@ impl Osd {
                 if let Some(osd) = weak.upgrade() {
                     osd.timer.take();
                     osd.root.set_visible(false);
+                }
+            });
+            *self.timer.borrow_mut() = Some(id);
+        }
+    }
+}
+
+/// Meldungsstreifen oben im Bild: eine Zeile über die Bildbreite, gleiches Aussehen wie die
+/// Meldungszeile bisher unten (Lautstärke, Ton, Qualität, Störungen, Ziffernwahl ohne Sender).
+pub struct MessageBar {
+    pub root: gtk::Box,
+    text: gtk::Label,
+    timer: RefCell<Option<glib::SourceId>>,
+}
+
+impl MessageBar {
+    pub fn new() -> Rc<Self> {
+        let text = label("tvjoe-osd-name");
+        let root = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .css_classes(["tvjoe-osd"])
+            .halign(gtk::Align::Fill)
+            .valign(gtk::Align::Start)
+            .margin_start(16)
+            .margin_end(16)
+            .margin_top(16)
+            .visible(false)
+            .can_target(false)
+            .build();
+        root.append(&text);
+        Rc::new(Self {
+            root,
+            text,
+            timer: RefCell::new(None),
+        })
+    }
+
+    /// Zeigt die Meldung für `secs` Sekunden (0 = bis zur nächsten Meldung).
+    pub fn show(self: &Rc<Self>, text: &str, secs: u32) {
+        self.text.set_label(text);
+        self.root.set_visible(true);
+        if let Some(id) = self.timer.take() {
+            id.remove();
+        }
+        if secs > 0 {
+            let weak = Rc::downgrade(self);
+            let id = glib::timeout_add_seconds_local_once(secs, move || {
+                if let Some(bar) = weak.upgrade() {
+                    bar.timer.take();
+                    bar.root.set_visible(false);
                 }
             });
             *self.timer.borrow_mut() = Some(id);
