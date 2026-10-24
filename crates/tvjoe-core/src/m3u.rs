@@ -29,7 +29,9 @@ impl SourceKind {
             "rtsp" | "rtsps" => Some(Self::SatIp),
             "http" | "https" => {
                 let path = rest.split(['?', '#']).next().unwrap_or("");
-                path.to_ascii_lowercase().ends_with(".m3u8").then_some(Self::Hls)
+                path.to_ascii_lowercase()
+                    .ends_with(".m3u8")
+                    .then_some(Self::Hls)
             }
             _ => None,
         }
@@ -135,7 +137,9 @@ impl Entry {
 
     /// URL-Schema in Kleinschreibung.
     pub fn scheme(&self) -> Option<String> {
-        self.url.split_once("://").map(|(s, _)| s.to_ascii_lowercase())
+        self.url
+            .split_once("://")
+            .map(|(s, _)| s.to_ascii_lowercase())
     }
 }
 
@@ -196,7 +200,9 @@ impl Playlist {
 fn parse_entries(text: &str) -> (Vec<Entry>, Vec<Finding>) {
     let mut entries = Vec::new();
     let mut findings = Vec::new();
-    let mut pending: Option<(usize, Vec<(String, String)>, String)> = None;
+    /// Gelesene `#EXTINF`-Zeile, die noch auf ihre URL wartet: Zeile, Attribute, Name.
+    type Pending = (usize, Vec<(String, String)>, String);
+    let mut pending: Option<Pending> = None;
 
     for (idx, raw) in text.lines().enumerate() {
         let line_no = idx + 1;
@@ -213,7 +219,12 @@ fn parse_entries(text: &str) -> (Vec<Entry>, Vec<Finding>) {
         } else if line.starts_with('#') {
             // #EXTM3U, #EXTGRP, #EXTVLCOPT und Kommentare: ignoriert.
         } else if let Some((l, attrs, name)) = pending.take() {
-            entries.push(Entry { line: l, name, url: line.to_string(), attrs });
+            entries.push(Entry {
+                line: l,
+                name,
+                url: line.to_string(),
+                attrs,
+            });
         } else {
             findings.push(Finding::new(FindingKind::UrlWithoutExtinf, line_no, None));
         }
@@ -318,21 +329,39 @@ mod tests {
 
     #[test]
     fn typ_aus_url_abgeleitet() {
-        assert_eq!(SourceKind::infer("https://x.invalid/a/master.m3u8?t=1"), Some(SourceKind::Hls));
-        assert_eq!(SourceKind::infer("rtsp://x.invalid/?src=1"), Some(SourceKind::SatIp));
+        assert_eq!(
+            SourceKind::infer("https://x.invalid/a/master.m3u8?t=1"),
+            Some(SourceKind::Hls)
+        );
+        assert_eq!(
+            SourceKind::infer("rtsp://x.invalid/?src=1"),
+            Some(SourceKind::SatIp)
+        );
         assert_eq!(SourceKind::infer("https://x.invalid/stream"), None);
     }
 
     #[test]
     fn dateifehler() {
-        assert_eq!(Playlist::parse(&[0xff, 0xfe, 0x00]).unwrap_err(), ParseError::NotUtf8);
-        assert_eq!(Playlist::parse(b"hallo").unwrap_err(), ParseError::NotExtM3u);
-        assert_eq!(Playlist::parse(b"#EXTM3U\n").unwrap_err(), ParseError::NoEntries);
+        assert_eq!(
+            Playlist::parse(&[0xff, 0xfe, 0x00]).unwrap_err(),
+            ParseError::NotUtf8
+        );
+        assert_eq!(
+            Playlist::parse(b"hallo").unwrap_err(),
+            ParseError::NotExtM3u
+        );
+        assert_eq!(
+            Playlist::parse(b"#EXTM3U\n").unwrap_err(),
+            ParseError::NoEntries
+        );
     }
 
     #[test]
     fn bom_und_crlf_werden_vertragen() {
-        let p = Playlist::parse("\u{feff}#EXTM3U\r\n#EXTINF:-1,Eins\r\nhttps://x.invalid/a.m3u8\r\n".as_bytes()).unwrap();
+        let p = Playlist::parse(
+            "\u{feff}#EXTM3U\r\n#EXTINF:-1,Eins\r\nhttps://x.invalid/a.m3u8\r\n".as_bytes(),
+        )
+        .unwrap();
         assert_eq!(p.entries.len(), 1);
         assert_eq!(p.entries[0].name, "Eins");
         assert_eq!(p.entries[0].url, "https://x.invalid/a.m3u8");

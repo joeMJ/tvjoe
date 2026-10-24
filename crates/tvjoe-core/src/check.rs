@@ -30,7 +30,10 @@ pub enum FindingKind {
     /// Gleicher Sender mit gleicher Qualitätsstufe mehrfach.
     DuplicateQuality(Quality),
     /// Kanalnummer war bei einem anderen Sender vergeben und wurde neu vergeben.
-    DuplicateChno { old: u32, new: u32 },
+    DuplicateChno {
+        old: u32,
+        new: u32,
+    },
     /// `http://` statt `https://`.
     Http,
     UnknownScheme(String),
@@ -65,7 +68,10 @@ impl fmt::Display for FindingKind {
             Self::Http => f.write_str("unverschlüsselte Quelle (http://)"),
             Self::UnknownScheme(s) => write!(f, "unbekanntes URL-Schema „{s}“"),
             Self::UnknownType => f.write_str("Quelltyp unbekannt (tvjoe-type)"),
-            Self::UnknownQuality(v) => write!(f, "Qualitätswert „{v}“ unbekannt (erlaubt: sd, 720, 1080, uhd)"),
+            Self::UnknownQuality(v) => write!(
+                f,
+                "Qualitätswert „{v}“ unbekannt (erlaubt: sd, 720, 1080, uhd)"
+            ),
             Self::MissingQuality => f.write_str("Qualität unbekannt (tvjoe-quality fehlt)"),
         }
     }
@@ -97,8 +103,7 @@ pub fn analyze(entries: &mut [Entry]) -> Vec<Finding> {
     let mut seen_url: HashMap<String, usize> = HashMap::new();
     let mut seen_id: HashMap<(String, Option<Quality>), usize> = HashMap::new();
 
-    for i in 0..entries.len() {
-        let e = &entries[i];
+    for (i, e) in entries.iter().enumerate() {
         let mut push = |kind: FindingKind| out.push(Finding::new(kind, e.line, Some(i)));
 
         if e.tvg_id().is_none() {
@@ -151,9 +156,9 @@ fn assign_free_chnos(entries: &mut [Entry], out: &mut Vec<Finding>) {
     let mut next = entries.iter().filter_map(Entry::chno).max().unwrap_or(0);
     let mut used: HashSet<u32> = entries.iter().filter_map(Entry::chno).collect();
 
-    for i in 0..entries.len() {
-        let Some(n) = entries[i].chno() else { continue };
-        let key = channel_key(&entries[i]);
+    for (i, e) in entries.iter_mut().enumerate() {
+        let Some(n) = e.chno() else { continue };
+        let key = channel_key(e);
         match owner.get(&n) {
             None => {
                 owner.insert(n, key);
@@ -168,10 +173,10 @@ fn assign_free_chnos(entries: &mut [Entry], out: &mut Vec<Finding>) {
                 }
                 used.insert(next);
                 owner.insert(next, key);
-                entries[i].set_attr("tvg-chno", next.to_string());
+                e.set_attr("tvg-chno", next.to_string());
                 out.push(Finding::new(
                     FindingKind::DuplicateChno { old: n, new: next },
-                    entries[i].line,
+                    e.line,
                     Some(i),
                 ));
             }
