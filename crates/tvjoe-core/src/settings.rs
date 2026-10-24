@@ -62,6 +62,10 @@ pub struct Settings {
     pub osd_description: bool,
     /// Bildschirmsperre auch im Fenster verhindern (im Vollbild immer).
     pub inhibit_windowed: bool,
+    /// Mediathek: Filmliste im Hintergrund neu laden, wenn älter (Stunden; 0 = nur per Knopf).
+    pub mediathek_refresh_hours: u32,
+    /// Mediathek: so viele Tage zurück behalten.
+    pub mediathek_days: u32,
 }
 
 impl Default for Settings {
@@ -88,6 +92,8 @@ impl Default for Settings {
             osd_epg: true,
             osd_description: true,
             inhibit_windowed: false,
+            mediathek_refresh_hours: 24,
+            mediathek_days: 14,
         }
     }
 }

@@ -29,6 +29,25 @@ pub struct Variant {
     pub bandwidth: u64,
 }
 
+/// Lädt eine große Datei direkt auf die Platte (über `<datei>.part`, dann umbenannt).
+pub fn download_to(
+    agent: &Agent,
+    url: &str,
+    path: &std::path::Path,
+    limit: u64,
+) -> Result<(), String> {
+    let mut resp = agent.get(url).call().map_err(|e| e.to_string())?;
+    let mut reader = resp.body_mut().with_config().limit(limit).reader();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let part = path.with_extension("part");
+    let mut file = std::fs::File::create(&part).map_err(|e| e.to_string())?;
+    std::io::copy(&mut reader, &mut file).map_err(|e| e.to_string())?;
+    drop(file);
+    std::fs::rename(&part, path).map_err(|e| e.to_string())
+}
+
 /// Ergebnis der Erreichbarkeitsprüfung.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Probe {
