@@ -2,6 +2,7 @@
 
 mod app;
 mod gl;
+mod grid;
 mod import;
 mod logos;
 mod manage;
@@ -130,6 +131,9 @@ fn activate(application: &adw::Application, opts: &Options) {
         let a = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(300), move || a.load_logos(dir));
     }
+    // EPG ebenfalls im Hintergrund (Cache, bei Bedarf Netz).
+    let a = app.clone();
+    glib::timeout_add_local_once(Duration::from_millis(500), move || a.load_epg(false));
     if let Some(p) = app.player.clone() {
         glib::timeout_add_seconds_local_once(8, move || trace(&p.report()));
     }

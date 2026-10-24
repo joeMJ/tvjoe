@@ -79,6 +79,11 @@ impl Manager {
         header.pack_start(&import_file);
         header.pack_start(&import_url);
         header.pack_end(&export);
+        let epg_sources = gtk::Button::builder()
+            .label("EPG-Quellen…")
+            .tooltip_text("XMLTV-Quellen eintragen und neu laden")
+            .build();
+        header.pack_end(&epg_sources);
 
         let titles = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         titles.set_margin_start(22);
@@ -92,7 +97,8 @@ impl Manager {
             ("Gruppe", 150),
             ("Quelle", 130),
             ("Qualitäten", 150),
-            ("Status", 130),
+            ("Status", 110),
+            ("EPG", 150),
             ("Aktiv", 50),
             ("Favorit", 50),
         ] {
@@ -154,6 +160,8 @@ impl Manager {
         import_url.connect_clicked(move |_| crate::import::from_url(&m));
         let m = mgr.clone();
         export.connect_clicked(move |_| m.export(None));
+        let m = mgr.clone();
+        epg_sources.connect_clicked(move |_| m.edit_epg_sources());
         mgr
     }
 
@@ -240,7 +248,23 @@ impl Manager {
         } else {
             "ok"
         };
-        hbox.append(&cell(status, 130, "tvjoe-sub"));
+        hbox.append(&cell(status, 110, "tvjoe-sub"));
+        let epg_text = match self.app.guide() {
+            Some(g) => match g.match_channel(ch) {
+                Some((id, kind)) => {
+                    let how = match kind {
+                        tvjoe_core::epg::MatchKind::Manual => "manuell",
+                        _ => "automatisch",
+                    };
+                    format!("{} ({how})", g.display_name(&id).unwrap_or(&id))
+                }
+                None => "keine Zuordnung".into(),
+            },
+            None => "–".into(),
+        };
+        let epg_cell = cell(&epg_text, 150, "tvjoe-sub");
+        epg_cell.set_tooltip_text(Some(&epg_text));
+        hbox.append(&epg_cell);
 
         let active = gtk::CheckButton::builder()
             .active(ch.active)
@@ -327,6 +351,7 @@ impl Manager {
         if n == 1 {
             s1.append_item(&item("Umbenennen…", "rename"));
             s1.append_item(&item("Nummer ändern…", "number"));
+            s1.append_item(&item("EPG-Zuordnung…", "epg"));
         }
         s1.append_item(&item("Eigenen Namen löschen", "reset-name"));
         menu.append_section(None, &s1);
@@ -385,6 +410,7 @@ impl Manager {
         group.add_action_entries([
             entry("rename", |m, id| m.rename(id)),
             entry("number", |m, id| m.change_number(id)),
+            entry("epg", |m, id| m.assign_epg(id)),
             entry("reset-name", |m, id| {
                 let ids = m.targets(id);
                 m.set_flag(&ids, |c| c.custom_name = None);
@@ -514,6 +540,93 @@ impl Manager {
                     m.toast(&format!("Nummer {n} gehört schon zu „{name}“."));
                 }
             }
+        });
+        d.present(Some(&self.win));
+    }
+
+    fn assign_epg(self: &Rc<Self>, id: u64) {
+        let Some(guide) = self.app.guide() else {
+            self.toast("Kein EPG geladen – zuerst eine EPG-Quelle eintragen.");
+            return;
+        };
+        let Some(ch) = self.app.library().channel(id).cloned() else {
+            return;
+        };
+        let suggestions = guide.suggestions(&ch);
+        let mut labels: Vec<String> = vec!["Automatisch zuordnen".into()];
+        labels.extend(
+            suggestions
+                .iter()
+                .map(|(sid, label)| format!("{label} ({sid})")),
+        );
+        let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let drop = gtk::DropDown::from_strings(&refs);
+        drop.set_enable_search(true);
+        drop.set_expression(Some(gtk::PropertyExpression::new(
+            gtk::StringObject::static_type(),
+            None::<gtk::Expression>,
+            "string",
+        )));
+        if let Some(cur) = ch.epg_id.as_deref() {
+            if let Some(pos) = suggestions.iter().position(|(sid, _)| sid == cur) {
+                drop.set_selected(pos as u32 + 1);
+            }
+        }
+        let d = self.ask(
+            "EPG-Zuordnung",
+            &format!(
+                "Programmdaten für „{}“ (passende Kanäle zuerst):",
+                ch.display_name()
+            ),
+            Some(drop.upcast_ref()),
+            "Übernehmen",
+            false,
+        );
+        let m = self.clone();
+        d.connect_response(Some("ok"), move |_, _| {
+            let sel = drop.selected() as usize;
+            let epg_id = sel
+                .checked_sub(1)
+                .and_then(|i| suggestions.get(i))
+                .map(|(sid, _)| sid.clone());
+            m.set_flag(&[id], |c| c.epg_id = epg_id.clone());
+            m.refill();
+        });
+        d.present(Some(&self.win));
+    }
+
+    fn edit_epg_sources(self: &Rc<Self>) {
+        let text = self.app.settings().epg_sources.join("\n");
+        let buffer = gtk::TextBuffer::new(None);
+        buffer.set_text(&text);
+        let view = gtk::TextView::builder()
+            .buffer(&buffer)
+            .monospace(true)
+            .wrap_mode(gtk::WrapMode::Char)
+            .height_request(120)
+            .width_request(520)
+            .build();
+        let d = self.ask(
+            "EPG-Quellen",
+            "Eine XMLTV-Quelle je Zeile (Datei oder URL, auch .xml.gz):",
+            Some(view.upcast_ref()),
+            "Speichern und neu laden",
+            false,
+        );
+        let m = self.clone();
+        d.connect_response(Some("ok"), move |_, _| {
+            let (a, b) = buffer.bounds();
+            let sources: Vec<String> = buffer
+                .text(&a, &b, false)
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect();
+            m.app.settings_mut().epg_sources = sources;
+            m.app.save_settings();
+            m.app.load_epg(true);
+            m.toast("EPG wird neu geladen …");
         });
         d.present(Some(&self.win));
     }

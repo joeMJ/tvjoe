@@ -2,6 +2,7 @@
 //! damit sie sich unter Linux und Windows ohne GTK testen lässt.
 
 pub mod check;
+pub mod epg;
 pub mod ids;
 pub mod library;
 pub mod m3u;

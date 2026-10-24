@@ -229,6 +229,7 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
         .margin_bottom(12)
         .margin_top(8)
         .build();
+    let guide = mgr.app.guide();
     let mut checks = Vec::new();
     let mut reach = Vec::new();
     for (i, e) in playlist.entries.iter().enumerate() {
@@ -280,8 +281,20 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
         ));
         let r = label("…", 200, "tvjoe-sub");
         hbox.append(&r);
-        // EPG-Treffer folgen mit M6.
-        hbox.append(&label("EPG: –", 90, "tvjoe-sub"));
+        let epg_text = match &guide {
+            Some(g) => {
+                let names: Vec<&str> = [Some(e.name.as_str()), e.attr("tvg-name")]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                match g.match_parts(None, e.tvg_id(), &names) {
+                    Some((id, _)) => format!("EPG: ✔ {id}"),
+                    None => "EPG: ✖ keine Zuordnung".into(),
+                }
+            }
+            None => "EPG: –".into(),
+        };
+        hbox.append(&label(&epg_text, 200, "tvjoe-sub"));
         list.append(&hbox);
         checks.push(check);
         reach.push(r);

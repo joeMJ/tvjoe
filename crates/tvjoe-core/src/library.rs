@@ -65,6 +65,8 @@ pub struct Channel {
     /// Eigene Gruppe, überschreibt `group`.
     pub custom_group: Option<String>,
     pub logo: Option<String>,
+    /// Manuell gesetzte EPG-Kanal-ID (sonst automatische Zuordnung).
+    pub epg_id: Option<String>,
     /// Ziffernblocknummer (in der Bibliothek eindeutig).
     pub number: Option<u32>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -451,6 +453,7 @@ impl Library {
                         group: cand.group,
                         custom_group: None,
                         logo: cand.logo,
+                        epg_id: None,
                         number,
                         favorite: false,
                         active: true,
@@ -700,6 +703,7 @@ mod tests {
             group: None,
             custom_group: None,
             logo: None,
+            epg_id: None,
             number: Some(1),
             favorite: false,
             active: true,

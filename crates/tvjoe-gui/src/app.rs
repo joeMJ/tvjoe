@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use gtk::{gdk, glib};
-use tvjoe_core::{Channel, Library, Quality, Settings, Strategy};
+use tvjoe_core::epg::{self, Guide};
+use tvjoe_core::{Channel, Library, Quality, Settings, Strategy, paths};
 
 use crate::logos::Logos;
 use crate::osd::Osd;
@@ -45,6 +46,17 @@ struct Row {
     id: u64,
     row: gtk::ListBoxRow,
     logo: gtk::Picture,
+    /// Laufende Sendung (EPG).
+    now: gtk::Label,
+}
+
+/// Uhrzeit in Ortszeit, z. B. „18:10“.
+pub fn hm(ts: i64) -> String {
+    glib::DateTime::from_unix_local(ts)
+        .ok()
+        .and_then(|d| d.format("%H:%M").ok())
+        .map(|s| s.to_string())
+        .unwrap_or_default()
 }
 
 pub struct App {
@@ -67,6 +79,8 @@ pub struct App {
     digits: RefCell<String>,
     digit_timer: RefCell<Option<glib::SourceId>>,
     sidebar_before_fullscreen: Cell<bool>,
+    guide: RefCell<Option<Rc<Guide>>>,
+    epg_timer: Cell<bool>,
 }
 
 impl App {
@@ -131,6 +145,11 @@ impl App {
             .tooltip_text("Vollbild (F)")
             .build();
         header.pack_end(&fullscreen_button);
+        let grid_button = gtk::Button::builder()
+            .icon_name("x-office-calendar-symbolic")
+            .tooltip_text("Programm (G)")
+            .build();
+        header.pack_end(&grid_button);
         let content_bar = adw::ToolbarView::new();
         content_bar.add_top_bar(&header);
         content_bar.set_content(Some(&overlay));
@@ -166,10 +185,18 @@ impl App {
             digits: RefCell::new(String::new()),
             digit_timer: RefCell::new(None),
             sidebar_before_fullscreen: Cell::new(true),
+            guide: RefCell::new(None),
+            epg_timer: Cell::new(false),
         });
 
         app.build_rows();
         app.connect_signals(&fullscreen_button, &overlay);
+        let weak = Rc::downgrade(&app);
+        grid_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                crate::grid::open(&app);
+            }
+        });
         let weak = Rc::downgrade(&app);
         manage_button.connect_clicked(move |_| {
             if let Some(app) = weak.upgrade() {
@@ -177,6 +204,102 @@ impl App {
             }
         });
         app
+    }
+
+    pub fn guide(&self) -> Option<Rc<Guide>> {
+        self.guide.borrow().clone()
+    }
+
+    pub fn settings(&self) -> std::cell::Ref<'_, Settings> {
+        self.settings.borrow()
+    }
+
+    pub fn settings_mut(&self) -> std::cell::RefMut<'_, Settings> {
+        self.settings.borrow_mut()
+    }
+
+    /// Lädt das EPG im Hintergrund (Cache, bei Bedarf aus dem Netz). `force` lädt neu.
+    pub fn load_epg(self: &Rc<Self>, force: bool) {
+        let (sources, hours) = {
+            let s = self.settings.borrow();
+            (s.epg_sources.clone(), s.epg_refresh_hours)
+        };
+        if sources.is_empty() {
+            return;
+        }
+        let max_age = if force {
+            Some(Duration::ZERO)
+        } else {
+            (hours > 0).then(|| Duration::from_secs(u64::from(hours) * 3600))
+        };
+        let cache = paths::cache_dir();
+        let (tx, rx) = async_channel::bounded(1);
+        std::thread::spawn(move || {
+            let _ = tx.send_blocking(epg::load_sources(&sources, cache.as_deref(), max_age));
+        });
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            if let Ok((guide, notes)) = rx.recv().await {
+                for n in &notes {
+                    trace(&format!("EPG {n}"));
+                }
+                if let Some(app) = weak.upgrade() {
+                    app.set_guide(guide);
+                }
+            }
+        });
+    }
+
+    fn set_guide(self: &Rc<Self>, guide: Guide) {
+        *self.guide.borrow_mut() = Some(Rc::new(guide));
+        self.refresh_epg();
+        if !self.epg_timer.replace(true) {
+            let weak = Rc::downgrade(self);
+            glib::timeout_add_seconds_local(60, move || match weak.upgrade() {
+                Some(app) => {
+                    app.refresh_epg();
+                    glib::ControlFlow::Continue
+                }
+                None => glib::ControlFlow::Break,
+            });
+        }
+    }
+
+    /// Aktualisiert die Zeile „laufende Sendung“ in der Senderliste.
+    pub fn refresh_epg(&self) {
+        let Some(guide) = self.guide() else { return };
+        let lib = self.lib.borrow();
+        let now = epg::now();
+        for r in self.rows.borrow().iter() {
+            let current = lib
+                .channel(r.id)
+                .and_then(|c| guide.match_channel(c))
+                .and_then(|(id, _)| guide.now_next(&id, now).0.cloned());
+            match current {
+                Some(p) => {
+                    r.now
+                        .set_label(&format!("{} · bis {}", p.title, hm(p.stop)));
+                    r.now.set_tooltip_text(Some(&p.title));
+                    r.now.set_visible(true);
+                }
+                None => r.now.set_visible(false),
+            }
+        }
+    }
+
+    /// „Jetzt …“ und „Danach …“ für die Einblendung.
+    fn epg_lines(&self, ch: &Channel) -> Option<String> {
+        let guide = self.guide()?;
+        let (id, _) = guide.match_channel(ch)?;
+        let (cur, next) = guide.now_next(&id, epg::now());
+        let mut lines = Vec::new();
+        if let Some(p) = cur {
+            lines.push(format!("Jetzt {}–{}  {}", hm(p.start), hm(p.stop), p.title));
+        }
+        if let Some(p) = next {
+            lines.push(format!("Danach {}  {}", hm(p.start), p.title));
+        }
+        (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
     pub fn library(&self) -> std::cell::Ref<'_, Library> {
@@ -210,6 +333,7 @@ impl App {
         if let Some(dir) = tvjoe_core::paths::logo_cache_dir() {
             self.load_logos(dir);
         }
+        self.refresh_epg();
         if self.current.get().is_none() {
             self.start(None);
         }
@@ -259,6 +383,13 @@ impl App {
             text.set_valign(gtk::Align::Center);
             text.append(&name);
             text.append(&sub);
+            let now = gtk::Label::builder()
+                .css_classes(["tvjoe-sub"])
+                .xalign(0.0)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .visible(false)
+                .build();
+            text.append(&now);
             let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 10);
             hbox.append(&num);
             hbox.append(&crate::logo_box(&logo, 56));
@@ -278,6 +409,7 @@ impl App {
                 id: ch.id,
                 row,
                 logo,
+                now,
             });
         }
     }
@@ -451,11 +583,16 @@ impl App {
             let fallback = self.settings.borrow().fallback;
             lib.channel(id).and_then(|ch| {
                 ch.pick_stream(wanted, fallback).map(|s| {
+                    let mut sub = sub_line(ch, s.quality);
+                    if let Some(e) = self.epg_lines(ch) {
+                        sub.push('\n');
+                        sub.push_str(&e);
+                    }
                     (
                         s.url.clone(),
                         number_text(ch),
                         ch.display_name().to_string(),
-                        sub_line(ch, s.quality),
+                        sub,
                     )
                 })
             })
@@ -679,6 +816,10 @@ impl App {
             .find(|s| Some(&s.url) == url.as_ref())
             .and_then(|s| s.quality);
         let mut sub = sub_line(ch, q);
+        if let Some(e) = self.epg_lines(ch) {
+            sub.push('\n');
+            sub.push_str(&e);
+        }
         if let Some(info) = self.player.as_ref().and_then(|p| p.video_info()) {
             sub.push('\n');
             sub.push_str(&info);
@@ -714,6 +855,7 @@ impl App {
             Key::m => self.toggle_mute(),
             Key::l => self.toggle_sidebar(),
             Key::i => self.show_info(),
+            Key::g => crate::grid::open(self),
             _ => return glib::Propagation::Proceed,
         }
         glib::Propagation::Stop

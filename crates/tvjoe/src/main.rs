@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tvjoe_core::{Library, Playlist, Severity, VERSION, paths, syscheck};
+use tvjoe_core::epg::{self, MatchKind};
+use tvjoe_core::{Library, Playlist, Settings, Severity, VERSION, paths, syscheck};
 
 fn main() -> ExitCode {
     let t0 = SystemTime::now()
@@ -26,6 +27,8 @@ fn main() -> ExitCode {
         }
         Some("--check") => check(args.iter().any(|a| a == "--dev")),
         Some("--import") => import(&args[1..]),
+        Some("--epg-add") => epg_add(&args[1..]),
+        Some("--epg-check") => epg_check(&args[1..]),
         _ => start_gui(t0, &args),
     }
 }
@@ -38,6 +41,8 @@ Aufruf:
   tvjoe [--channel NUMMER] [--mute] [--quit-after SEKUNDEN]
   tvjoe --import DATEI.m3u [--name NAME] [--mit-warnungen]
   tvjoe --check [--dev]
+  tvjoe --epg-add QUELLE          XMLTV-Datei oder -URL in die Einstellungen aufnehmen
+  tvjoe --epg-check [QUELLE …]    Zuordnung der Sender zum EPG prüfen
   tvjoe --version
 
 --import übernimmt Einträge ohne Befund; mit --mit-warnungen auch Einträge mit Warnungen.
@@ -270,5 +275,98 @@ fn import(args: &[String]) -> ExitCode {
         out.missing,
         lib_path.display()
     );
+    ExitCode::SUCCESS
+}
+
+fn load_settings() -> (Option<PathBuf>, Settings) {
+    let path = paths::settings_path();
+    let settings = path
+        .as_deref()
+        .and_then(|p| {
+            Settings::load(p)
+                .map_err(|e| eprintln!("{}: {e}", p.display()))
+                .ok()
+        })
+        .unwrap_or_default();
+    (path, settings)
+}
+
+fn epg_add(args: &[String]) -> ExitCode {
+    let Some(src) = args.first() else {
+        eprintln!("tvjoe --epg-add: Quelle fehlt");
+        return ExitCode::from(2);
+    };
+    let (path, mut settings) = load_settings();
+    let Some(path) = path else {
+        return ExitCode::FAILURE;
+    };
+    if !settings.epg_sources.contains(src) {
+        settings.epg_sources.push(src.clone());
+    }
+    match settings.save(&path) {
+        Ok(()) => {
+            println!("EPG-Quellen: {}", settings.epg_sources.join(", "));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{}: {e}", path.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn epg_check(args: &[String]) -> ExitCode {
+    let (_, settings) = load_settings();
+    let sources: Vec<String> = if args.is_empty() {
+        settings.epg_sources.clone()
+    } else {
+        args.to_vec()
+    };
+    if sources.is_empty() {
+        eprintln!("Keine EPG-Quelle: tvjoe --epg-add URL oder tvjoe --epg-check URL");
+        return ExitCode::from(2);
+    }
+    let lib = paths::library_path()
+        .and_then(|p| Library::load(&p).ok())
+        .unwrap_or_default();
+    let cache = paths::cache_dir();
+    let max_age = (settings.epg_refresh_hours > 0)
+        .then(|| std::time::Duration::from_secs(u64::from(settings.epg_refresh_hours) * 3600));
+    let started = std::time::Instant::now();
+    let (guide, notes) = epg::load_sources(&sources, cache.as_deref(), max_age);
+    for n in &notes {
+        println!("{n}");
+    }
+    println!("geladen in {:.1} s", started.elapsed().as_secs_f64());
+    let now = epg::now();
+    let mut matched = 0;
+    for ch in &lib.channels {
+        let num = ch.number.map(|n| n.to_string()).unwrap_or_default();
+        match guide.match_channel(ch) {
+            Some((id, kind)) => {
+                matched += 1;
+                let how = match kind {
+                    MatchKind::Manual => "manuell",
+                    MatchKind::TvgId => "tvg-id",
+                    MatchKind::Name => "Name",
+                };
+                let current = guide
+                    .now_next(&id, now)
+                    .0
+                    .map(|p| p.title.as_str())
+                    .unwrap_or("–");
+                println!(
+                    "✔ {num:>3} {:<28} → {id} ({how}) · jetzt: {current}",
+                    ch.display_name()
+                );
+            }
+            None => println!(
+                "✖ {num:>3} {:<28} → keine Zuordnung (tvg-id {})",
+                ch.display_name(),
+                ch.tvg_id.as_deref().unwrap_or("–")
+            ),
+        }
+    }
+    println!("{matched} von {} Sendern zugeordnet", lib.channels.len());
     ExitCode::SUCCESS
 }

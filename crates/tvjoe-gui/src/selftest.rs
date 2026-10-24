@@ -100,6 +100,19 @@ const STEPS: &[Step] = &[
         },
         1500,
     ),
+    (
+        "11-programm",
+        |p| crate::grid::open_window(&p.app).map(|w| w.upcast()),
+        2000,
+    ),
+    (
+        "12-hauptfenster-epg",
+        |p| {
+            p.app.show_info();
+            main_window(p)
+        },
+        1200,
+    ),
 ];
 
 const IMPORT_STEPS: &[Step] = &[

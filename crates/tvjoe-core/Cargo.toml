@@ -10,3 +10,5 @@ rust-version.workspace = true
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
 ureq = "3"
+quick-xml = "0.38"
+flate2 = "1"

@@ -44,6 +44,10 @@ pub struct Settings {
     pub last_channel: Option<u64>,
     /// Lautstärke in Prozent (0–130).
     pub volume: u32,
+    /// XMLTV-Quellen (Dateien oder URLs).
+    pub epg_sources: Vec<String>,
+    /// EPG aus dem Netz neu laden, wenn der Cache älter ist (Stunden; 0 = nur per Knopf).
+    pub epg_refresh_hours: u32,
 }
 
 impl Default for Settings {
@@ -58,6 +62,8 @@ impl Default for Settings {
             resume_last: true,
             last_channel: None,
             volume: 100,
+            epg_sources: Vec::new(),
+            epg_refresh_hours: 24,
         }
     }
 }
