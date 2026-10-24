@@ -12,8 +12,11 @@ dauer=${1:-30}
 kanal=${2:-}
 anlauf=10
 dir="$(cd "$(dirname "$0")/.." && pwd)"
+# Eigener Build bevorzugt, sonst das installierte Paket.
 bin="$dir/target/release/tvjoe"
-[ -x "$bin" ] || { echo "Erst bauen: cargo build --release" >&2; exit 1; }
+[ -x "$bin" ] || bin="$(command -v tvjoe || true)"
+[ -n "$bin" ] && [ -x "$bin" ] || { echo "Weder Build noch Paket gefunden (cargo build --release oder .deb installieren)" >&2; exit 1; }
+echo "Messe mit: $bin"
 
 log="$(mktemp -t tvjoe-messung.XXXXXX)"
 args=(--mute --quit-after $((anlauf + dauer + 2)))
