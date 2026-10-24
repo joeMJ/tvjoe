@@ -1,5 +1,5 @@
 //! Senderanzeige über dem Bild, unten über die ganze Bildbreite (abgestimmtes Mockup):
-//! links Nummer mit Quellsymbol | Logo in Schwarzweiß | Name, darunter Kategorie und Qualität;
+//! links Nummer | Logo in Schwarzweiß | Name, darunter Quellsymbol, Kategorie und Qualität;
 //! rechts „Jetzt“ mit gekürzter Beschreibung und „Danach“. Alle Teile sind einzeln abschaltbar.
 
 use std::cell::RefCell;
@@ -12,7 +12,7 @@ use gtk::prelude::*;
 /// Breite der Namensspalte (lange Namen werden mit „…“ gekürzt).
 const NAME_WIDTH: i32 = 260;
 
-/// Herkunft des Streams (Symbol an der Nummer).
+/// Herkunft des Streams (Symbol vor der Qualität).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
     Internet,
@@ -77,15 +77,7 @@ impl Osd {
             .width_chars(3)
             .xalign(0.5)
             .build();
-        let origin = gtk::Image::builder()
-            .css_classes(["tvjoe-osd-origin"])
-            .pixel_size(14)
-            .halign(gtk::Align::End)
-            .valign(gtk::Align::Start)
-            .build();
-        let number_box = gtk::Overlay::builder().child(&number).build();
-        number_box.add_overlay(&origin);
-        number_box.set_valign(gtk::Align::Center);
+        number.set_valign(gtk::Align::Center);
 
         let logo = gtk::Picture::builder()
             .content_fit(gtk::ContentFit::Contain)
@@ -104,11 +96,20 @@ impl Osd {
         logo_slot.set_valign(gtk::Align::Center);
 
         let name = label("tvjoe-osd-name");
+        // Zweite Zeile unter dem Namen: Quellsymbol, dann Kategorie/Qualität („🌐 720p“).
+        let origin = gtk::Image::builder()
+            .css_classes(["tvjoe-osd-origin"])
+            .pixel_size(14)
+            .valign(gtk::Align::Center)
+            .build();
         let meta = label("tvjoe-osd-sub");
+        let meta_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        meta_row.append(&origin);
+        meta_row.append(&meta);
         let name_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
         name_box.set_valign(gtk::Align::Center);
         name_box.append(&name);
-        name_box.append(&meta);
+        name_box.append(&meta_row);
         let name_slot = adw::Clamp::builder()
             .orientation(gtk::Orientation::Horizontal)
             .maximum_size(NAME_WIDTH)
@@ -152,7 +153,7 @@ impl Osd {
             .visible(false)
             .can_target(false)
             .build();
-        root.append(&number_box);
+        root.append(&number);
         root.append(&sep_number);
         root.append(&logo_slot);
         root.append(&sep_logo);
@@ -191,7 +192,7 @@ impl Osd {
         let has_number = !info.number.is_empty();
         self.number.set_label(&info.number);
         self.number.set_visible(has_number);
-        match info.origin.filter(|_| has_number) {
+        match info.origin {
             Some(o) => {
                 self.origin.set_icon_name(Some(match o {
                     Origin::Internet => "web-browser-symbolic",

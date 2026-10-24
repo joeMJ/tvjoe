@@ -45,7 +45,7 @@ pub fn open(app: &Rc<App>) {
     };
     let osd_number = switch("Kanalnummer", s.osd_number);
     let osd_origin = switch(
-        "Quellsymbol an der Nummer (Internet, Satellit)",
+        "Quellsymbol vor der Qualität (Internet, Satellit)",
         s.osd_origin,
     );
     let osd_logo = switch("Senderlogo (schwarzweiß)", s.osd_logo);
