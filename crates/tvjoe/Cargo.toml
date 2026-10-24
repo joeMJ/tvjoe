@@ -1,0 +1,10 @@
+[package]
+name = "tvjoe"
+description = "tvjoe: Streaming-Client für Live-TV"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tvjoe-core = { path = "../tvjoe-core" }

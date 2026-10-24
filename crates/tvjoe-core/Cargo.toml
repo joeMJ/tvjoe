@@ -1,0 +1,9 @@
+[package]
+name = "tvjoe-core"
+description = "tvjoe: Kernbibliothek (M3U, Bibliothek, EPG), ohne Oberfläche"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
