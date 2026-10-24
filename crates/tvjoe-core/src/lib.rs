@@ -11,6 +11,7 @@ pub mod paths;
 pub mod settings;
 pub mod store;
 pub mod syscheck;
+pub mod update;
 
 pub use check::{Finding, FindingKind, Severity};
 pub use ids::normalize_id;

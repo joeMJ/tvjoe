@@ -8,8 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 tvjoe-core = { path = "../tvjoe-core" }
-gtk = { package = "gtk4", version = "0.11", features = ["v4_16"] }
-adw = { package = "libadwaita", version = "0.9", features = ["v1_6"] }
+gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_5"] }
 libmpv2 = "6"
 libloading = "0.9"
 async-channel = "2"

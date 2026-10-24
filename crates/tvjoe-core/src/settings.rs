@@ -48,6 +48,8 @@ pub struct Settings {
     pub epg_sources: Vec<String>,
     /// EPG aus dem Netz neu laden, wenn der Cache älter ist (Stunden; 0 = nur per Knopf).
     pub epg_refresh_hours: u32,
+    /// Zeitpunkt der letzten Updateprüfung (Sekunden seit 1970).
+    pub update_last_check: Option<u64>,
 }
 
 impl Default for Settings {
@@ -64,6 +66,7 @@ impl Default for Settings {
             volume: 100,
             epg_sources: Vec::new(),
             epg_refresh_hours: 24,
+            update_last_check: None,
         }
     }
 }

@@ -8,6 +8,7 @@ mod logos;
 mod manage;
 mod osd;
 mod player;
+mod prefs;
 mod selftest;
 
 use std::sync::OnceLock;
@@ -134,6 +135,9 @@ fn activate(application: &adw::Application, opts: &Options) {
     // EPG ebenfalls im Hintergrund (Cache, bei Bedarf Netz).
     let a = app.clone();
     glib::timeout_add_local_once(Duration::from_millis(500), move || a.load_epg(false));
+    // Updateprüfung nur, wenn eingeschaltet (Standard: aus), frühestens nach 10 s.
+    let a = app.clone();
+    glib::timeout_add_seconds_local_once(10, move || prefs::maybe_check_on_start(&a));
     if let Some(p) = app.player.clone() {
         glib::timeout_add_seconds_local_once(8, move || trace(&p.report()));
     }

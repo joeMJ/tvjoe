@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=tvjoe
+GenericName=Fernsehen
+Comment=Live-TV aus eigenen M3U-Listen
+Exec=tvjoe
+Icon=io.github.joeMJ.tvjoe
+Terminal=false
+Categories=AudioVideo;Video;TV;Player;GTK;
+Keywords=TV;IPTV;M3U;EPG;Fernsehen;
+SingleMainWindow=true

@@ -29,6 +29,7 @@ fn main() -> ExitCode {
         Some("--import") => import(&args[1..]),
         Some("--epg-add") => epg_add(&args[1..]),
         Some("--epg-check") => epg_check(&args[1..]),
+        Some("--update-check") => update_check(),
         _ => start_gui(t0, &args),
     }
 }
@@ -43,6 +44,7 @@ Aufruf:
   tvjoe --check [--dev]
   tvjoe --epg-add QUELLE          XMLTV-Datei oder -URL in die Einstellungen aufnehmen
   tvjoe --epg-check [QUELLE …]    Zuordnung der Sender zum EPG prüfen
+  tvjoe --update-check            nach neuer Version auf GitHub fragen
   tvjoe --version
 
 --import übernimmt Einträge ohne Befund; mit --mit-warnungen auch Einträge mit Warnungen.
@@ -369,4 +371,30 @@ fn epg_check(args: &[String]) -> ExitCode {
     }
     println!("{matched} von {} Sendern zugeordnet", lib.channels.len());
     ExitCode::SUCCESS
+}
+
+fn update_check() -> ExitCode {
+    use tvjoe_core::update;
+    println!(
+        "Installiert: {VERSION} · Distribution: {} · Architektur: {}",
+        update::distro_tag().unwrap_or_else(|| "?".into()),
+        update::deb_arch()
+    );
+    match update::check() {
+        Ok(Some(r)) => {
+            println!("Neue Version: {} ({})", r.tag_name, r.html_url);
+            ExitCode::SUCCESS
+        }
+        Ok(None) => {
+            println!(
+                "Keine neuere Version (oder noch keine Veröffentlichung auf github.com/{}).",
+                update::REPO
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("Prüfung fehlgeschlagen: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }

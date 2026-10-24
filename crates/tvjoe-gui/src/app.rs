@@ -150,6 +150,11 @@ impl App {
             .tooltip_text("Programm (G)")
             .build();
         header.pack_end(&grid_button);
+        let prefs_button = gtk::Button::builder()
+            .icon_name("emblem-system-symbolic")
+            .tooltip_text("Einstellungen (Strg+,)")
+            .build();
+        header.pack_end(&prefs_button);
         let content_bar = adw::ToolbarView::new();
         content_bar.add_top_bar(&header);
         content_bar.set_content(Some(&overlay));
@@ -191,6 +196,12 @@ impl App {
 
         app.build_rows();
         app.connect_signals(&fullscreen_button, &overlay);
+        let weak = Rc::downgrade(&app);
+        prefs_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                crate::prefs::open(&app);
+            }
+        });
         let weak = Rc::downgrade(&app);
         grid_button.connect_clicked(move |_| {
             if let Some(app) = weak.upgrade() {
@@ -849,6 +860,7 @@ impl App {
             Key::Right | Key::KP_Right | Key::KP_Add | Key::plus => self.change_volume(5),
             Key::q if ctrl => self.window.close(),
             Key::e if ctrl => crate::manage::open(self),
+            Key::comma if ctrl => crate::prefs::open(self),
             Key::q => self.cycle_quality(),
             Key::f => self.window.set_fullscreened(!self.window.is_fullscreen()),
             Key::Escape => self.window.set_fullscreened(false),
