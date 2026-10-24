@@ -1,6 +1,6 @@
-# Baut bei einem Versionsschild v… das .deb für Ubuntu 24.04 und legt ein Release mit
-# tvjoe_<version>_ubuntu24.04_amd64.deb und SHA256SUMS an (Namensschema der Updatefunktion
-# und von install.sh).
+# Baut bei einem Versionsschild v… die .deb-Pakete für Ubuntu 24.04 und 26.04 und legt ein
+# Release mit tvjoe_<version>_<distro>_amd64.deb und einer gemeinsamen SHA256SUMS an
+# (Namensschema der Updatefunktion und von install.sh).
 name: Release
 
 on:
@@ -12,29 +12,60 @@ permissions:
   contents: write
 
 jobs:
-  deb:
+  ubuntu2404:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
       - name: Systempakete
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libmpv-dev pkg-config
-
-      - name: Rust
-        uses: dtolnay/rust-toolchain@stable
-
+      - uses: dtolnay/rust-toolchain@stable
       - name: Tests
         run: cargo test --locked -p tvjoe-core
-
       - name: Paket bauen
         run: tools/build-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-ubuntu24.04
+          path: target/deb/*.deb
 
-      - name: Release anlegen
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+  ubuntu2604:
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Systempakete
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates curl git build-essential pkg-config dpkg-dev \
+            libgtk-4-dev libadwaita-1-dev libmpv-dev
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Tests
+        run: cargo test --locked -p tvjoe-core
+      - name: Paket bauen
+        run: tools/build-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-ubuntu26.04
+          path: target/deb/*.deb
+
+  release:
+    needs: [ubuntu2404, ubuntu2604]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          merge-multiple: true
+          path: dist
+      - name: Prüfsummen
+        run: cd dist && sha256sum *.deb > SHA256SUMS && cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
         with:
           files: |
-            target/deb/*.deb
-            target/deb/SHA256SUMS
+            dist/*.deb
+            dist/SHA256SUMS
