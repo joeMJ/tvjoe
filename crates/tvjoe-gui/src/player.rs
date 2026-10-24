@@ -222,26 +222,6 @@ impl Player {
         self.mpv.get_property::<bool>("mute").ok()
     }
 
-    /// Auflösung und Codec der laufenden Wiedergabe, z. B. „1920×1080 · H.264“.
-    pub fn video_info(&self) -> Option<String> {
-        let w = self.mpv.get_property::<i64>("video-params/w").ok()?;
-        let h = self.mpv.get_property::<i64>("video-params/h").ok()?;
-        let codec = self
-            .mpv
-            .get_property::<String>("video-format")
-            .unwrap_or_default();
-        let hw = self
-            .mpv
-            .get_property::<String>("hwdec-current")
-            .unwrap_or_default();
-        let hw = if hw.is_empty() || hw == "no" {
-            "Software".into()
-        } else {
-            hw
-        };
-        Some(format!("{w}×{h} · {} · {hw}", codec.to_uppercase()))
-    }
-
     /// Kurzbericht zur laufenden Wiedergabe (für Messungen).
     pub fn report(&self) -> String {
         let s = |p: &str| {

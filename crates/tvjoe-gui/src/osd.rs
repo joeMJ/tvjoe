@@ -9,6 +9,9 @@ use std::rc::Rc;
 use gtk::glib;
 use gtk::prelude::*;
 
+/// Breite der Namensspalte (lange Namen werden mit „…“ gekürzt).
+const NAME_WIDTH: i32 = 260;
+
 /// Herkunft des Streams (Symbol an der Nummer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
@@ -68,8 +71,11 @@ fn vsep() -> gtk::Separator {
 
 impl Osd {
     pub fn new() -> Rc<Self> {
+        // Feste Spaltenbreiten, damit der Programmtext bei jedem Sender an derselben Stelle beginnt.
         let number = gtk::Label::builder()
             .css_classes(["tvjoe-osd-number"])
+            .width_chars(3)
+            .xalign(0.5)
             .build();
         let origin = gtk::Image::builder()
             .css_classes(["tvjoe-osd-origin"])
@@ -103,6 +109,14 @@ impl Osd {
         name_box.set_valign(gtk::Align::Center);
         name_box.append(&name);
         name_box.append(&meta);
+        let name_slot = adw::Clamp::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .maximum_size(NAME_WIDTH)
+            .tightening_threshold(NAME_WIDTH)
+            .width_request(NAME_WIDTH)
+            .child(&name_box)
+            .build();
+        name_slot.set_valign(gtk::Align::Center);
 
         let now = label("tvjoe-osd-now");
         let desc = gtk::Label::builder()
@@ -142,7 +156,7 @@ impl Osd {
         root.append(&sep_number);
         root.append(&logo_slot);
         root.append(&sep_logo);
-        root.append(&name_box);
+        root.append(&name_slot);
         root.append(&sep_right);
         root.append(&right);
 

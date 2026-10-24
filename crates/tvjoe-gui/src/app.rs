@@ -928,13 +928,12 @@ impl App {
         self.split.set_show_sidebar(!self.split.shows_sidebar());
     }
 
-    /// Senderanzeige erneut zeigen (Taste I, Mausklick aufs Bild), mit Videodaten.
+    /// Senderanzeige erneut zeigen (Taste I, Mausklick aufs Bild).
     pub fn show_info(&self) {
         let Some(id) = self.current.get() else { return };
         let lib = self.lib.borrow();
         let Some(ch) = lib.channel(id) else { return };
-        let extra = self.player.as_ref().and_then(|p| p.video_info());
-        let info = self.channel_info(ch, self.current_stream_of(ch), extra);
+        let info = self.channel_info(ch, self.current_stream_of(ch), None);
         self.osd.show_channel(&info, self.overlay_secs() * 2);
     }
 
