@@ -8,6 +8,7 @@ pub mod m3u;
 pub mod paths;
 pub mod settings;
 pub mod store;
+pub mod syscheck;
 
 pub use check::{Finding, FindingKind, Severity};
 pub use ids::normalize_id;

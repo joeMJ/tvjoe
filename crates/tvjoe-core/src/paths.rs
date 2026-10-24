@@ -3,14 +3,16 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-/// Konfigurationsordner, z. B. `~/.config/tvjoe`.
+/// Konfigurationsordner, z. B. `~/.config/tvjoe`. `TVJOE_CONFIG_DIR` überschreibt (Tests, Messungen).
 pub fn config_dir() -> Option<PathBuf> {
-    config_dir_from(cfg!(windows), |k| std::env::var_os(k))
+    nonempty(std::env::var_os("TVJOE_CONFIG_DIR"))
+        .or_else(|| config_dir_from(cfg!(windows), |k| std::env::var_os(k)))
 }
 
-/// Cacheordner, z. B. `~/.cache/tvjoe`.
+/// Cacheordner, z. B. `~/.cache/tvjoe`. `TVJOE_CACHE_DIR` überschreibt.
 pub fn cache_dir() -> Option<PathBuf> {
-    cache_dir_from(cfg!(windows), |k| std::env::var_os(k))
+    nonempty(std::env::var_os("TVJOE_CACHE_DIR"))
+        .or_else(|| cache_dir_from(cfg!(windows), |k| std::env::var_os(k)))
 }
 
 pub fn library_path() -> Option<PathBuf> {

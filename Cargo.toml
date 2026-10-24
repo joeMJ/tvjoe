@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/tvjoe-core", "crates/tvjoe"]
+members = ["crates/tvjoe-core", "crates/tvjoe", "crates/tvjoe-gui"]
 
 [workspace.package]
 version = "0.0.1"
