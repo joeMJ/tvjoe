@@ -1,9 +1,9 @@
 //! Hauptfenster: Senderliste links, Bild rechts, Einblendung über dem Bild, Tastensteuerung.
 //!
 //! Tasten (Projektplan M4): Ziffern = Sender wählen (Pause aus den Einstellungen, Enter sofort),
-//! Pfeil hoch/runter bzw. Bild hoch/runter = Senderwechsel, F = Vollbild, Esc = Vollbild aus,
+//! Pfeil links/rechts bzw. Bild hoch/runter = Senderwechsel, F = Vollbild, Esc = Vollbild aus,
 //! M = stumm, Q = Qualität eine Stufe höher (mit Umbruch), L = Senderliste, I = Info,
-//! Pfeil links/rechts und Mausrad = Lautstärke, Strg+Q = Beenden.
+//! Pfeil hoch/runter, +/− und Mausrad = Lautstärke, Strg+Q = Beenden.
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -1008,10 +1008,10 @@ impl App {
         }
         match key.to_lower() {
             Key::Return | Key::KP_Enter if !self.digits.borrow().is_empty() => self.commit_digits(),
-            Key::Up | Key::KP_Up | Key::Page_Up => self.step(-1),
-            Key::Down | Key::KP_Down | Key::Page_Down => self.step(1),
-            Key::Left | Key::KP_Left | Key::KP_Subtract | Key::minus => self.change_volume(-5),
-            Key::Right | Key::KP_Right | Key::KP_Add | Key::plus => self.change_volume(5),
+            Key::Left | Key::KP_Left | Key::Page_Up => self.step(-1),
+            Key::Right | Key::KP_Right | Key::Page_Down => self.step(1),
+            Key::Down | Key::KP_Down | Key::KP_Subtract | Key::minus => self.change_volume(-5),
+            Key::Up | Key::KP_Up | Key::KP_Add | Key::plus => self.change_volume(5),
             Key::q if ctrl => self.window.close(),
             Key::e if ctrl => crate::manage::open(self),
             Key::comma if ctrl => crate::prefs::open(self),

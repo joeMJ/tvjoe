@@ -20,8 +20,8 @@ CPU-Last durch Hardware-Decoding.
 | Taste | Wirkung |
 |---|---|
 | Ziffern, Enter | Sender wählen (Pause einstellbar) |
-| ↑ / ↓, Bild ↑ / ↓ | Sender wechseln |
-| ← / →, Mausrad | Lautstärke |
+| ← / →, Bild ↑ / ↓ | Sender wechseln |
+| ↑ / ↓, + / −, Mausrad | Lautstärke |
 | Q | Qualität eine Stufe höher |
 | F, Doppelklick / Esc | Vollbild / Vollbild aus |
 | M | Ton aus/an |
