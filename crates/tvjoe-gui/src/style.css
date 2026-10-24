@@ -75,3 +75,9 @@
   color: #ffffff;
   font-weight: 700;
 }
+
+/* Ablageziel beim Verschieben */
+.tvjoe-list row:drop(active),
+.tvjoe-table row:drop(active) {
+  box-shadow: inset 0 0 0 2px #78aeed;
+}

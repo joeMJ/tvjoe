@@ -1,6 +1,7 @@
 //! Oberfläche von tvjoe (wird vom Starter `tvjoe` aufgerufen).
 
 mod app;
+mod dnd;
 mod gl;
 mod grid;
 mod import;

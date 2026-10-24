@@ -321,6 +321,22 @@ impl App {
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
+    /// Ziehen und Ablegen: Sender verschieben, Nummern nach Position neu vergeben.
+    pub fn move_channel_relative(self: &Rc<Self>, id: u64, target: u64, after: bool) {
+        let moved = {
+            let mut lib = self.lib.borrow_mut();
+            let moved = lib.move_relative(id, target, after);
+            if moved {
+                lib.renumber();
+            }
+            moved
+        };
+        if moved {
+            self.library_changed();
+            crate::manage::refresh_if_open();
+        }
+    }
+
     pub fn library(&self) -> std::cell::Ref<'_, Library> {
         self.lib.borrow()
     }
@@ -358,7 +374,7 @@ impl App {
         }
     }
 
-    fn build_rows(&self) {
+    fn build_rows(self: &Rc<Self>) {
         let lib = self.lib.borrow();
         let mut rows = self.rows.borrow_mut();
         for ch in lib.channels.iter().filter(|c| usable(c)) {
@@ -423,6 +439,12 @@ impl App {
                 );
             }
             let row = gtk::ListBoxRow::builder().child(&hbox).build();
+            let weak = Rc::downgrade(self);
+            crate::dnd::attach(&row, ch.id, move |src, target, after| {
+                if let Some(app) = weak.upgrade() {
+                    app.move_channel_relative(src, target, after);
+                }
+            });
             self.list.append(&row);
             rows.push(Row {
                 id: ch.id,

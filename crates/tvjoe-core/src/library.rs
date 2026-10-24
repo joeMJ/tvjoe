@@ -332,6 +332,30 @@ impl Library {
         true
     }
 
+    /// Verschiebt einen Sender vor (oder hinter) einen anderen (Ziehen und Ablegen).
+    pub fn move_relative(&mut self, id: u64, target: u64, after: bool) -> bool {
+        if id == target {
+            return false;
+        }
+        let Some(from) = self.channels.iter().position(|c| c.id == id) else {
+            return false;
+        };
+        let c = self.channels.remove(from);
+        let Some(t) = self.channels.iter().position(|c| c.id == target) else {
+            self.channels.insert(from, c);
+            return false;
+        };
+        self.channels.insert(if after { t + 1 } else { t }, c);
+        true
+    }
+
+    /// Nummern nach Position neu vergeben (1, 2, 3 … in der Anzeigereihenfolge), wie bei EyeTV.
+    pub fn renumber(&mut self) {
+        for (i, c) in self.channels.iter_mut().enumerate() {
+            c.number = Some(i as u32 + 1);
+        }
+    }
+
     pub fn remove_channel(&mut self, id: u64) -> bool {
         let before = self.channels.len();
         self.channels.retain(|c| c.id != id);
@@ -897,6 +921,41 @@ mod tests {
         // Nur ausgewählte Sender.
         let nur = lib.export_m3u(Some(&[id]));
         assert_eq!(nur.matches("#EXTINF").count(), 2);
+    }
+
+    #[test]
+    fn ziehen_und_neu_nummerieren() {
+        let mut lib = Library::default();
+        let src = lib.add_source("Test", "test.m3u");
+        let p = pl(&[
+            ("1", "A.de", "sd", "https://x.invalid/a.m3u8"),
+            ("2", "B.de", "sd", "https://x.invalid/b.m3u8"),
+            ("3", "C.de", "sd", "https://x.invalid/c.m3u8"),
+        ]);
+        lib.import(src, &p, None, 1).unwrap();
+        let id = |lib: &Library, n: &str| name(lib, n).id;
+        let (a, b, c) = (id(&lib, "A.de"), id(&lib, "B.de"), id(&lib, "C.de"));
+        // C vor A ziehen.
+        assert!(lib.move_relative(c, a, false));
+        let order: Vec<_> = lib.channels.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(order, ["C.de", "A.de", "B.de"]);
+        // A hinter B ziehen.
+        assert!(lib.move_relative(a, b, true));
+        let order: Vec<_> = lib.channels.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(order, ["C.de", "B.de", "A.de"]);
+        assert!(!lib.move_relative(a, a, false));
+        assert!(!lib.move_relative(a, 999, false));
+        assert_eq!(lib.channels.len(), 3);
+        lib.renumber();
+        let nums: Vec<_> = lib
+            .channels
+            .iter()
+            .map(|c| (c.name.as_str(), c.number))
+            .collect();
+        assert_eq!(
+            nums,
+            [("C.de", Some(1)), ("B.de", Some(2)), ("A.de", Some(3))]
+        );
     }
 
     #[test]

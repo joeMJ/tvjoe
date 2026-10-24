@@ -28,6 +28,15 @@ thread_local! {
     static OPEN: RefCell<Option<Rc<Manager>>> = const { RefCell::new(None) };
 }
 
+/// Aktualisiert die Tabelle, falls das Fenster gerade sichtbar ist.
+pub fn refresh_if_open() {
+    if let Some(m) = OPEN.with(|o| o.borrow().clone()) {
+        if m.win.is_visible() {
+            m.refill();
+        }
+    }
+}
+
 /// Öffnet das Fenster (oder zeigt es wieder, mit aktuellem Inhalt).
 pub fn open(app: &Rc<App>) {
     open_manager(app);
@@ -175,6 +184,7 @@ impl Manager {
 
     /// Baut die Tabelle aus der Bibliothek neu auf.
     pub fn refill(self: &Rc<Self>) {
+        self.list.unselect_all();
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
         }
@@ -297,6 +307,22 @@ impl Manager {
         hbox.append(&fav);
 
         let row = gtk::ListBoxRow::builder().child(&hbox).build();
+        let m = Rc::downgrade(self);
+        crate::dnd::attach(&row, id, move |src, target, after| {
+            let Some(m) = m.upgrade() else { return };
+            let moved = {
+                let mut lib = m.app.library_mut();
+                let moved = lib.move_relative(src, target, after);
+                if moved {
+                    lib.renumber();
+                }
+                moved
+            };
+            if moved {
+                m.app.library_changed();
+                m.refill();
+            }
+        });
         let click = gtk::GestureClick::builder()
             .button(gdk::BUTTON_SECONDARY)
             .build();
@@ -351,12 +377,21 @@ impl Manager {
             it
         };
         let menu = gio::Menu::new();
+        // Einzelaktionen gelten immer für die angeklickte Zeile, auch bei Mehrfachauswahl.
+        let single = gio::Menu::new();
+        single.append_item(&item("Umbenennen…", "rename"));
+        single.append_item(&item("Nummer ändern…", "number"));
+        single.append_item(&item("EPG-Zuordnung…", "epg"));
+        let label = if n > 1 {
+            self.app
+                .library()
+                .channel(id)
+                .map(|c| c.display_name().to_string())
+        } else {
+            None
+        };
+        menu.append_section(label.as_deref(), &single);
         let s1 = gio::Menu::new();
-        if n == 1 {
-            s1.append_item(&item("Umbenennen…", "rename"));
-            s1.append_item(&item("Nummer ändern…", "number"));
-            s1.append_item(&item("EPG-Zuordnung…", "epg"));
-        }
         s1.append_item(&item("Eigenen Namen löschen", "reset-name"));
         menu.append_section(None, &s1);
         let s2 = gio::Menu::new();
@@ -650,6 +685,8 @@ impl Manager {
                     lib.move_channel(cid, to);
                 }
             }
+            // Nummern folgen der Position (wie bei EyeTV).
+            lib.renumber();
         }
         self.app.library_changed();
         self.refill();
