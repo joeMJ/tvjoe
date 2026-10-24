@@ -52,6 +52,14 @@ pub struct Settings {
     pub update_last_check: Option<u64>,
     /// Gewählte Qualität als Obergrenze (nie höher, solange es eine Stufe darunter gibt).
     pub quality_cap: bool,
+    /// Senderanzeige: welche Teile erscheinen (Kategorie standardmäßig aus).
+    pub osd_number: bool,
+    pub osd_origin: bool,
+    pub osd_logo: bool,
+    pub osd_category: bool,
+    pub osd_quality: bool,
+    pub osd_epg: bool,
+    pub osd_description: bool,
 }
 
 impl Default for Settings {
@@ -70,6 +78,13 @@ impl Default for Settings {
             epg_refresh_hours: 24,
             update_last_check: None,
             quality_cap: false,
+            osd_number: true,
+            osd_origin: true,
+            osd_logo: true,
+            osd_category: false,
+            osd_quality: true,
+            osd_epg: true,
+            osd_description: true,
         }
     }
 }
@@ -97,6 +112,7 @@ mod tests {
         assert!(!s.update_check);
         assert!(s.resume_last);
         assert_eq!(s.overlay_secs, 4);
+        assert!(!s.osd_category && s.osd_logo && s.osd_description);
     }
 
     #[test]

@@ -13,10 +13,10 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::{gdk, glib};
 use tvjoe_core::epg::{self, Guide};
-use tvjoe_core::{Channel, Library, Quality, Settings, Strategy, paths};
+use tvjoe_core::{Channel, Library, Quality, Settings, SourceKind, Strategy, Stream, net, paths};
 
 use crate::logos::Logos;
-use crate::osd::Osd;
+use crate::osd::{ChannelInfo, Origin, Osd};
 use crate::player::{Player, PlayerEvent};
 use crate::trace;
 
@@ -26,16 +26,6 @@ fn usable(c: &Channel) -> bool {
 
 fn quality_label(q: Option<Quality>) -> &'static str {
     q.map_or("Qualität unbekannt", Quality::label)
-}
-
-/// Zusatzzeile: Gruppe · Qualität.
-fn sub_line(ch: &Channel, q: Option<Quality>) -> String {
-    let mut parts: Vec<&str> = Vec::new();
-    if let Some(g) = ch.display_group() {
-        parts.push(g);
-    }
-    parts.push(quality_label(q));
-    parts.join(" · ")
 }
 
 fn number_text(ch: &Channel) -> String {
@@ -306,19 +296,67 @@ impl App {
         }
     }
 
-    /// „Jetzt …“ und „Danach …“ für die Einblendung.
-    fn epg_lines(&self, ch: &Channel) -> Option<String> {
-        let guide = self.guide()?;
-        let (id, _) = guide.match_channel(ch)?;
-        let (cur, next) = guide.now_next(&id, epg::now());
-        let mut lines = Vec::new();
-        if let Some(p) = cur {
-            lines.push(format!("Jetzt {}–{}  {}", hm(p.start), hm(p.stop), p.title));
+    /// Der gerade laufende Stream eines Senders.
+    fn current_stream_of<'a>(&self, ch: &'a Channel) -> Option<&'a Stream> {
+        let cur = self.current_stream.borrow();
+        ch.streams
+            .iter()
+            .find(|s| cur.as_ref() == Some(&(s.url.clone(), s.max_bitrate)))
+    }
+
+    /// Inhalt der Senderanzeige nach den Einstellungen (abgestimmtes Mockup).
+    fn channel_info(
+        &self,
+        ch: &Channel,
+        stream: Option<&Stream>,
+        extra: Option<String>,
+    ) -> ChannelInfo {
+        let st = self.settings.borrow();
+        let mut meta: Vec<String> = Vec::new();
+        if st.osd_category {
+            meta.extend(ch.display_group().map(String::from));
         }
-        if let Some(p) = next {
-            lines.push(format!("Danach {}  {}", hm(p.start), p.title));
+        if st.osd_quality {
+            meta.push(quality_label(stream.and_then(|s| s.quality)).to_string());
         }
-        (!lines.is_empty()).then(|| lines.join("\n"))
+        let origin = stream.map(|s| match s.kind {
+            Some(SourceKind::SatIp) => Origin::Satellite,
+            _ => Origin::Internet,
+        });
+        let logo = ch
+            .logo
+            .as_deref()
+            .filter(|_| st.osd_logo)
+            .and_then(|u| paths::logo_cache_dir().map(|d| d.join(net::cache_name(u, "png"))))
+            .filter(|p| p.exists());
+        let (mut now, mut desc, mut next) = (None, None, None);
+        if let Some(guide) = self.guide() {
+            if let Some((id, _)) = guide.match_channel(ch) {
+                let (cur, nxt) = guide.now_next(&id, epg::now());
+                if st.osd_epg {
+                    now = cur.map(|p| format!("Jetzt {}–{}  {}", hm(p.start), hm(p.stop), p.title));
+                    next = nxt.map(|p| format!("Danach {}  {}", hm(p.start), p.title));
+                }
+                if st.osd_description {
+                    desc = cur.and_then(|p| p.desc.clone().or_else(|| p.subtitle.clone()));
+                }
+            }
+        }
+        ChannelInfo {
+            number: if st.osd_number {
+                number_text(ch)
+            } else {
+                String::new()
+            },
+            origin: origin.filter(|_| st.osd_origin),
+            logo,
+            name: ch.display_name().to_string(),
+            meta: meta.join(" · "),
+            now,
+            desc,
+            next,
+            extra,
+        }
     }
 
     /// Nach geänderter Qualitätseinstellung: laufenden Sender neu wählen, falls sich der
@@ -518,10 +556,15 @@ impl App {
 
         let click = gtk::GestureClick::new();
         let w = self.window.clone();
-        click.connect_pressed(move |_, n, _, _| {
-            if n == 2 {
-                w.set_fullscreened(!w.is_fullscreen());
+        let weak = Rc::downgrade(self);
+        click.connect_pressed(move |_, n, _, _| match n {
+            1 => {
+                if let Some(app) = weak.upgrade() {
+                    app.show_info();
+                }
             }
+            2 => w.set_fullscreened(!w.is_fullscreen()),
+            _ => {}
         });
         overlay.add_controller(click);
 
@@ -647,22 +690,16 @@ impl App {
             };
             lib.channel(id).and_then(|ch| {
                 ch.pick_stream_capped(wanted, fallback, cap).map(|s| {
-                    let mut sub = sub_line(ch, s.quality);
-                    if let Some(e) = self.epg_lines(ch) {
-                        sub.push('\n');
-                        sub.push_str(&e);
-                    }
                     (
                         s.url.clone(),
                         s.max_bitrate,
-                        number_text(ch),
                         ch.display_name().to_string(),
-                        sub,
+                        self.channel_info(ch, Some(s), None),
                     )
                 })
             })
         };
-        let Some((url, bitrate, number, name, sub)) = picked else {
+        let Some((url, bitrate, name, info)) = picked else {
             return;
         };
         player.load(&url, bitrate);
@@ -676,7 +713,7 @@ impl App {
         if let Some(r) = self.rows.borrow().iter().find(|r| r.id == id) {
             self.list.select_row(Some(&r.row));
         }
-        self.osd.show(&number, &name, &sub, self.overlay_secs());
+        self.osd.show_channel(&info, self.overlay_secs());
     }
 
     /// Stream gestört: nächsten noch nicht versuchten Stream des Senders nehmen.
@@ -698,24 +735,31 @@ impl App {
                     .into_iter()
                     .find(|s| !tried.contains(&s.url))
                     .map(|s| (s.url.clone(), s.max_bitrate, s.quality));
-                (number_text(ch), ch.display_name().to_string(), next)
+                let text = match &next {
+                    Some((_, _, q)) => {
+                        format!("Stream gestört – weiche aus auf {}", quality_label(*q))
+                    }
+                    None => "Sender nicht erreichbar – alle Streams versucht".to_string(),
+                };
+                let stream = next.as_ref().and_then(|(u, b, _)| {
+                    ch.streams
+                        .iter()
+                        .find(|s| &s.url == u && s.max_bitrate == *b)
+                });
+                (self.channel_info(ch, stream, Some(text)), next)
             })
         };
-        let Some((number, name, next)) = found else {
+        let Some((info, next)) = found else {
             return;
         };
         match next {
-            Some((url, bitrate, q)) => {
+            Some((url, bitrate, _)) => {
                 player.load(&url, bitrate);
                 self.tried.borrow_mut().push(url.clone());
                 self.current_stream.replace(Some((url, bitrate)));
-                let text = format!("Stream gestört – weiche aus auf {}", quality_label(q));
-                self.osd.show(&number, &name, &text, self.overlay_secs());
+                self.osd.show_channel(&info, self.overlay_secs());
             }
-            None => {
-                let text = "Sender nicht erreichbar – alle Streams versucht";
-                self.osd.show(&number, &name, text, 0);
-            }
+            None => self.osd.show_channel(&info, 0),
         }
     }
 
@@ -832,17 +876,24 @@ impl App {
             };
             lib.channel(id).and_then(|ch| {
                 ch.pick_stream_capped(Some(next), fallback, cap).map(|s| {
+                    let text = if s.quality == Some(next) {
+                        format!("Qualität {}", next.label())
+                    } else {
+                        format!(
+                            "Qualität {} nicht vorhanden – läuft {}",
+                            next.label(),
+                            quality_label(s.quality)
+                        )
+                    };
                     (
                         s.url.clone(),
                         s.max_bitrate,
-                        s.quality,
-                        number_text(ch),
-                        ch.display_name().to_string(),
+                        self.channel_info(ch, Some(s), Some(text)),
                     )
                 })
             })
         };
-        let Some((url, bitrate, q, number, name)) = picked else {
+        let Some((url, bitrate, info)) = picked else {
             return;
         };
         let target = (url.clone(), bitrate);
@@ -851,16 +902,7 @@ impl App {
             self.tried.replace(vec![url]);
             self.current_stream.replace(Some(target));
         }
-        let text = if q == Some(next) {
-            format!("Qualität {}", next.label())
-        } else {
-            format!(
-                "Qualität {} nicht vorhanden – läuft {}",
-                next.label(),
-                quality_label(q)
-            )
-        };
-        self.osd.show(&number, &name, &text, self.overlay_secs());
+        self.osd.show_channel(&info, self.overlay_secs());
     }
 
     pub fn change_volume(&self, delta: i64) {
@@ -882,31 +924,14 @@ impl App {
         self.split.set_show_sidebar(!self.split.shows_sidebar());
     }
 
+    /// Senderanzeige erneut zeigen (Taste I, Mausklick aufs Bild), mit Videodaten.
     pub fn show_info(&self) {
         let Some(id) = self.current.get() else { return };
         let lib = self.lib.borrow();
         let Some(ch) = lib.channel(id) else { return };
-        let cur = self.current_stream.borrow();
-        let q = ch
-            .streams
-            .iter()
-            .find(|s| cur.as_ref() == Some(&(s.url.clone(), s.max_bitrate)))
-            .and_then(|s| s.quality);
-        let mut sub = sub_line(ch, q);
-        if let Some(e) = self.epg_lines(ch) {
-            sub.push('\n');
-            sub.push_str(&e);
-        }
-        if let Some(info) = self.player.as_ref().and_then(|p| p.video_info()) {
-            sub.push('\n');
-            sub.push_str(&info);
-        }
-        self.osd.show(
-            &number_text(ch),
-            ch.display_name(),
-            &sub,
-            self.overlay_secs() * 2,
-        );
+        let extra = self.player.as_ref().and_then(|p| p.video_info());
+        let info = self.channel_info(ch, self.current_stream_of(ch), extra);
+        self.osd.show_channel(&info, self.overlay_secs() * 2);
     }
 
     fn on_key(self: &Rc<Self>, key: gdk::Key, state: gdk::ModifierType) -> glib::Propagation {

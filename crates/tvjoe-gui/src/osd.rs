@@ -1,17 +1,69 @@
-//! Einblendung über dem Bild: Kanalnummer, Name, Zusatzzeile; verschwindet nach einer Zeit.
+//! Senderanzeige über dem Bild, unten über die ganze Bildbreite (abgestimmtes Mockup):
+//! links Nummer mit Quellsymbol | Logo in Schwarzweiß | Name, darunter Kategorie und Qualität;
+//! rechts „Jetzt“ mit gekürzter Beschreibung und „Danach“. Alle Teile sind einzeln abschaltbar.
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk::glib;
 use gtk::prelude::*;
 
+/// Herkunft des Streams (Symbol an der Nummer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    Internet,
+    Satellite,
+}
+
+/// Inhalt der Senderanzeige; `None` bzw. leer blendet den Teil aus.
+#[derive(Debug, Default, Clone)]
+pub struct ChannelInfo {
+    pub number: String,
+    pub origin: Option<Origin>,
+    pub logo: Option<PathBuf>,
+    pub name: String,
+    /// Kategorie · Qualität (schon nach den Einstellungen zusammengesetzt).
+    pub meta: String,
+    pub now: Option<String>,
+    pub desc: Option<String>,
+    pub next: Option<String>,
+    /// Zusätzliche Meldung, z. B. „Stream gestört …“ oder Videodaten.
+    pub extra: Option<String>,
+}
+
 pub struct Osd {
     pub root: gtk::Box,
     number: gtk::Label,
+    origin: gtk::Image,
+    logo: gtk::Picture,
+    logo_slot: gtk::Widget,
+    sep_logo: gtk::Separator,
+    sep_number: gtk::Separator,
     name: gtk::Label,
-    sub: gtk::Label,
+    meta: gtk::Label,
+    sep_right: gtk::Separator,
+    right: gtk::Box,
+    now: gtk::Label,
+    desc: gtk::Label,
+    next: gtk::Label,
+    extra: gtk::Label,
     timer: RefCell<Option<glib::SourceId>>,
+}
+
+fn label(class: &str) -> gtk::Label {
+    gtk::Label::builder()
+        .css_classes([class])
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build()
+}
+
+fn vsep() -> gtk::Separator {
+    gtk::Separator::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .css_classes(["tvjoe-osd-sep"])
+        .build()
 }
 
 impl Osd {
@@ -19,52 +71,157 @@ impl Osd {
         let number = gtk::Label::builder()
             .css_classes(["tvjoe-osd-number"])
             .build();
-        let name = gtk::Label::builder()
-            .css_classes(["tvjoe-osd-name"])
-            .xalign(0.0)
-            .ellipsize(gtk::pango::EllipsizeMode::End)
-            .max_width_chars(40)
+        let origin = gtk::Image::builder()
+            .css_classes(["tvjoe-osd-origin"])
+            .pixel_size(14)
+            .halign(gtk::Align::End)
+            .valign(gtk::Align::Start)
             .build();
-        let sub = gtk::Label::builder()
+        let number_box = gtk::Overlay::builder().child(&number).build();
+        number_box.add_overlay(&origin);
+        number_box.set_valign(gtk::Align::Center);
+
+        let logo = gtk::Picture::builder()
+            .content_fit(gtk::ContentFit::Contain)
+            .can_shrink(true)
+            .height_request(40)
+            .css_classes(["tvjoe-osd-logo"])
+            .build();
+        let logo_slot: gtk::Widget = crate::logo_box(&logo, 64).upcast();
+        logo_slot.set_valign(gtk::Align::Center);
+
+        let name = label("tvjoe-osd-name");
+        let meta = label("tvjoe-osd-sub");
+        let name_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        name_box.set_valign(gtk::Align::Center);
+        name_box.append(&name);
+        name_box.append(&meta);
+
+        let now = label("tvjoe-osd-now");
+        let desc = gtk::Label::builder()
             .css_classes(["tvjoe-osd-sub"])
             .xalign(0.0)
             .wrap(true)
-            .max_width_chars(60)
+            .wrap_mode(gtk::pango::WrapMode::WordChar)
+            .lines(2)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
             .build();
-        let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        text.set_valign(gtk::Align::Center);
-        text.append(&name);
-        text.append(&sub);
+        let next = label("tvjoe-osd-sub");
+        let extra = label("tvjoe-osd-extra");
+        extra.set_wrap(true);
+        let right = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        right.set_hexpand(true);
+        right.set_valign(gtk::Align::Center);
+        for w in [&now, &desc, &next, &extra] {
+            right.append(w);
+        }
+
+        let sep_number = vsep();
+        let sep_logo = vsep();
+        let sep_right = vsep();
         let root = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
-            .spacing(18)
+            .spacing(16)
             .css_classes(["tvjoe-osd"])
-            .halign(gtk::Align::Start)
+            .halign(gtk::Align::Fill)
             .valign(gtk::Align::End)
-            .margin_start(32)
-            .margin_bottom(32)
-            .margin_end(32)
+            .margin_start(16)
+            .margin_end(16)
+            .margin_bottom(16)
             .visible(false)
             .can_target(false)
             .build();
-        root.append(&number);
-        root.append(&text);
+        root.append(&number_box);
+        root.append(&sep_number);
+        root.append(&logo_slot);
+        root.append(&sep_logo);
+        root.append(&name_box);
+        root.append(&sep_right);
+        root.append(&right);
+
         Rc::new(Self {
             root,
             number,
+            origin,
+            logo,
+            logo_slot,
+            sep_logo,
+            sep_number,
             name,
-            sub,
+            meta,
+            sep_right,
+            right,
+            now,
+            desc,
+            next,
+            extra,
             timer: RefCell::new(None),
         })
     }
 
-    /// Zeigt die Einblendung für `secs` Sekunden (0 = bis zum nächsten Aufruf).
-    pub fn show(self: &Rc<Self>, number: &str, name: &str, sub: &str, secs: u32) {
-        self.number.set_label(number);
-        self.number.set_visible(!number.is_empty());
-        self.name.set_label(name);
-        self.sub.set_label(sub);
-        self.sub.set_visible(!sub.is_empty());
+    fn set_text(l: &gtk::Label, text: Option<&str>) {
+        let text = text.filter(|t| !t.is_empty());
+        l.set_label(text.unwrap_or(""));
+        l.set_visible(text.is_some());
+    }
+
+    /// Senderanzeige für `secs` Sekunden (0 = bis zur nächsten Anzeige).
+    pub fn show_channel(self: &Rc<Self>, info: &ChannelInfo, secs: u32) {
+        let has_number = !info.number.is_empty();
+        self.number.set_label(&info.number);
+        self.number.set_visible(has_number);
+        match info.origin.filter(|_| has_number) {
+            Some(o) => {
+                self.origin.set_icon_name(Some(match o {
+                    Origin::Internet => "web-browser-symbolic",
+                    Origin::Satellite => "network-transmit-receive-symbolic",
+                }));
+                self.origin.set_tooltip_text(Some(match o {
+                    Origin::Internet => "Internet",
+                    Origin::Satellite => "Satellit",
+                }));
+                self.origin.set_visible(true);
+            }
+            None => self.origin.set_visible(false),
+        }
+        self.sep_number.set_visible(has_number);
+        match &info.logo {
+            Some(p) => {
+                self.logo.set_filename(Some(p));
+                self.logo_slot.set_visible(true);
+                self.sep_logo.set_visible(true);
+            }
+            None => {
+                self.logo_slot.set_visible(false);
+                self.sep_logo.set_visible(false);
+            }
+        }
+        self.name.set_label(&info.name);
+        Self::set_text(&self.meta, Some(&info.meta));
+        Self::set_text(&self.now, info.now.as_deref());
+        Self::set_text(&self.desc, info.desc.as_deref());
+        Self::set_text(&self.next, info.next.as_deref());
+        Self::set_text(&self.extra, info.extra.as_deref());
+        let right_visible = [&self.now, &self.desc, &self.next, &self.extra]
+            .iter()
+            .any(|l| l.is_visible());
+        self.right.set_visible(right_visible);
+        self.sep_right.set_visible(right_visible);
+        self.present(secs);
+    }
+
+    /// Kurze Meldung (Lautstärke, Ziffernwahl …): links Nummer und Titel, rechts Text.
+    pub fn show(self: &Rc<Self>, number: &str, title: &str, text: &str, secs: u32) {
+        let info = ChannelInfo {
+            number: number.to_string(),
+            name: title.to_string(),
+            extra: (!text.is_empty()).then(|| text.to_string()),
+            ..ChannelInfo::default()
+        };
+        self.show_channel(&info, secs);
+    }
+
+    fn present(self: &Rc<Self>, secs: u32) {
         self.root.set_visible(true);
         if let Some(id) = self.timer.take() {
             id.remove();

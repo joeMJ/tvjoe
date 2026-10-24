@@ -36,28 +36,53 @@
   font-weight: 800;
 }
 
-/* Einblendung über dem Bild (EyeTV-Mobile-Vorbild): dunkle Fläche, damit Text auf jedem Bild lesbar bleibt. */
+/* Senderanzeige über dem Bild (abgestimmtes Mockup): unten über die ganze Bildbreite,
+   dunkle Fläche, damit Text auf jedem Bild lesbar bleibt (#f6f6f6 bzw. #c9c8c5 ≥ 4,5:1). */
 .tvjoe-osd {
-  background-color: rgba(0, 0, 0, 0.80);
+  background-color: rgba(0, 0, 0, 0.82);
   color: #f6f6f6;
   border-radius: 14px;
   padding: 14px 22px;
 }
 
 .tvjoe-osd-number {
-  font-size: 40pt;
+  font-size: 38pt;
   font-weight: 800;
   font-feature-settings: "tnum";
+  margin-right: 10px;
+}
+
+.tvjoe-osd-origin {
+  color: #c9c8c5;
+}
+
+.tvjoe-osd-logo {
+  filter: grayscale(1);
+}
+
+.tvjoe-osd-sep {
+  background-color: #5c5c62;
+  min-width: 1px;
 }
 
 .tvjoe-osd-name {
-  font-size: 20pt;
+  font-size: 19pt;
+  font-weight: 700;
+}
+
+.tvjoe-osd-now {
+  font-size: 14pt;
   font-weight: 700;
 }
 
 .tvjoe-osd-sub {
-  font-size: 13pt;
+  font-size: 12pt;
   color: #c9c8c5;
+}
+
+.tvjoe-osd-extra {
+  font-size: 12pt;
+  color: #78aeed;
 }
 
 /* Programmraster */

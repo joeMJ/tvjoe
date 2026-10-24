@@ -31,6 +31,32 @@ pub fn open(app: &Rc<App>) {
     control.add(&overlay);
     control.add(&resume);
 
+    let osd = adw::PreferencesGroup::builder()
+        .title("Senderanzeige")
+        .description("Einblendung unten im Bild beim Umschalten, mit I oder Mausklick aufs Bild")
+        .build();
+    let switch = |title: &str, active: bool| {
+        let row = adw::SwitchRow::builder()
+            .title(title)
+            .active(active)
+            .build();
+        osd.add(&row);
+        row
+    };
+    let osd_number = switch("Kanalnummer", s.osd_number);
+    let osd_origin = switch(
+        "Quellsymbol an der Nummer (Internet, Satellit)",
+        s.osd_origin,
+    );
+    let osd_logo = switch("Senderlogo (schwarzweiß)", s.osd_logo);
+    let osd_category = switch(
+        "Kategorie (Vollprogramm, Spartenprogramm …)",
+        s.osd_category,
+    );
+    let osd_quality = switch("Qualität", s.osd_quality);
+    let osd_epg = switch("Jetzt und Danach", s.osd_epg);
+    let osd_description = switch("Beschreibung der laufenden Sendung", s.osd_description);
+
     let quality = adw::PreferencesGroup::builder().title("Qualität").build();
     let levels = [
         None,
@@ -110,6 +136,7 @@ pub fn open(app: &Rc<App>) {
     updates.add(&now_row);
 
     page.add(&control);
+    page.add(&osd);
     page.add(&quality);
     page.add(&guide);
     page.add(&updates);
@@ -143,6 +170,13 @@ pub fn open(app: &Rc<App>) {
             s.epg_refresh_hours = hours.value() as u32;
             s.quality = levels.get(level.selected() as usize).copied().flatten();
             s.quality_cap = cap.is_active();
+            s.osd_number = osd_number.is_active();
+            s.osd_origin = osd_origin.is_active();
+            s.osd_logo = osd_logo.is_active();
+            s.osd_category = osd_category.is_active();
+            s.osd_quality = osd_quality.is_active();
+            s.osd_epg = osd_epg.is_active();
+            s.osd_description = osd_description.is_active();
             s.update_check = check.is_active();
         }
         app.save_settings();
