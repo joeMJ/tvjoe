@@ -115,15 +115,11 @@ impl App {
             .vexpand(true)
             .child(&list)
             .build();
-        let sidebar_bar = adw::ToolbarView::new();
-        sidebar_bar.add_css_class("tvjoe-sidebar");
-        sidebar_bar.add_top_bar(
-            &adw::HeaderBar::builder()
-                .show_end_title_buttons(false)
-                .title_widget(&adw::WindowTitle::new("Sender", ""))
-                .build(),
-        );
-        sidebar_bar.set_content(Some(&scroller));
+        let sidebar = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .css_classes(["tvjoe-sidebar"])
+            .build();
+        sidebar.append(&scroller);
 
         let osd = Osd::new();
         let msg = MessageBar::new();
@@ -144,7 +140,6 @@ impl App {
         let sidebar_button = gtk::ToggleButton::builder()
             .icon_name("sidebar-show-symbolic")
             .tooltip_text("Senderliste (L)")
-            .active(true)
             .build();
         header.pack_start(&sidebar_button);
         let manage_button = gtk::Button::builder()
@@ -177,22 +172,25 @@ impl App {
             .tooltip_text("Info (I)")
             .build();
         header.pack_end(&info_button);
-        let content_bar = adw::ToolbarView::new();
-        content_bar.add_top_bar(&header);
-        content_bar.set_content(Some(&overlay));
-
+        // Kopfleiste über die ganze Breite; darunter liegt die Senderliste über dem Bild
+        // (eingeklappter Modus), das Bild behält seine Größe.
         let split = adw::OverlaySplitView::builder()
-            .sidebar(&sidebar_bar)
-            .content(&content_bar)
+            .sidebar(&sidebar)
+            .content(&overlay)
+            .collapsed(true)
+            .show_sidebar(settings.sidebar_on_start)
             .min_sidebar_width(280.0)
             .max_sidebar_width(380.0)
             .build();
+        let content_bar = adw::ToolbarView::new();
+        content_bar.add_top_bar(&header);
+        content_bar.set_content(Some(&split));
         split
             .bind_property("show-sidebar", &sidebar_button, "active")
             .bidirectional()
             .sync_create()
             .build();
-        window.set_content(Some(&split));
+        window.set_content(Some(&content_bar));
 
         let app = Rc::new(Self {
             window,

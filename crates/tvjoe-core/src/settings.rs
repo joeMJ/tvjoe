@@ -62,6 +62,8 @@ pub struct Settings {
     pub osd_description: bool,
     /// Bildschirmsperre auch im Fenster verhindern (im Vollbild immer).
     pub inhibit_windowed: bool,
+    /// Senderliste beim Start einblenden (sie liegt über dem Bild).
+    pub sidebar_on_start: bool,
     /// Mediathek: Filmliste im Hintergrund neu laden, wenn älter (Stunden, mindestens 1).
     pub mediathek_refresh_hours: u32,
     /// Mediathek: so viele Tage zurück behalten.
@@ -98,6 +100,7 @@ impl Default for Settings {
             osd_epg: true,
             osd_description: true,
             inhibit_windowed: false,
+            sidebar_on_start: true,
             mediathek_refresh_hours: 24,
             mediathek_days: 14,
             mediathek_hide_ad: true,

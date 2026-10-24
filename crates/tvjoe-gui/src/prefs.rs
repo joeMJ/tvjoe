@@ -36,6 +36,12 @@ pub fn open(app: &Rc<App>) {
     control.add(&overlay);
     control.add(&resume);
     control.add(&inhibit);
+    let sidebar = adw::SwitchRow::builder()
+        .title("Senderliste beim Start zeigen")
+        .subtitle("Sie liegt über dem Bild; L blendet sie ein und aus")
+        .active(s.sidebar_on_start)
+        .build();
+    control.add(&sidebar);
 
     let osd = adw::PreferencesGroup::builder()
         .title("Senderanzeige")
@@ -164,6 +170,7 @@ pub fn open(app: &Rc<App>) {
             s.overlay_secs = overlay.value() as u32;
             s.resume_last = resume.is_active();
             s.inhibit_windowed = inhibit.is_active();
+            s.sidebar_on_start = sidebar.is_active();
             s.strategy = if strategy.selected() == 1 {
                 Strategy::Highest
             } else {
