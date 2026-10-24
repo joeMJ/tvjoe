@@ -121,6 +121,11 @@ impl App {
             .active(true)
             .build();
         header.pack_start(&sidebar_button);
+        let manage_button = gtk::Button::builder()
+            .icon_name("document-edit-symbolic")
+            .tooltip_text("Sender verwalten (Strg+E)")
+            .build();
+        header.pack_start(&manage_button);
         let fullscreen_button = gtk::Button::builder()
             .icon_name("view-fullscreen-symbolic")
             .tooltip_text("Vollbild (F)")
@@ -165,7 +170,49 @@ impl App {
 
         app.build_rows();
         app.connect_signals(&fullscreen_button, &overlay);
+        let weak = Rc::downgrade(&app);
+        manage_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                crate::manage::open(&app);
+            }
+        });
         app
+    }
+
+    pub fn library(&self) -> std::cell::Ref<'_, Library> {
+        self.lib.borrow()
+    }
+
+    pub fn library_mut(&self) -> std::cell::RefMut<'_, Library> {
+        self.lib.borrow_mut()
+    }
+
+    /// Nach Änderungen an der Bibliothek: speichern und die Senderliste neu aufbauen.
+    pub fn library_changed(self: &Rc<Self>) {
+        if let Some(p) = tvjoe_core::paths::library_path() {
+            if let Err(e) = self.lib.borrow().save(&p) {
+                eprintln!("tvjoe: {e}");
+            }
+        }
+        while let Some(child) = self.list.first_child() {
+            self.list.remove(&child);
+        }
+        self.rows.borrow_mut().clear();
+        self.build_rows();
+        if let Some(r) = self
+            .rows
+            .borrow()
+            .iter()
+            .find(|r| Some(r.id) == self.current.get())
+        {
+            self.list.select_row(Some(&r.row));
+        }
+        if let Some(dir) = tvjoe_core::paths::logo_cache_dir() {
+            self.load_logos(dir);
+        }
+        if self.current.get().is_none() {
+            self.start(None);
+        }
     }
 
     fn build_rows(&self) {
@@ -214,7 +261,7 @@ impl App {
             text.append(&sub);
             let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 10);
             hbox.append(&num);
-            hbox.append(&logo);
+            hbox.append(&crate::logo_box(&logo, 56));
             hbox.append(&text);
             if ch.favorite {
                 hbox.append(
@@ -660,6 +707,7 @@ impl App {
             Key::Left | Key::KP_Left | Key::KP_Subtract | Key::minus => self.change_volume(-5),
             Key::Right | Key::KP_Right | Key::KP_Add | Key::plus => self.change_volume(5),
             Key::q if ctrl => self.window.close(),
+            Key::e if ctrl => crate::manage::open(self),
             Key::q => self.cycle_quality(),
             Key::f => self.window.set_fullscreened(!self.window.is_fullscreen()),
             Key::Escape => self.window.set_fullscreened(false),

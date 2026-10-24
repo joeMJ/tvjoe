@@ -2,7 +2,9 @@
 
 mod app;
 mod gl;
+mod import;
 mod logos;
+mod manage;
 mod osd;
 mod player;
 mod selftest;
@@ -70,6 +72,18 @@ fn parse_options() -> Options {
         }
     }
     o
+}
+
+/// Logo mit fester Höchstgröße, damit breite Logos die Spalten nicht verschieben.
+pub fn logo_box(picture: &gtk::Picture, width: i32) -> adw::Clamp {
+    picture.set_halign(gtk::Align::Center);
+    adw::Clamp::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .maximum_size(width)
+        .tightening_threshold(width)
+        .width_request(width)
+        .child(picture)
+        .build()
 }
 
 fn load_css() {

@@ -296,6 +296,58 @@ impl Library {
         true
     }
 
+    pub fn remove_channel(&mut self, id: u64) -> bool {
+        let before = self.channels.len();
+        self.channels.retain(|c| c.id != id);
+        self.channels.len() != before
+    }
+
+    /// Exportiert Sender als M3U8: je Stream ein Eintrag mit `tvjoe-type`/`tvjoe-quality`,
+    /// eigene Namen und Gruppen werden übernommen. `ids = None` exportiert alle.
+    pub fn export_m3u(&self, ids: Option<&[u64]>) -> String {
+        let mut out = String::from("#EXTM3U\n");
+        for ch in self
+            .channels
+            .iter()
+            .filter(|c| ids.is_none_or(|ids| ids.contains(&c.id)))
+        {
+            for s in &ch.streams {
+                let mut line = String::from("#EXTINF:-1");
+                let mut add = |k: &str, v: Option<&str>| {
+                    if let Some(v) = v {
+                        line.push_str(&format!(" {k}=\"{}\"", v.replace('"', "'")));
+                    }
+                };
+                add("tvg-chno", ch.number.map(|n| n.to_string()).as_deref());
+                add("tvg-id", ch.tvg_id.as_deref());
+                add("tvg-name", Some(ch.display_name()));
+                add("tvg-logo", ch.logo.as_deref());
+                add("group-title", ch.display_group());
+                add(
+                    "tvjoe-type",
+                    s.kind.map(|k| match k {
+                        SourceKind::Hls => "hls",
+                        SourceKind::SatIp => "satip",
+                    }),
+                );
+                add("tvjoe-quality", s.quality.map(Quality::as_attr));
+                let name = match s.quality {
+                    Some(q) if ch.streams.len() > 1 => {
+                        format!("{} {}", ch.display_name(), q.label())
+                    }
+                    _ => ch.display_name().to_string(),
+                };
+                out.push_str(&line);
+                out.push(',');
+                out.push_str(&name.replace(['\n', '\r'], " "));
+                out.push('\n');
+                out.push_str(&s.url);
+                out.push('\n');
+            }
+        }
+        out
+    }
+
     /// Gewünschte Nummer, wenn frei, sonst die nächste freie über der höchsten vergebenen.
     fn free_number(&self, desired: Option<u32>) -> u32 {
         let used: HashSet<u32> = self.channels.iter().filter_map(|c| c.number).collect();
@@ -678,6 +730,46 @@ mod tests {
         // Über dem Angebot: die nächste darunter; ohne Wunsch: die höchste.
         assert_eq!(url(Some(Uhd), Fallback::Down), "u1");
         assert_eq!(url(None, Fallback::Down), "u1");
+    }
+
+    #[test]
+    fn export_und_wiedereinlesen() {
+        let mut lib = Library::default();
+        let src = lib.add_source("Test", "test.m3u");
+        lib.import(src, &base(), None, 1).unwrap();
+        let id = name(&lib, "Eins.de").id;
+        lib.channel_mut(id).unwrap().custom_name = Some("Mein \"Eins\"".into());
+        let text = lib.export_m3u(None);
+        assert!(text.contains("tvjoe-quality=\"720\""), "{text}");
+
+        let p = Playlist::parse(text.as_bytes()).unwrap();
+        assert_eq!(p.entries.len(), 3);
+        let mut neu = Library::default();
+        let s2 = neu.add_source("Export", "export.m3u");
+        neu.import(s2, &p, None, 2).unwrap();
+        assert_eq!(neu.channels.len(), 2);
+        let eins = neu
+            .channels
+            .iter()
+            .find(|c| c.tvg_id.as_deref() == Some("Eins.de"))
+            .unwrap();
+        assert_eq!(eins.name, "Mein 'Eins'");
+        assert_eq!(eins.number, Some(1));
+        assert_eq!(eins.streams.len(), 2);
+        // Nur ausgewählte Sender.
+        let nur = lib.export_m3u(Some(&[id]));
+        assert_eq!(nur.matches("#EXTINF").count(), 2);
+    }
+
+    #[test]
+    fn sender_loeschen() {
+        let mut lib = Library::default();
+        let src = lib.add_source("Test", "test.m3u");
+        lib.import(src, &base(), None, 1).unwrap();
+        let id = name(&lib, "Zwei.de").id;
+        assert!(lib.remove_channel(id));
+        assert!(!lib.remove_channel(id));
+        assert_eq!(lib.channels.len(), 1);
     }
 
     #[test]
