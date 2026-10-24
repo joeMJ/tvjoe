@@ -42,6 +42,8 @@ pub struct Settings {
     /// Beim Start den letzten Sender abspielen.
     pub resume_last: bool,
     pub last_channel: Option<u64>,
+    /// Lautstärke in Prozent (0–130).
+    pub volume: u32,
 }
 
 impl Default for Settings {
@@ -55,6 +57,7 @@ impl Default for Settings {
             update_check: false,
             resume_last: true,
             last_channel: None,
+            volume: 100,
         }
     }
 }

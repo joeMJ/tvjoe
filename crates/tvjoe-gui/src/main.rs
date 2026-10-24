@@ -1,14 +1,18 @@
 //! Oberfläche von tvjoe (wird vom Starter `tvjoe` aufgerufen).
 
+mod app;
 mod gl;
+mod logos;
+mod osd;
 mod player;
+mod selftest;
 
 use std::sync::OnceLock;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use adw::prelude::*;
 use gtk::{gdk, glib};
-use tvjoe_core::{Channel, Library, Settings, paths};
+use tvjoe_core::{Library, Settings, paths};
 
 const APP_ID: &str = "io.github.joeMJ.tvjoe";
 
@@ -68,30 +72,24 @@ fn parse_options() -> Options {
     o
 }
 
-fn choose_channel<'a>(
-    lib: &'a Library,
-    settings: &Settings,
-    opts: &Options,
-) -> Option<&'a Channel> {
-    let usable = |c: &&Channel| c.active && !c.missing && !c.streams.is_empty();
-    opts.channel
-        .and_then(|n| lib.by_number(n))
-        .or_else(|| {
-            settings
-                .resume_last
-                .then_some(settings.last_channel)
-                .flatten()
-                .and_then(|id| lib.channel(id))
-        })
-        .filter(usable)
-        .or_else(|| lib.channels.iter().find(usable))
+fn load_css() {
+    let provider = gtk::CssProvider::new();
+    provider.load_from_string(include_str!("style.css"));
+    if let Some(display) = gdk::Display::default() {
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
 }
 
-fn build_window(app: &adw::Application, opts: &Options) {
+fn activate(application: &adw::Application, opts: &Options) {
     trace("GTK bereit");
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
+    load_css();
     let settings_path = paths::settings_path();
-    let mut settings = settings_path
+    let settings = settings_path
         .as_deref()
         .and_then(|p| Settings::load(p).map_err(|e| eprintln!("tvjoe: {e}")).ok())
         .unwrap_or_default();
@@ -101,98 +99,48 @@ fn build_window(app: &adw::Application, opts: &Options) {
         .unwrap_or_default();
     trace("Bibliothek geladen");
 
-    let window = adw::ApplicationWindow::builder()
-        .application(app)
-        .default_width(1280)
-        .default_height(720)
-        .title("tvjoe")
-        .build();
-
-    let channel = choose_channel(&lib, &settings, opts);
-    let player = match channel {
-        Some(ch) => match player::Player::new(opts.mute) {
-            Ok(p) => {
-                window.set_title(Some(&format!("{} – tvjoe", ch.display_name())));
-                window.set_content(Some(&p.area));
-                if let Some(stream) = ch.pick_stream(settings.quality, settings.fallback) {
-                    p.load(&stream.url);
-                    trace(&format!("lade {} ({})", ch.display_name(), stream.url));
-                }
-                settings.last_channel = Some(ch.id);
-                Some(p)
-            }
-            Err(e) => {
-                eprintln!("tvjoe: libmpv ließ sich nicht starten: {e:?}");
-                window.set_content(Some(&status_page(
-                    "Wiedergabe nicht möglich",
-                    &format!("libmpv ließ sich nicht starten: {e:?}"),
-                )));
-                None
-            }
-        },
-        None => {
-            window.set_content(Some(&status_page(
-                "Keine Sender",
-                "Sender aus einer M3U übernehmen: tvjoe --import liste.m3u --mit-warnungen",
-            )));
+    let player = match player::Player::new(opts.mute, settings.volume) {
+        Ok(p) => Some(p),
+        Err(e) => {
+            eprintln!("tvjoe: libmpv ließ sich nicht starten: {e:?}");
             None
         }
     };
+    let app = app::App::new(application, lib, settings, settings_path, player);
+    app.start(opts.channel);
+    app.window.connect_map(|_| trace("Fenster angezeigt"));
+    app.window.present();
 
-    let keys = gtk::EventControllerKey::new();
-    let w = window.clone();
-    keys.connect_key_pressed(move |_, key, _, state| {
-        match key {
-            gdk::Key::f | gdk::Key::F => w.set_fullscreened(!w.is_fullscreen()),
-            gdk::Key::Escape => w.set_fullscreened(false),
-            gdk::Key::q if state.contains(gdk::ModifierType::CONTROL_MASK) => w.close(),
-            _ => return glib::Propagation::Proceed,
-        }
-        glib::Propagation::Stop
-    });
-    window.add_controller(keys);
-
-    window.connect_map(|_| trace("Fenster angezeigt"));
-    window.connect_close_request(move |_| {
-        if let Some(p) = settings_path.as_deref() {
-            if let Err(e) = settings.save(p) {
-                eprintln!("tvjoe: {e}");
-            }
-        }
-        glib::Propagation::Proceed
-    });
-
-    if let Some(p) = player.clone() {
+    // Logos erst nach dem Start anfordern, damit Fenster und erstes Bild nicht warten.
+    if let Some(dir) = paths::logo_cache_dir() {
+        let a = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(300), move || a.load_logos(dir));
+    }
+    if let Some(p) = app.player.clone() {
         glib::timeout_add_seconds_local_once(8, move || trace(&p.report()));
     }
+    if let Some(dir) = std::env::var_os("TVJOE_SELFTEST") {
+        selftest::run(app.clone(), dir.into());
+    }
     if let Some(secs) = opts.quit_after {
-        let w = window.clone();
+        let a = app.clone();
         glib::timeout_add_seconds_local_once(secs, move || {
-            if let Some(p) = &player {
+            if let Some(p) = &a.player {
                 trace(&p.report());
             }
-            w.close();
+            a.window.close();
         });
     }
-    window.present();
-}
-
-fn status_page(title: &str, text: &str) -> adw::StatusPage {
-    adw::StatusPage::builder()
-        .icon_name("video-display-symbolic")
-        .title(title)
-        .description(text)
-        .build()
 }
 
 fn main() -> glib::ExitCode {
     init_trace();
     trace("Oberfläche gestartet");
     let opts = parse_options();
-    let app = adw::Application::builder()
+    let application = adw::Application::builder()
         .application_id(APP_ID)
         .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
         .build();
-    app.connect_activate(move |app| build_window(app, &opts));
-    app.run_with_args(&["tvjoe"])
+    application.connect_activate(move |a| activate(a, &opts));
+    application.run_with_args(&["tvjoe"])
 }

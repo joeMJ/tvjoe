@@ -96,25 +96,36 @@ impl Channel {
     /// - Fehlt die Stufe: die nächstgelegene; bei Gleichstand entscheidet `fallback`.
     /// - Streams ohne Qualitätsangabe zählen nur, wenn kein Stream eine Qualität hat.
     pub fn pick_stream(&self, wanted: Option<Quality>, fallback: Fallback) -> Option<&Stream> {
-        let known: Vec<&Stream> = self
+        self.streams_by_preference(wanted, fallback)
+            .into_iter()
+            .next()
+    }
+
+    /// Alle Streams in der Reihenfolge, in der sie versucht werden (Ausweichen bei Fehlern):
+    /// erst die Streams mit Qualitätsangabe nach Nähe zur Wunschstufe, dann die ohne Angabe.
+    pub fn streams_by_preference(
+        &self,
+        wanted: Option<Quality>,
+        fallback: Fallback,
+    ) -> Vec<&Stream> {
+        let mut known: Vec<&Stream> = self
             .streams
             .iter()
             .filter(|s| s.quality.is_some())
             .collect();
-        if known.is_empty() {
-            return self.streams.first();
+        match wanted {
+            None => known.sort_by_key(|s| std::cmp::Reverse(s.quality)),
+            Some(wanted) => known.sort_by_key(|s| {
+                let diff = s.quality.map_or(0, |q| q as i32) - wanted as i32;
+                let preferred = match fallback {
+                    Fallback::Down => diff < 0,
+                    Fallback::Up => diff > 0,
+                };
+                (diff.abs(), u8::from(!preferred))
+            }),
         }
-        let Some(wanted) = wanted else {
-            return known.into_iter().max_by_key(|s| s.quality);
-        };
-        known.into_iter().min_by_key(|s| {
-            let diff = s.quality.map_or(0, |q| q as i32) - wanted as i32;
-            let preferred = match fallback {
-                Fallback::Down => diff < 0,
-                Fallback::Up => diff > 0,
-            };
-            (diff.abs(), u8::from(!preferred))
-        })
+        known.extend(self.streams.iter().filter(|s| s.quality.is_none()));
+        known
     }
 }
 
@@ -667,6 +678,22 @@ mod tests {
         // Über dem Angebot: die nächste darunter; ohne Wunsch: die höchste.
         assert_eq!(url(Some(Uhd), Fallback::Down), "u1");
         assert_eq!(url(None, Fallback::Down), "u1");
+    }
+
+    #[test]
+    fn reihenfolge_beim_ausweichen() {
+        use Quality::*;
+        let c = channel_with(&[None, Some(Sd), Some(P1080), Some(Uhd)]);
+        let urls = |q, f| -> Vec<String> {
+            c.streams_by_preference(q, f)
+                .iter()
+                .map(|s| s.url.clone())
+                .collect()
+        };
+        // Wunsch 720p, nach unten: SD, dann 1080p, dann UHD, zuletzt ohne Angabe.
+        assert_eq!(urls(Some(P720), Fallback::Down), ["u1", "u2", "u3", "u0"]);
+        assert_eq!(urls(Some(P720), Fallback::Up), ["u2", "u1", "u3", "u0"]);
+        assert_eq!(urls(None, Fallback::Down), ["u3", "u2", "u1", "u0"]);
     }
 
     #[test]

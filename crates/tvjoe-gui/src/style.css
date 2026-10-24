@@ -1,0 +1,61 @@
+/* tvjoe: App-Regeln. Farben angelehnt an den Designstandard (Dunkel-Palette), Lesbarkeit zuerst:
+   Text #f6f6f6, Nebentext #c9c8c5 (≥ 4,5:1 auf den verwendeten Flächen), kein dim-label. */
+
+.tvjoe-sidebar {
+  background-color: #171717;
+}
+
+.tvjoe-list row {
+  padding: 6px 10px;
+}
+
+.tvjoe-num {
+  font-weight: 800;
+  font-feature-settings: "tnum";
+  color: #f6f6f6;
+}
+
+.tvjoe-name {
+  font-weight: 700;
+  color: #f6f6f6;
+}
+
+.tvjoe-sub {
+  color: #c9c8c5;
+  font-size: smaller;
+}
+
+.tvjoe-fav {
+  color: #f8e45c;
+}
+
+.tvjoe-logo-fallback {
+  background-color: #2b2b2b;
+  border-radius: 6px;
+  color: #f6f6f6;
+  font-weight: 800;
+}
+
+/* Einblendung über dem Bild (EyeTV-Mobile-Vorbild): dunkle Fläche, damit Text auf jedem Bild lesbar bleibt. */
+.tvjoe-osd {
+  background-color: rgba(0, 0, 0, 0.80);
+  color: #f6f6f6;
+  border-radius: 14px;
+  padding: 14px 22px;
+}
+
+.tvjoe-osd-number {
+  font-size: 40pt;
+  font-weight: 800;
+  font-feature-settings: "tnum";
+}
+
+.tvjoe-osd-name {
+  font-size: 20pt;
+  font-weight: 700;
+}
+
+.tvjoe-osd-sub {
+  font-size: 13pt;
+  color: #c9c8c5;
+}

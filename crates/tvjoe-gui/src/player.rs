@@ -16,6 +16,16 @@ use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamA
 use crate::gl;
 use crate::trace;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayerEvent {
+    /// Stream geöffnet.
+    Loaded,
+    /// Stream ließ sich nicht öffnen oder brach mit Fehler ab.
+    Failed,
+    /// Stream endete (bei Live-TV unerwartet).
+    Ended,
+}
+
 pub struct Player {
     pub mpv: &'static Mpv,
     render: RefCell<Option<RenderContext<'static>>>,
@@ -56,7 +66,7 @@ fn native_display(widget: &impl IsA<gtk::Widget>) -> Option<RenderParam<()>> {
 }
 
 impl Player {
-    pub fn new(mute: bool) -> Result<Rc<Self>, libmpv2::Error> {
+    pub fn new(mute: bool, volume: u32) -> Result<Rc<Self>, libmpv2::Error> {
         // libmpv verlangt Punkt als Dezimaltrenner; GTK hat die Locale aus der Umgebung gesetzt.
         unsafe { libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr()) };
         let mpv = Mpv::with_initializer(|init| {
@@ -68,6 +78,15 @@ impl Player {
             init.set_option("input-vo-keyboard", false)?;
             init.set_option("osc", false)?;
             init.set_option("mute", mute)?;
+            init.set_option("volume", i64::from(volume.min(130)))?;
+            // Stellschraube für Messungen: TVJOE_MPV="option=wert;option=wert".
+            for pair in std::env::var("TVJOE_MPV").unwrap_or_default().split(';') {
+                if let Some((k, v)) = pair.split_once('=') {
+                    if let Err(e) = init.set_option(k.trim(), v.trim()) {
+                        eprintln!("tvjoe: mpv-Option {k}={v}: {e:?}");
+                    }
+                }
+            }
             Ok(())
         })?;
         trace("mpv bereit");
@@ -155,6 +174,66 @@ impl Player {
         if let Err(e) = self.mpv.command("loadfile", &[url]) {
             eprintln!("tvjoe: Laden fehlgeschlagen: {e:?}");
         }
+    }
+
+    /// Ereignisse aus mpv (eigener Thread, `wait_event` darf nur dort laufen).
+    pub fn spawn_events(&self) -> async_channel::Receiver<PlayerEvent> {
+        use libmpv2::events::Event;
+        use libmpv2::mpv_end_file_reason::{Eof, Error};
+        let (tx, rx) = async_channel::unbounded();
+        let mpv = self.mpv;
+        let _ = mpv.disable_deprecated_events();
+        std::thread::spawn(move || {
+            loop {
+                let ev = match mpv.wait_event(-1.0) {
+                    Some(Ok(Event::FileLoaded)) => PlayerEvent::Loaded,
+                    Some(Ok(Event::EndFile(r))) if r == Error => PlayerEvent::Failed,
+                    Some(Ok(Event::EndFile(r))) if r == Eof => PlayerEvent::Ended,
+                    Some(Ok(Event::Shutdown)) => break,
+                    _ => continue,
+                };
+                if tx.send_blocking(ev).is_err() {
+                    break;
+                }
+            }
+        });
+        rx
+    }
+
+    /// Ändert die Lautstärke und gibt die neue zurück.
+    pub fn add_volume(&self, delta: i64) -> Option<i64> {
+        self.mpv
+            .command("add", &["volume", &delta.to_string()])
+            .ok()?;
+        self.mpv
+            .get_property::<f64>("volume")
+            .ok()
+            .map(|v| v.round() as i64)
+    }
+
+    pub fn toggle_mute(&self) -> Option<bool> {
+        self.mpv.command("cycle", &["mute"]).ok()?;
+        self.mpv.get_property::<bool>("mute").ok()
+    }
+
+    /// Auflösung und Codec der laufenden Wiedergabe, z. B. „1920×1080 · H.264“.
+    pub fn video_info(&self) -> Option<String> {
+        let w = self.mpv.get_property::<i64>("video-params/w").ok()?;
+        let h = self.mpv.get_property::<i64>("video-params/h").ok()?;
+        let codec = self
+            .mpv
+            .get_property::<String>("video-format")
+            .unwrap_or_default();
+        let hw = self
+            .mpv
+            .get_property::<String>("hwdec-current")
+            .unwrap_or_default();
+        let hw = if hw.is_empty() || hw == "no" {
+            "Software".into()
+        } else {
+            hw
+        };
+        Some(format!("{w}×{h} · {} · {hw}", codec.to_uppercase()))
     }
 
     /// Kurzbericht zur laufenden Wiedergabe (für Messungen).

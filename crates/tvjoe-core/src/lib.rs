@@ -5,6 +5,7 @@ pub mod check;
 pub mod ids;
 pub mod library;
 pub mod m3u;
+pub mod net;
 pub mod paths;
 pub mod settings;
 pub mod store;
