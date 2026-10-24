@@ -36,8 +36,9 @@ struct Row {
     id: u64,
     row: gtk::ListBoxRow,
     logo: gtk::Picture,
-    /// Laufende Sendung (EPG).
+    /// Laufende Sendung und nächste Sendung (EPG).
     now: gtk::Label,
+    next: gtk::Label,
 }
 
 /// Uhrzeit in Ortszeit, z. B. „18:10“.
@@ -280,10 +281,14 @@ impl App {
         let lib = self.lib.borrow();
         let now = epg::now();
         for r in self.rows.borrow().iter() {
-            let current = lib
+            let (current, next) = lib
                 .channel(r.id)
                 .and_then(|c| guide.match_channel(c))
-                .and_then(|(id, _)| guide.now_next(&id, now).0.cloned());
+                .map(|(id, _)| {
+                    let (c, n) = guide.now_next(&id, now);
+                    (c.cloned(), n.cloned())
+                })
+                .unwrap_or((None, None));
             match current {
                 Some(p) => {
                     r.now
@@ -292,6 +297,15 @@ impl App {
                     r.now.set_visible(true);
                 }
                 None => r.now.set_visible(false),
+            }
+            match next {
+                Some(p) => {
+                    r.next
+                        .set_label(&format!("Danach {}  {}", hm(p.start), p.title));
+                    r.next.set_tooltip_text(Some(&p.title));
+                    r.next.set_visible(true);
+                }
+                None => r.next.set_visible(false),
             }
         }
     }
@@ -458,35 +472,23 @@ impl App {
                 .xalign(0.0)
                 .ellipsize(gtk::pango::EllipsizeMode::End)
                 .build();
-            let qualities: Vec<&str> = ch
-                .streams
-                .iter()
-                .filter_map(|s| s.quality.map(Quality::label))
-                .collect();
-            let mut sub_parts: Vec<String> =
-                ch.display_group().map(String::from).into_iter().collect();
-            if !qualities.is_empty() {
-                sub_parts.push(qualities.join(" "));
-            }
-            let sub = gtk::Label::builder()
-                .label(sub_parts.join(" · "))
-                .css_classes(["tvjoe-sub"])
-                .xalign(0.0)
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                .visible(!sub_parts.is_empty())
-                .build();
+            // Unter dem Namen: laufende Sendung, darunter „Danach …“ (aus dem EPG).
+            let epg_line = || {
+                gtk::Label::builder()
+                    .css_classes(["tvjoe-sub"])
+                    .xalign(0.0)
+                    .ellipsize(gtk::pango::EllipsizeMode::End)
+                    .visible(false)
+                    .build()
+            };
+            let now = epg_line();
+            let next = epg_line();
             let text = gtk::Box::new(gtk::Orientation::Vertical, 1);
             text.set_hexpand(true);
             text.set_valign(gtk::Align::Center);
             text.append(&name);
-            text.append(&sub);
-            let now = gtk::Label::builder()
-                .css_classes(["tvjoe-sub"])
-                .xalign(0.0)
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                .visible(false)
-                .build();
             text.append(&now);
+            text.append(&next);
             let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 10);
             hbox.append(&num);
             hbox.append(&crate::logo_box(&logo, 56));
@@ -513,6 +515,7 @@ impl App {
                 row,
                 logo,
                 now,
+                next,
             });
         }
     }
