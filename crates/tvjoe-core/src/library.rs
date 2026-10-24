@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::check::channel_key;
 use crate::ids::normalize_id;
 use crate::m3u::{Entry, Playlist, Quality, SourceKind};
+use crate::net::Variant;
 use crate::settings::Fallback;
 use crate::store::{StoreError, load_toml, save_toml};
 
@@ -48,6 +49,10 @@ pub struct Stream {
     pub quality: Option<Quality>,
     pub kind: Option<SourceKind>,
     pub url: String,
+    /// Bei adaptiven HLS-Streams: höchste Bitrate für diese Stufe (mpv `hls-bitrate`);
+    /// `None` = beste Stufe des Streams.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bitrate: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,7 +195,8 @@ impl Candidate {
         }
     }
 
-    fn add(&mut self, e: &Entry) {
+    /// `variants`: beim Import erkannte Stufen des Streams (HLS-Master-Playlist).
+    fn add(&mut self, e: &Entry, variants: &[Variant]) {
         if self.streams.is_empty() {
             self.name = e.attr("tvg-name").unwrap_or(&e.name).to_string();
         }
@@ -205,6 +211,10 @@ impl Candidate {
             .or_else(|| e.tvg_logo().map(str::to_string));
         self.chno = self.chno.or_else(|| e.chno());
         let quality = e.quality();
+        if quality.is_none() && !variants.is_empty() {
+            self.add_variants(e, variants);
+            return;
+        }
         // Pro Qualitätsstufe nur ein Stream (der erste); ohne Angabe bleiben alle.
         if quality.is_some() && self.streams.iter().any(|s| s.quality == quality) {
             return;
@@ -213,7 +223,31 @@ impl Candidate {
             quality,
             kind: e.kind(),
             url: e.url.clone(),
+            max_bitrate: e.attr("tvjoe-bitrate").and_then(|b| b.trim().parse().ok()),
         });
+    }
+
+    /// Ein adaptiver Stream wird je enthaltener Stufe ein eigener Stream mit derselben URL;
+    /// die Stufe wählt mpv über die höchste Bitrate dieser Stufe. Die beste Stufe bleibt offen.
+    fn add_variants(&mut self, e: &Entry, variants: &[Variant]) {
+        let mut levels: std::collections::BTreeMap<Quality, u64> =
+            std::collections::BTreeMap::new();
+        for v in variants {
+            let bw = levels.entry(Quality::from_height(v.height)).or_insert(0);
+            *bw = (*bw).max(v.bandwidth);
+        }
+        let top = levels.keys().next_back().copied();
+        for (q, bw) in levels {
+            if self.streams.iter().any(|s| s.quality == Some(q)) {
+                continue;
+            }
+            self.streams.push(Stream {
+                quality: Some(q),
+                kind: e.kind(),
+                url: e.url.clone(),
+                max_bitrate: (Some(q) != top).then_some(bw),
+            });
+        }
     }
 
     fn finish(mut self) -> Self {
@@ -333,6 +367,10 @@ impl Library {
                     }),
                 );
                 add("tvjoe-quality", s.quality.map(Quality::as_attr));
+                add(
+                    "tvjoe-bitrate",
+                    s.max_bitrate.map(|b| b.to_string()).as_deref(),
+                );
                 let name = match s.quality {
                     Some(q) if ch.streams.len() > 1 => {
                         format!("{} {}", ch.display_name(), q.label())
@@ -395,6 +433,19 @@ impl Library {
         selection: Option<&[usize]>,
         now: u64,
     ) -> Option<ImportOutcome> {
+        self.import_with(source, playlist, selection, now, &HashMap::new())
+    }
+
+    /// Wie [`Library::import`], mit beim Import erkannten Stufen je Eintrag (Index → Varianten).
+    /// Einträge ohne `tvjoe-quality` bekommen daraus ihre Stufen (adaptive Streams: mehrere).
+    pub fn import_with(
+        &mut self,
+        source: u64,
+        playlist: &Playlist,
+        selection: Option<&[usize]>,
+        now: u64,
+        variants: &HashMap<usize, Vec<Variant>>,
+    ) -> Option<ImportOutcome> {
         self.source(source)?;
 
         let mut idxs: Vec<usize> = match selection {
@@ -414,7 +465,7 @@ impl Library {
                 cands.push(Candidate::new(key));
                 cands.len() - 1
             });
-            cands[pos].add(e);
+            cands[pos].add(e, variants.get(&i).map(Vec::as_slice).unwrap_or(&[]));
         }
 
         let mut out = ImportOutcome::default();
@@ -716,6 +767,7 @@ mod tests {
                     quality: *q,
                     kind: None,
                     url: format!("u{i}"),
+                    max_bitrate: None,
                 })
                 .collect(),
         }
@@ -734,6 +786,88 @@ mod tests {
         // Über dem Angebot: die nächste darunter; ohne Wunsch: die höchste.
         assert_eq!(url(Some(Uhd), Fallback::Down), "u1");
         assert_eq!(url(None, Fallback::Down), "u1");
+    }
+
+    #[test]
+    fn adaptiver_stream_wird_in_stufen_geteilt() {
+        let mut lib = Library::default();
+        let src = lib.add_source("Test", "test.m3u");
+        let p = pl(&[
+            ("1", "Eins.de", "", "https://x.invalid/eins/master.m3u8"),
+            ("2", "Zwei.de", "", "https://x.invalid/zwei/master.m3u8"),
+            ("3", "Drei.de", "720", "https://x.invalid/drei/master.m3u8"),
+        ]);
+        let v = |h, b| Variant {
+            height: h,
+            bandwidth: b,
+        };
+        let mut variants = HashMap::new();
+        // Eins: 270p…1080p wie Das Erste; Zwei: nur 720p wie ZDF.
+        variants.insert(
+            0,
+            vec![
+                v(270, 385_000),
+                v(540, 880_000),
+                v(720, 1_760_000),
+                v(720, 2_675_200),
+                v(1080, 4_180_000),
+            ],
+        );
+        variants.insert(1, vec![v(720, 3_544_154)]);
+        // Ausdrückliche Angabe in der M3U hat Vorrang vor der Erkennung.
+        variants.insert(2, vec![v(1080, 5_000_000)]);
+        lib.import_with(src, &p, None, 1, &variants).unwrap();
+
+        let eins = name(&lib, "Eins.de");
+        let stufen: Vec<_> = eins
+            .streams
+            .iter()
+            .map(|s| (s.quality, s.max_bitrate))
+            .collect();
+        assert_eq!(
+            stufen,
+            [
+                (Some(Quality::Sd), Some(880_000)),
+                (Some(Quality::P720), Some(2_675_200)),
+                (Some(Quality::P1080), None),
+            ]
+        );
+        assert!(
+            eins.streams
+                .iter()
+                .all(|s| s.url == "https://x.invalid/eins/master.m3u8")
+        );
+        let zwei = name(&lib, "Zwei.de");
+        assert_eq!(zwei.streams.len(), 1);
+        assert_eq!(
+            (zwei.streams[0].quality, zwei.streams[0].max_bitrate),
+            (Some(Quality::P720), None)
+        );
+        let drei = name(&lib, "Drei.de");
+        assert_eq!(
+            (drei.streams.len(), drei.streams[0].quality),
+            (1, Some(Quality::P720))
+        );
+        // Wunsch 720p trifft beim adaptiven Stream die 720p-Stufe.
+        let s = eins
+            .pick_stream(Some(Quality::P720), Fallback::Down)
+            .unwrap();
+        assert_eq!(s.max_bitrate, Some(2_675_200));
+
+        // Export und Wiedereinlesen behalten Stufen und Bitraten, ohne Befund „URL doppelt“.
+        let text = lib.export_m3u(Some(&[eins.id]));
+        let p2 = Playlist::parse(text.as_bytes()).unwrap();
+        assert!(
+            p2.findings
+                .iter()
+                .all(|f| f.kind != crate::check::FindingKind::DuplicateUrl),
+            "{:?}",
+            p2.findings
+        );
+        let mut neu = Library::default();
+        let s2 = neu.add_source("Export", "export.m3u");
+        neu.import(s2, &p2, None, 2).unwrap();
+        assert_eq!(neu.channels[0].streams, name(&lib, "Eins.de").streams);
     }
 
     #[test]

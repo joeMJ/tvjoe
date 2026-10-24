@@ -4,7 +4,8 @@
 //! Warnungen sind abgewählt, die Erreichbarkeit wird automatisch, parallel und abbrechbar geprüft
 //! (nur der Anfang jedes Streams, kein Abspielen). Nicht erreichbare Einträge werden abgewählt.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -12,8 +13,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use adw::prelude::*;
 use gtk::{gio, glib};
-use tvjoe_core::net::{self, Probe};
-use tvjoe_core::{Playlist, Quality, Severity};
+use tvjoe_core::net::{self, Probe, Variant};
+use tvjoe_core::{FindingKind, Playlist, Quality, Severity};
 
 use crate::manage::Manager;
 
@@ -119,6 +120,11 @@ pub struct Preview {
     source_name: gtk::Entry,
     checks: Vec<gtk::CheckButton>,
     reach: Vec<gtk::Label>,
+    qualities: Vec<gtk::Label>,
+    /// Eintrag hat als einzigen Befund „Qualität unbekannt“ (wird nach Erkennung angewählt).
+    only_quality_warning: Vec<bool>,
+    /// Beim Prüfen erkannte Stufen je Eintrag (HLS-Master-Playlist).
+    variants: RefCell<HashMap<usize, Vec<Variant>>>,
     status: gtk::Label,
     cancel: Arc<AtomicBool>,
     import_button: gtk::Button,
@@ -232,6 +238,8 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
     let guide = mgr.app.guide();
     let mut checks = Vec::new();
     let mut reach = Vec::new();
+    let mut qualities = Vec::new();
+    let mut only_quality_warning = Vec::new();
     for (i, e) in playlist.entries.iter().enumerate() {
         let own: Vec<_> = playlist
             .findings
@@ -274,11 +282,11 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
         }
         hbox.append(&name_box);
         hbox.append(&label(e.group().unwrap_or("–"), 150, "tvjoe-sub"));
-        hbox.append(&label(
-            e.quality().map_or("?", Quality::label),
-            70,
-            "tvjoe-sub",
-        ));
+        let q = label(e.quality().map_or("?", Quality::label), 130, "tvjoe-sub");
+        hbox.append(&q);
+        qualities.push(q);
+        only_quality_warning
+            .push(!own.is_empty() && own.iter().all(|f| f.kind == FindingKind::MissingQuality));
         let r = label("…", 200, "tvjoe-sub");
         hbox.append(&r);
         let epg_text = match &guide {
@@ -320,6 +328,9 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
         source_name,
         checks,
         reach,
+        qualities,
+        only_quality_warning,
+        variants: RefCell::new(HashMap::new()),
         status,
         cancel: Arc::new(AtomicBool::new(false)),
         import_button,
@@ -416,6 +427,25 @@ impl Preview {
         self.import_button.set_sensitive(n > 0);
     }
 
+    /// Erkannte Stufen anzeigen und merken; war „Qualität unbekannt“ der einzige Befund,
+    /// wird der Eintrag angewählt. Eine Angabe `tvjoe-quality` in der M3U hat Vorrang.
+    fn found_variants(&self, i: usize, variants: &[Variant]) {
+        if variants.is_empty() || self.playlist.entries[i].quality().is_some() {
+            return;
+        }
+        let levels: BTreeSet<Quality> = variants
+            .iter()
+            .map(|v| Quality::from_height(v.height))
+            .collect();
+        let text: Vec<&str> = levels.iter().map(|q| q.label()).collect();
+        self.qualities[i].set_label(&format!("{} (erkannt)", text.join(" ")));
+        self.qualities[i].set_tooltip_text(Some("Aus der HLS-Master-Playlist erkannt"));
+        self.variants.borrow_mut().insert(i, variants.to_vec());
+        if self.only_quality_warning[i] {
+            self.checks[i].set_active(true);
+        }
+    }
+
     pub fn set_where(&self, pred: impl Fn(&tvjoe_core::Entry) -> bool, on: bool) {
         for (e, c) in self.playlist.entries.iter().zip(&self.checks) {
             if c.is_sensitive() && pred(e) {
@@ -462,9 +492,10 @@ impl Preview {
                 let Some(p) = w.upgrade() else { break };
                 done += 1;
                 let text = match &probe {
-                    Probe::Ok(code) => {
+                    Probe::Ok { status, variants } => {
                         ok += 1;
-                        format!("✔ erreichbar ({code})")
+                        p.found_variants(i, variants);
+                        format!("✔ erreichbar ({status})")
                     }
                     Probe::Skipped => "– nicht geprüft".to_string(),
                     Probe::Failed(e) => {
@@ -514,7 +545,13 @@ impl Preview {
                     &self.location,
                 ),
             };
-            lib.import(source, &self.playlist, (!all).then_some(&selected[..]), now)
+            lib.import_with(
+                source,
+                &self.playlist,
+                (!all).then_some(&selected[..]),
+                now,
+                &self.variants.borrow(),
+            )
         };
         self.cancel.store(true, Ordering::Relaxed);
         self.mgr.app.library_changed();

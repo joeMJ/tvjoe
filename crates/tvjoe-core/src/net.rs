@@ -22,17 +22,73 @@ pub fn fetch(agent: &Agent, url: &str, limit: u64) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Eine Stufe eines adaptiven HLS-Streams (aus `#EXT-X-STREAM-INF`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Variant {
+    pub height: u32,
+    pub bandwidth: u64,
+}
+
 /// Ergebnis der Erreichbarkeitsprüfung.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Probe {
-    /// Antwort mit HTTP-Status (2xx).
-    Ok(u16),
+    /// Antwort mit HTTP-Status; bei HLS-Master-Playlists die enthaltenen Stufen.
+    Ok {
+        status: u16,
+        variants: Vec<Variant>,
+    },
     Failed(String),
     /// Nicht prüfbar (z. B. `rtsp://`).
     Skipped,
 }
 
-/// Erreichbarkeit: fragt nur den Anfang ab (`Range`, höchstens 4 KiB), spielt nichts ab.
+/// Teilt eine Attributliste `A=1,B="x,y",C=2` an Kommas außerhalb von Anführungszeichen.
+fn split_attrs(s: &str) -> Vec<(&str, &str)> {
+    let mut out = Vec::new();
+    let (mut start, mut quoted) = (0, false);
+    for (i, b) in s.bytes().enumerate() {
+        match b {
+            b'"' => quoted = !quoted,
+            b',' if !quoted => {
+                out.extend(s[start..i].split_once('='));
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.extend(s[start..].split_once('='));
+    out
+}
+
+/// Stufen einer HLS-Master-Playlist (Auflösung und Bandbreite).
+pub fn parse_variants(playlist: &str) -> Vec<Variant> {
+    playlist
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("#EXT-X-STREAM-INF:"))
+        .filter_map(|attrs| {
+            let mut height = None;
+            let mut bandwidth = None;
+            for (k, v) in split_attrs(attrs) {
+                match k.trim() {
+                    "RESOLUTION" => {
+                        height = v
+                            .split_once(['x', 'X'])
+                            .and_then(|(_, h)| h.trim().parse().ok())
+                    }
+                    "BANDWIDTH" => bandwidth = v.trim().parse().ok(),
+                    _ => {}
+                }
+            }
+            Some(Variant {
+                height: height?,
+                bandwidth: bandwidth?,
+            })
+        })
+        .collect()
+}
+
+/// Erreichbarkeit, ohne abzuspielen: bei `.m3u8` die Playlist (höchstens 256 KiB) samt
+/// enthaltener Stufen, sonst nur der Anfang (`Range`, höchstens 4 KiB).
 pub fn probe(agent: &Agent, url: &str) -> Probe {
     match url
         .split_once("://")
@@ -43,11 +99,34 @@ pub fn probe(agent: &Agent, url: &str) -> Probe {
         Some(_) => return Probe::Skipped,
         None => return Probe::Failed("keine URL".into()),
     }
-    match agent.get(url).header("Range", "bytes=0-2047").call() {
+    let path = url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let is_hls = path.ends_with(".m3u8");
+    let req = agent.get(url);
+    let req = if is_hls {
+        req
+    } else {
+        req.header("Range", "bytes=0-2047")
+    };
+    match req.call() {
         Ok(mut resp) => {
             let status = resp.status().as_u16();
-            let _ = resp.body_mut().with_config().limit(4096).read_to_vec();
-            Probe::Ok(status)
+            let limit = if is_hls { 256 * 1024 } else { 4096 };
+            let body = resp
+                .body_mut()
+                .with_config()
+                .limit(limit)
+                .read_to_vec()
+                .unwrap_or_default();
+            let variants = if is_hls {
+                parse_variants(&String::from_utf8_lossy(&body))
+            } else {
+                Vec::new()
+            };
+            Probe::Ok { status, variants }
         }
         Err(e) => Probe::Failed(e.to_string()),
     }
@@ -66,6 +145,31 @@ pub fn cache_name(url: &str, ext: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stufen_aus_master_playlist() {
+        let m3u8 = "#EXTM3U\n\
+            #EXT-X-STREAM-INF:BANDWIDTH=385000,AVERAGE-BANDWIDTH=300000,CODECS=\"avc1.4d401e,mp4a.40.2\",RESOLUTION=480x270\n\
+            chunk_270.m3u8\n\
+            #EXT-X-STREAM-INF:BANDWIDTH=4180000,RESOLUTION=1920x1080,FRAME-RATE=50.000\n\
+            chunk_1080.m3u8\n\
+            #EXT-X-STREAM-INF:BANDWIDTH=128000,CODECS=\"mp4a.40.2\"\n\
+            audio.m3u8\n";
+        assert_eq!(
+            parse_variants(m3u8),
+            [
+                Variant {
+                    height: 270,
+                    bandwidth: 385_000
+                },
+                Variant {
+                    height: 1080,
+                    bandwidth: 4_180_000
+                },
+            ]
+        );
+        assert!(parse_variants("#EXTM3U\n#EXTINF:6,\nseg1.ts\n").is_empty());
+    }
 
     #[test]
     fn cache_name_ist_stabil_und_verschieden() {

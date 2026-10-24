@@ -100,7 +100,7 @@ pub(crate) fn channel_key(e: &Entry) -> String {
 /// Prüft alle Einträge und vergibt doppelte Kanalnummern neu (ändert dabei `tvg-chno`).
 pub fn analyze(entries: &mut [Entry]) -> Vec<Finding> {
     let mut out = Vec::new();
-    let mut seen_url: HashMap<String, usize> = HashMap::new();
+    let mut seen_url: HashMap<String, Vec<(String, Option<Quality>)>> = HashMap::new();
     let mut seen_id: HashMap<(String, Option<Quality>), usize> = HashMap::new();
 
     for (i, e) in entries.iter().enumerate() {
@@ -133,7 +133,13 @@ pub fn analyze(entries: &mut [Entry]) -> Vec<Finding> {
             (None, _) => push(FindingKind::MissingQuality),
         }
 
-        if seen_url.insert(e.url.clone(), i).is_some() {
+        // Gleiche URL ist nur für denselben Sender in verschiedenen Stufen erlaubt
+        // (adaptiver Stream, z. B. aus dem Export).
+        let me = (channel_key(e), e.quality());
+        let others = seen_url.entry(e.url.clone()).or_default();
+        let clash = others.iter().any(|(k, q)| *k != me.0 || *q == me.1);
+        others.push(me);
+        if clash {
             push(FindingKind::DuplicateUrl);
         }
         let key = (channel_key(e), e.quality());

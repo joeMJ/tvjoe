@@ -71,7 +71,8 @@ pub struct App {
     settings: RefCell<Settings>,
     settings_path: Option<PathBuf>,
     current: Cell<Option<u64>>,
-    current_url: RefCell<Option<String>>,
+    /// Laufender Stream: URL und ggf. Bitratengrenze (Stufe eines adaptiven Streams).
+    current_stream: RefCell<Option<(String, Option<u64>)>>,
     /// Gewünschte Stufe für den laufenden Sender (Ausweichen bei Störungen).
     wanted: Cell<Option<Quality>>,
     /// Für den laufenden Sender schon versuchte URLs.
@@ -184,7 +185,7 @@ impl App {
             settings: RefCell::new(settings),
             settings_path,
             current: Cell::new(None),
-            current_url: RefCell::new(None),
+            current_stream: RefCell::new(None),
             wanted: Cell::new(None),
             tried: RefCell::new(Vec::new()),
             digits: RefCell::new(String::new()),
@@ -608,6 +609,7 @@ impl App {
                     }
                     (
                         s.url.clone(),
+                        s.max_bitrate,
                         number_text(ch),
                         ch.display_name().to_string(),
                         sub,
@@ -615,13 +617,13 @@ impl App {
                 })
             })
         };
-        let Some((url, number, name, sub)) = picked else {
+        let Some((url, bitrate, number, name, sub)) = picked else {
             return;
         };
-        player.load(&url);
-        trace(&format!("lade {name} ({url})"));
+        player.load(&url, bitrate);
+        trace(&format!("lade {name} ({url}, hls-bitrate {bitrate:?})"));
         self.tried.replace(vec![url.clone()]);
-        self.current_url.replace(Some(url));
+        self.current_stream.replace(Some((url, bitrate)));
         self.current.set(Some(id));
         self.wanted.set(wanted);
         self.settings.borrow_mut().last_channel = Some(id);
@@ -647,7 +649,7 @@ impl App {
                     .streams_by_preference(self.wanted.get(), fallback)
                     .into_iter()
                     .find(|s| !tried.contains(&s.url))
-                    .map(|s| (s.url.clone(), s.quality));
+                    .map(|s| (s.url.clone(), s.max_bitrate, s.quality));
                 (number_text(ch), ch.display_name().to_string(), next)
             })
         };
@@ -655,10 +657,10 @@ impl App {
             return;
         };
         match next {
-            Some((url, q)) => {
-                player.load(&url);
+            Some((url, bitrate, q)) => {
+                player.load(&url, bitrate);
                 self.tried.borrow_mut().push(url.clone());
-                self.current_url.replace(Some(url));
+                self.current_stream.replace(Some((url, bitrate)));
                 let text = format!("Stream gestört – weiche aus auf {}", quality_label(q));
                 self.osd.show(&number, &name, &text, self.overlay_secs());
             }
@@ -757,9 +759,13 @@ impl App {
         };
         let current_q = {
             let lib = self.lib.borrow();
-            let url = self.current_url.borrow();
+            let cur = self.current_stream.borrow();
             lib.channel(id)
-                .and_then(|ch| ch.streams.iter().find(|s| Some(&s.url) == url.as_ref()))
+                .and_then(|ch| {
+                    ch.streams
+                        .iter()
+                        .find(|s| cur.as_ref() == Some(&(s.url.clone(), s.max_bitrate)))
+                })
                 .and_then(|s| s.quality)
         };
         let next = match self.settings.borrow().quality.or(current_q) {
@@ -777,6 +783,7 @@ impl App {
                 ch.pick_stream(Some(next), fallback).map(|s| {
                     (
                         s.url.clone(),
+                        s.max_bitrate,
                         s.quality,
                         number_text(ch),
                         ch.display_name().to_string(),
@@ -784,13 +791,14 @@ impl App {
                 })
             })
         };
-        let Some((url, q, number, name)) = picked else {
+        let Some((url, bitrate, q, number, name)) = picked else {
             return;
         };
-        if self.current_url.borrow().as_deref() != Some(url.as_str()) {
-            player.load(&url);
-            self.tried.replace(vec![url.clone()]);
-            self.current_url.replace(Some(url));
+        let target = (url.clone(), bitrate);
+        if self.current_stream.borrow().as_ref() != Some(&target) {
+            player.load(&url, bitrate);
+            self.tried.replace(vec![url]);
+            self.current_stream.replace(Some(target));
         }
         let text = if q == Some(next) {
             format!("Qualität {}", next.label())
@@ -827,11 +835,11 @@ impl App {
         let Some(id) = self.current.get() else { return };
         let lib = self.lib.borrow();
         let Some(ch) = lib.channel(id) else { return };
-        let url = self.current_url.borrow();
+        let cur = self.current_stream.borrow();
         let q = ch
             .streams
             .iter()
-            .find(|s| Some(&s.url) == url.as_ref())
+            .find(|s| cur.as_ref() == Some(&(s.url.clone(), s.max_bitrate)))
             .and_then(|s| s.quality);
         let mut sub = sub_line(ch, q);
         if let Some(e) = self.epg_lines(ch) {

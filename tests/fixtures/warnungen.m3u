@@ -7,7 +7,7 @@ http://example.invalid/stream
 ftp://example.invalid/drei.m3u8
 #EXTINF:-1 tvg-id="Eins.de" tvg-logo="https://example.invalid/l.png" group-title="G" tvjoe-type="hls" tvjoe-quality="sd",Eins SD doppelt
 https://example.invalid/eins/sd-zweite.m3u8
-#EXTINF:-1 tvg-id="Eins.de" tvg-logo="https://example.invalid/l.png" group-title="G" tvjoe-type="hls" tvjoe-quality="720",Eins URL doppelt
+#EXTINF:-1 tvg-id="Sechs.de" tvg-logo="https://example.invalid/l.png" group-title="G" tvjoe-type="hls" tvjoe-quality="720",Eins URL doppelt
 https://example.invalid/eins/sd.m3u8
 #EXTINF:-1 tvg-chno="1" tvg-id="Vier.de" tvg-logo="https://example.invalid/l.png" group-title="G",Vier A
 https://example.invalid/vier/a.m3u8

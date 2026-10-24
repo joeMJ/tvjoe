@@ -170,7 +170,13 @@ impl Player {
         }
     }
 
-    pub fn load(&self, url: &str) {
+    /// Lädt einen Stream. `max_bitrate` begrenzt bei adaptiven HLS-Streams die Stufe
+    /// (mpv `hls-bitrate`: höchste Stufe mit Bitrate ≤ Grenze); `None` = beste Stufe.
+    pub fn load(&self, url: &str, max_bitrate: Option<u64>) {
+        let limit = max_bitrate.map_or_else(|| "max".to_string(), |b| b.to_string());
+        if let Err(e) = self.mpv.set_property("hls-bitrate", limit.as_str()) {
+            eprintln!("tvjoe: hls-bitrate={limit}: {e:?}");
+        }
         if let Err(e) = self.mpv.command("loadfile", &[url]) {
             eprintln!("tvjoe: Laden fehlgeschlagen: {e:?}");
         }
@@ -252,5 +258,42 @@ impl Player {
             s("container-fps"),
             s("frame-drop-count"),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    /// Prüft ohne Fenster und ohne Ton, ob `hls-bitrate` die Stufe eines adaptiven Streams
+    /// wählt (Netz nötig). `cargo test -p tvjoe-gui -- --ignored --nocapture`
+    /// Andere URL: `TVJOE_TEST_HLS`; Grenzen und erwartete Höhen passen zu Das Erste.
+    #[test]
+    #[ignore]
+    fn hls_bitrate_waehlt_stufe() {
+        let url = std::env::var("TVJOE_TEST_HLS").unwrap_or_else(|_| {
+            "https://daserste-live.ard-mcdn.de/daserste/live/hls/de/master.m3u8".into()
+        });
+        for (limit, expected) in [("2816000", 540), ("5491200", 720), ("max", 1080)] {
+            unsafe { libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr()) };
+            let mpv = libmpv2::Mpv::with_initializer(|i| {
+                i.set_option("vo", "null")?;
+                i.set_option("ao", "null")?;
+                Ok(())
+            })
+            .unwrap();
+            mpv.set_property("hls-bitrate", limit).unwrap();
+            mpv.command("loadfile", &[&url]).unwrap();
+            let mut height = None;
+            for _ in 0..300 {
+                if let Ok(h) = mpv.get_property::<i64>("video-params/h") {
+                    height = Some(h);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            println!("hls-bitrate={limit}: Bildhöhe {height:?}");
+            assert_eq!(height, Some(expected));
+        }
     }
 }

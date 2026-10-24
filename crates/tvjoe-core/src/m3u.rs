@@ -76,6 +76,16 @@ impl Quality {
         }
     }
 
+    /// Stufe aus der Bildhöhe eines Streams (z. B. aus einer HLS-Master-Playlist).
+    pub fn from_height(height: u32) -> Self {
+        match height {
+            2160.. => Self::Uhd,
+            1080.. => Self::P1080,
+            720.. => Self::P720,
+            _ => Self::Sd,
+        }
+    }
+
     /// Anzeigename.
     pub fn label(self) -> &'static str {
         match self {
