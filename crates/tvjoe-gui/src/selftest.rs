@@ -3,6 +3,7 @@
 //!
 //! - `TVJOE_SELFTEST=/ordner tvjoe --mute`: Bedienung des Hauptfensters.
 //! - zusätzlich `TVJOE_SELFTEST_IMPORT=/liste.m3u`: Verwaltung und Import mit Vorschau.
+//! - zusätzlich `TVJOE_SELFTEST_MEDIATHEK=1`: Mediathek (lädt beim ersten Mal die Filmliste).
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -123,6 +124,38 @@ const STEPS: &[Step] = &[
     ),
 ];
 
+/// Mediathek (`TVJOE_SELFTEST_MEDIATHEK=1`): beim ersten Öffnen wird die Filmliste geladen.
+const MEDIATHEK_STEPS: &[Step] = &[
+    (
+        "30-mediathek-oeffnen",
+        |p| crate::mediathek::open_window(&p.app),
+        2000,
+    ),
+    (
+        "31-mediathek-episoden",
+        |_| crate::mediathek::probe_tab(0, None),
+        90000,
+    ),
+    (
+        "32-mediathek-filme",
+        |_| crate::mediathek::probe_tab(1, None),
+        15000,
+    ),
+    (
+        "33-mediathek-suche",
+        |_| crate::mediathek::probe_tab(2, Some("tatort")),
+        15000,
+    ),
+    (
+        "34-mediathek-abspielen",
+        |p| {
+            crate::mediathek::probe_play_first(&p.app);
+            main_window(p)
+        },
+        6000,
+    ),
+];
+
 const IMPORT_STEPS: &[Step] = &[
     (
         "20-verwaltung",
@@ -188,6 +221,9 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
     let mut steps: Vec<Step> = STEPS.to_vec();
     if list.is_some() {
         steps.extend_from_slice(IMPORT_STEPS);
+    }
+    if std::env::var_os("TVJOE_SELFTEST_MEDIATHEK").is_some() {
+        steps.extend_from_slice(MEDIATHEK_STEPS);
     }
     let probe = Rc::new(Probe {
         app,

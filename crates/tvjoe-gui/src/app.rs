@@ -13,6 +13,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::{gdk, glib};
 use tvjoe_core::epg::{self, Guide};
+use tvjoe_core::mediathek::Film;
 use tvjoe_core::{Channel, Library, Quality, Settings, SourceKind, Strategy, Stream, net, paths};
 
 use crate::logos::Logos;
@@ -77,6 +78,8 @@ pub struct App {
     inhibit_cookie: Cell<Option<u32>>,
     guide: RefCell<Option<Rc<Guide>>>,
     epg_timer: Cell<bool>,
+    /// Laufender Mediathek-Beitrag (statt eines Senders).
+    vod: RefCell<Option<Film>>,
 }
 
 impl App {
@@ -148,6 +151,11 @@ impl App {
             .tooltip_text("Programm (G)")
             .build();
         header.pack_end(&grid_button);
+        let mediathek_button = gtk::Button::builder()
+            .icon_name("folder-videos-symbolic")
+            .tooltip_text("Mediathek")
+            .build();
+        header.pack_end(&mediathek_button);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
             .tooltip_text("Einstellungen (Strg+,)")
@@ -192,6 +200,7 @@ impl App {
             inhibit_cookie: Cell::new(None),
             guide: RefCell::new(None),
             epg_timer: Cell::new(false),
+            vod: RefCell::new(None),
         });
 
         app.build_rows();
@@ -206,6 +215,12 @@ impl App {
         grid_button.connect_clicked(move |_| {
             if let Some(app) = weak.upgrade() {
                 crate::grid::open(&app);
+            }
+        });
+        let weak = Rc::downgrade(&app);
+        mediathek_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                crate::mediathek::open(&app);
             }
         });
         let weak = Rc::downgrade(&app);
@@ -389,6 +404,9 @@ impl App {
     /// Nach geänderter Qualitätseinstellung: laufenden Sender neu wählen, falls sich der
     /// passende Stream geändert hat.
     pub fn reapply_quality(self: &Rc<Self>) {
+        if self.vod.borrow().is_some() {
+            return;
+        }
         let Some(id) = self.current.get() else { return };
         let target = {
             let lib = self.lib.borrow();
@@ -719,6 +737,7 @@ impl App {
         let Some((url, bitrate, name, info)) = picked else {
             return;
         };
+        self.vod.replace(None);
         player.load(&url, bitrate);
         trace(&format!("lade {name} ({url}, hls-bitrate {bitrate:?})"));
         self.tried.replace(vec![url.clone()]);
@@ -734,11 +753,39 @@ impl App {
         self.update_inhibit();
     }
 
+    /// Spielt einen Mediathek-Beitrag (Stufe nach der Qualitätseinstellung). Zurück zum
+    /// Fernsehen über Ziffern oder die Senderliste.
+    pub fn play_film(self: &Rc<Self>, film: &Film) {
+        let Some(player) = self.player.clone() else {
+            return;
+        };
+        let url = film.url_for(self.wanted_for_switch()).to_string();
+        player.load(&url, None);
+        trace(&format!("lade Mediathek {} ({url})", film.title));
+        self.vod.replace(Some(film.clone()));
+        self.window
+            .set_title(Some(&format!("{} – tvjoe", film.title)));
+        self.list.unselect_all();
+        self.show_film_info(film, self.overlay_secs());
+        self.update_inhibit();
+    }
+
+    /// Vorläufige Anzeige eines Mediathek-Beitrags (die Bauchbinde folgt mit Schritt 3).
+    fn show_film_info(self: &Rc<Self>, film: &Film, secs: u32) {
+        self.osd.show(
+            "",
+            &film.title,
+            &format!("{} · {}", film.sender, film.topic),
+            secs,
+        );
+    }
+
     /// Bildschirmsperre verhindern: im Vollbild immer, im Fenster nur mit der Einstellung
     /// „Bildschirmsperre auch im Fenster verhindern“, solange ein Sender läuft.
     pub fn update_inhibit(&self) {
-        let want = self.window.is_fullscreen()
-            || (self.settings.borrow().inhibit_windowed && self.current.get().is_some());
+        let playing = self.current.get().is_some() || self.vod.borrow().is_some();
+        let want =
+            self.window.is_fullscreen() || (self.settings.borrow().inhibit_windowed && playing);
         let Some(application) = self.window.application() else {
             return;
         };
@@ -763,6 +810,12 @@ impl App {
 
     /// Stream gestört: nächsten noch nicht versuchten Stream des Senders nehmen.
     fn on_stream_failed(self: &Rc<Self>, ev: PlayerEvent) {
+        if self.vod.borrow().is_some() {
+            trace(&format!("Mediathek-Video gestört: {ev:?}"));
+            self.msg
+                .show("Video nicht abspielbar oder beendet", self.overlay_secs());
+            return;
+        }
         let (Some(player), Some(id)) = (self.player.clone(), self.current.get()) else {
             return;
         };
@@ -909,6 +962,9 @@ impl App {
     }
 
     pub fn cycle_quality(self: &Rc<Self>) {
+        if self.vod.borrow().is_some() {
+            return;
+        }
         let (Some(player), Some(id)) = (self.player.clone(), self.current.get()) else {
             return;
         };
@@ -989,7 +1045,11 @@ impl App {
     }
 
     /// Senderanzeige erneut zeigen (Taste I, Mausklick aufs Bild).
-    pub fn show_info(&self) {
+    pub fn show_info(self: &Rc<Self>) {
+        if let Some(film) = self.vod.borrow().clone() {
+            self.show_film_info(&film, self.overlay_secs() * 2);
+            return;
+        }
         let Some(id) = self.current.get() else { return };
         let lib = self.lib.borrow();
         let Some(ch) = lib.channel(id) else { return };

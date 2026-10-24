@@ -22,6 +22,19 @@ pub fn fetch(agent: &Agent, url: &str, limit: u64) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Lädt den Anfang einer Seite (höchstens `limit` Bytes, ohne Fehler bei längeren Seiten).
+pub fn fetch_prefix(agent: &Agent, url: &str, limit: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut resp = agent.get(url).call().map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    resp.body_mut()
+        .as_reader()
+        .take(limit)
+        .read_to_end(&mut out)
+        .map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
 /// Eine Stufe eines adaptiven HLS-Streams (aus `#EXT-X-STREAM-INF`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Variant {

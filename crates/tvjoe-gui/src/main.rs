@@ -7,6 +7,7 @@ mod grid;
 mod import;
 mod logos;
 mod manage;
+mod mediathek;
 mod osd;
 mod player;
 mod prefs;
@@ -136,6 +137,9 @@ fn activate(application: &adw::Application, opts: &Options) {
     // EPG ebenfalls im Hintergrund (Cache, bei Bedarf Netz).
     let a = app.clone();
     glib::timeout_add_local_once(Duration::from_millis(500), move || a.load_epg(false));
+    // Filmliste der Mediathek im Hintergrund (nur, wenn die Mediathek schon benutzt wurde).
+    let a = app.clone();
+    glib::timeout_add_seconds_local_once(60, move || mediathek::start_background(&a));
     // Updateprüfung nur, wenn eingeschaltet (Standard: aus), frühestens nach 10 s.
     let a = app.clone();
     glib::timeout_add_seconds_local_once(10, move || prefs::maybe_check_on_start(&a));

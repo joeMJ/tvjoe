@@ -62,10 +62,14 @@ pub struct Settings {
     pub osd_description: bool,
     /// Bildschirmsperre auch im Fenster verhindern (im Vollbild immer).
     pub inhibit_windowed: bool,
-    /// Mediathek: Filmliste im Hintergrund neu laden, wenn älter (Stunden; 0 = nur per Knopf).
+    /// Mediathek: Filmliste im Hintergrund neu laden, wenn älter (Stunden, mindestens 1).
     pub mediathek_refresh_hours: u32,
     /// Mediathek: so viele Tage zurück behalten.
     pub mediathek_days: u32,
+    /// Mediathek: Fassungen mit Audiodeskription ausblenden.
+    pub mediathek_hide_ad: bool,
+    /// Mediathek: ORF, SRF und ARTE.FR anzeigen.
+    pub mediathek_foreign: bool,
 }
 
 impl Default for Settings {
@@ -94,6 +98,8 @@ impl Default for Settings {
             inhibit_windowed: false,
             mediathek_refresh_hours: 24,
             mediathek_days: 14,
+            mediathek_hide_ad: false,
+            mediathek_foreign: false,
         }
     }
 }

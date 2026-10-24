@@ -59,6 +59,67 @@ pub struct Film {
     pub kind: Kind,
 }
 
+impl Film {
+    /// Video-URL zur gewünschten Stufe: SD = kleine, 720p = normale, sonst HD; fehlende
+    /// Fassungen werden durch die normale ersetzt.
+    pub fn url_for(&self, quality: Option<crate::Quality>) -> &str {
+        use crate::Quality;
+        let pick = match quality {
+            Some(Quality::Sd) => self.url_low.as_deref(),
+            Some(Quality::P720) => None,
+            Some(Quality::P1080 | Quality::Uhd) | None => self.url_hd.as_deref(),
+        };
+        pick.unwrap_or(&self.url)
+    }
+}
+
+/// Vorschaubild einer Sendungsseite: Inhalt von `<meta property="og:image" content="…">`
+/// (auch `name=`), nur absolute http(s)-Adressen.
+pub fn og_image(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let mut pos = 0;
+    while let Some(i) = lower[pos..].find("<meta") {
+        let start = pos + i;
+        let end = start + lower[start..].find('>')?;
+        pos = end;
+        let tag = &html[start..end];
+        let attr = |name: &str| -> Option<String> {
+            let low = tag.to_ascii_lowercase();
+            let mut from = 0;
+            while let Some(j) = low[from..].find(name) {
+                let k = from + j;
+                from = k + name.len();
+                // Nur ganze Attributnamen (nicht „ng-attr-content“).
+                if k > 0 && !low.as_bytes()[k - 1].is_ascii_whitespace() {
+                    continue;
+                }
+                let rest = low[from..].trim_start();
+                let Some(rest) = rest.strip_prefix('=') else {
+                    continue;
+                };
+                let rest = rest.trim_start();
+                let quote = rest.chars().next()?;
+                if quote != '"' && quote != '\'' {
+                    continue;
+                }
+                let value_start = tag.len() - rest.len() + 1;
+                let len = tag[value_start..].find(quote)?;
+                return Some(tag[value_start..value_start + len].to_string());
+            }
+            None
+        };
+        let key = attr("property").or_else(|| attr("name"));
+        if key.is_some_and(|k| k.eq_ignore_ascii_case("og:image")) {
+            let url = attr("content").map(|u| u.replace("&amp;", "&"));
+            if let Some(url) = url.filter(|u| u.starts_with("https://") || u.starts_with("http://"))
+            {
+                return Some(url);
+            }
+        }
+    }
+    None
+}
+
 /// „Url Klein“/„Url HD“ sind als `Anzahl|Rest` codiert: die ersten *Anzahl* Zeichen der Url plus Rest.
 fn expand_url(base: &str, short: &str) -> Option<String> {
     if short.is_empty() {
@@ -179,6 +240,38 @@ pub fn parse_filmliste<R: Read>(reader: R, mut on_film: impl FnMut(Film)) -> Res
     };
     de.deserialize_map(ListVisitor(&mut cb))
         .map_err(|e| format!("Filmliste unlesbar: {e}"))
+}
+
+/// Ausländische bzw. fremdsprachige Sender, standardmäßig ausgeblendet (Einstellung).
+pub const FOREIGN: &[&str] = &["ORF", "SRF", "ARTE.FR"];
+
+/// Anzeigefilter aus den Einstellungen.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Filter {
+    /// Fassungen mit „Audiodeskription“ im Titel ausblenden.
+    pub hide_ad: bool,
+    /// ORF, SRF und ARTE.FR anzeigen.
+    pub show_foreign: bool,
+}
+
+impl Filter {
+    /// Ohne Einschränkung (alles anzeigen).
+    pub const ALL: Filter = Filter {
+        hide_ad: false,
+        show_foreign: true,
+    };
+
+    fn sql(self, alias: &str) -> String {
+        let mut s = String::new();
+        if self.hide_ad {
+            s.push_str(&format!(" AND {alias}title NOT LIKE '%Audiodeskription%'"));
+        }
+        if !self.show_foreign {
+            let list: Vec<String> = FOREIGN.iter().map(|f| format!("'{f}'")).collect();
+            s.push_str(&format!(" AND {alias}sender NOT IN ({})", list.join(",")));
+        }
+        s
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -363,10 +456,23 @@ impl Mediathek {
         now: i64,
         limit: usize,
     ) -> Vec<Film> {
+        self.latest_filtered(kind, sender, Filter::ALL, now, limit)
+    }
+
+    /// Wie [`Mediathek::latest`], mit Anzeigefilter.
+    pub fn latest_filtered(
+        &self,
+        kind: Option<Kind>,
+        sender: Option<&str>,
+        filter: Filter,
+        now: i64,
+        limit: usize,
+    ) -> Vec<Film> {
         let sql = format!(
             "SELECT {COLUMNS} FROM films
-             WHERE ts <= ?1 AND (?2 IS NULL OR kind = ?2) AND (?3 IS NULL OR sender = ?3)
-             ORDER BY ts DESC LIMIT ?4"
+             WHERE ts <= ?1 AND (?2 IS NULL OR kind = ?2) AND (?3 IS NULL OR sender = ?3){}
+             ORDER BY ts DESC LIMIT ?4",
+            filter.sql("")
         );
         let Ok(mut st) = self.conn.prepare(&sql) else {
             return Vec::new();
@@ -381,6 +487,17 @@ impl Mediathek {
 
     /// Volltextsuche in Titel, Thema und Beschreibung (alle Wörter, Wortanfänge genügen).
     pub fn search(&self, text: &str, sender: Option<&str>, limit: usize) -> Vec<Film> {
+        self.search_filtered(text, sender, Filter::ALL, limit)
+    }
+
+    /// Wie [`Mediathek::search`], mit Anzeigefilter.
+    pub fn search_filtered(
+        &self,
+        text: &str,
+        sender: Option<&str>,
+        filter: Filter,
+        limit: usize,
+    ) -> Vec<Film> {
         let query: Vec<String> = text
             .split_whitespace()
             .map(|w| format!("\"{}\"*", w.replace('"', "\"\"")))
@@ -390,13 +507,14 @@ impl Mediathek {
         }
         let sql = format!(
             "SELECT {} FROM films_fts JOIN films f ON f.id = films_fts.rowid
-             WHERE films_fts MATCH ?1 AND (?2 IS NULL OR f.sender = ?2)
+             WHERE films_fts MATCH ?1 AND (?2 IS NULL OR f.sender = ?2){}
              ORDER BY f.ts DESC LIMIT ?3",
             COLUMNS
                 .split(", ")
                 .map(|c| format!("f.{c}"))
                 .collect::<Vec<_>>()
-                .join(", ")
+                .join(", "),
+            filter.sql("f.")
         );
         let Ok(mut st) = self.conn.prepare(&sql) else {
             return Vec::new();
@@ -408,10 +526,16 @@ impl Mediathek {
 
     /// Sender mit Anzahl der Beiträge (absteigend).
     pub fn senders(&self) -> Vec<(String, i64)> {
-        let Ok(mut st) = self
-            .conn
-            .prepare("SELECT sender, COUNT(*) AS n FROM films GROUP BY sender ORDER BY n DESC")
-        else {
+        self.senders_filtered(Filter::ALL)
+    }
+
+    /// Wie [`Mediathek::senders`], mit Anzeigefilter.
+    pub fn senders_filtered(&self, filter: Filter) -> Vec<(String, i64)> {
+        let sql = format!(
+            "SELECT sender, COUNT(*) AS n FROM films WHERE 1=1{} GROUP BY sender ORDER BY n DESC",
+            filter.sql("")
+        );
+        let Ok(mut st) = self.conn.prepare(&sql) else {
             return Vec::new();
         };
         st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -534,6 +658,86 @@ mod tests {
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
+    #[test]
+    fn vorschaubild_aus_og_image() {
+        let html = r#"<head><meta data-rh="true" content="image/jpeg" property="og:image:type"/>
+<meta property="og:image" ng-attr-content="{{ meta.image }}" />
+<meta name="og:image" content="https://www.kika.invalid/bild.jpg?v=1"/>"#;
+        assert_eq!(
+            og_image(html).as_deref(),
+            Some("https://www.kika.invalid/bild.jpg?v=1")
+        );
+        let arte = r#"<meta property="og:image" content="https://api.invalid/1920x1080?type=TEXT&amp;watermark=true"/>"#;
+        assert_eq!(
+            og_image(arte).as_deref(),
+            Some("https://api.invalid/1920x1080?type=TEXT&watermark=true")
+        );
+        assert_eq!(
+            og_image("<meta property='og:image' content='/rel.jpg'>"),
+            None
+        );
+        assert_eq!(og_image("<html>"), None);
+    }
+
+    #[test]
+    fn url_nach_qualitaet() {
+        let f = Film {
+            id: 0,
+            sender: String::new(),
+            topic: String::new(),
+            title: String::new(),
+            timestamp: 0,
+            duration: 0,
+            description: String::new(),
+            url: "n".into(),
+            url_low: Some("k".into()),
+            url_hd: None,
+            website: None,
+            subtitle: None,
+            kind: Kind::Other,
+        };
+        assert_eq!(f.url_for(Some(crate::Quality::Sd)), "k");
+        assert_eq!(f.url_for(Some(crate::Quality::P720)), "n");
+        assert_eq!(f.url_for(None), "n");
+    }
+
+    #[test]
+    fn filter_audiodeskription_und_ausland() {
+        let list = r#"{"X":["ARD","T","Film","1","1","00:10:00","1","","https://x.invalid/1.mp4","","","","","","","","1792800000","","",""],
+"X":["ARD","T","Film (Audiodeskription)","1","1","00:10:00","1","","https://x.invalid/2.mp4","","","","","","","","1792800001","","",""],
+"X":["ORF","T","Sendung","1","1","00:10:00","1","","https://x.invalid/3.mp4","","","","","","","","1792800002","","",""]}"#;
+        let path = tmp("filter");
+        let mut mt = Mediathek::open(&path).unwrap();
+        let now = 1_792_900_000;
+        mt.import(list.as_bytes(), true, 14, now).unwrap();
+        let standard = Filter {
+            hide_ad: false,
+            show_foreign: false,
+        };
+        let titles = |f: Filter| -> Vec<String> {
+            mt.latest_filtered(None, None, f, now, 10)
+                .into_iter()
+                .map(|x| x.title)
+                .collect()
+        };
+        assert_eq!(titles(standard), ["Film (Audiodeskription)", "Film"]);
+        assert_eq!(
+            titles(Filter {
+                hide_ad: true,
+                show_foreign: false
+            }),
+            ["Film"]
+        );
+        assert_eq!(titles(Filter::ALL).len(), 3);
+        assert_eq!(mt.senders_filtered(standard), [("ARD".to_string(), 2)]);
+        assert_eq!(mt.search_filtered("sendung", None, standard, 10).len(), 0);
+        assert_eq!(
+            mt.search_filtered("sendung", None, Filter::ALL, 10).len(),
+            1
+        );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
     /// Echte Filmliste: `TVJOE_TEST_FILMLISTE=/pfad/Filmliste-akt.xz cargo test -p tvjoe-core
     /// --release -- --ignored --nocapture echte_filmliste`
     #[test]
@@ -584,6 +788,29 @@ mod tests {
             "Sender: {:?}",
             mt.senders().iter().take(25).collect::<Vec<_>>()
         );
+        let standard = Filter::default();
+        println!(
+            "Sender mit Standardfilter: {:?}",
+            mt.senders_filtered(standard)
+                .iter()
+                .map(|(s, _)| s.as_str())
+                .collect::<Vec<_>>()
+        );
+        // Vorschaubilder: je Sender die Seite des neuesten Beitrags.
+        let agent = net::agent(Duration::from_secs(10));
+        for (sender, _) in mt.senders_filtered(standard) {
+            let Some(site) = mt
+                .latest_filtered(None, Some(&sender), standard, now, 1)
+                .into_iter()
+                .find_map(|f| f.website)
+            else {
+                println!("  {sender}: keine Website");
+                continue;
+            };
+            let image = net::fetch_prefix(&agent, &site, 512 * 1024)
+                .map(|p| og_image(&String::from_utf8_lossy(&p)));
+            println!("  {sender}: {image:?}  ({site})");
+        }
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

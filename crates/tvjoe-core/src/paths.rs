@@ -27,6 +27,16 @@ pub fn logo_cache_dir() -> Option<PathBuf> {
     cache_dir().map(|d| d.join("logos"))
 }
 
+/// Datenbank der Mediathek (aus der Filmliste neu aufbaubar, daher im Cache).
+pub fn mediathek_db() -> Option<PathBuf> {
+    cache_dir().map(|d| d.join("mediathek.sqlite"))
+}
+
+/// Vorschaubilder der Mediathek.
+pub fn thumb_cache_dir() -> Option<PathBuf> {
+    cache_dir().map(|d| d.join("thumbs"))
+}
+
 /// Nicht leer und (laut XDG) absolut.
 fn absolute(v: Option<OsString>) -> Option<PathBuf> {
     let p = PathBuf::from(v.filter(|s| !s.is_empty())?);
