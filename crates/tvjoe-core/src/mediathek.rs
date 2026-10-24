@@ -59,52 +59,178 @@ pub struct Film {
     pub kind: Kind,
 }
 
-/// Fassung eines Beitrags.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Fassung eines Beitrags (aus dem Zusatz am Titelende bzw. dem Dateinamen).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Version {
     Normal,
+    Untertitel,
+    KlareSprache,
+    Gebaerdensprache,
     Audiodeskription,
+    GesprocheneUntertitel,
+    OriginalUntertitel,
     Original,
+    /// Andere Sprache (deutscher Name, z. B. „Niederländisch“).
+    Sprache(&'static str),
+}
+
+impl Version {
+    /// Bezeichnung für Knöpfe und Titel.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Normal => "Deutsch",
+            Self::Untertitel => "Mit Untertitel",
+            Self::KlareSprache => "Klare Sprache",
+            Self::Gebaerdensprache => "Gebärdensprache",
+            Self::Audiodeskription => "Audiodeskription",
+            Self::GesprocheneUntertitel => "Gesprochene Untertitel",
+            Self::OriginalUntertitel => "Original mit Untertitel",
+            Self::Original => "Originalversion",
+            Self::Sprache(name) => name,
+        }
+    }
+
+    /// Kurzzeichen für die Kachel.
+    pub fn badge(&self) -> &'static str {
+        match self {
+            Self::Normal => "DE",
+            Self::Untertitel => "UT",
+            Self::KlareSprache => "Klare Sprache",
+            Self::Gebaerdensprache => "DGS",
+            Self::Audiodeskription => "AD",
+            Self::GesprocheneUntertitel => "Gespr. UT",
+            Self::OriginalUntertitel => "OmU",
+            Self::Original => "OV",
+            Self::Sprache(name) => name,
+        }
+    }
+
+    /// Reihenfolge innerhalb einer Sendung (die erste steht auf der Kachel).
+    fn rank(&self) -> u8 {
+        match self {
+            Self::Normal => 0,
+            Self::Untertitel => 1,
+            Self::KlareSprache => 2,
+            Self::Gebaerdensprache => 3,
+            Self::Audiodeskription => 4,
+            Self::GesprocheneUntertitel => 5,
+            Self::OriginalUntertitel => 6,
+            Self::Original => 7,
+            Self::Sprache(_) => 8,
+        }
+    }
+}
+
+/// Zusatz in Klammern (klein geschrieben, ohne Klammern) → Fassung.
+fn version_from_note(note: &str) -> Option<Version> {
+    use Version::*;
+    Some(match note.trim().to_lowercase().as_str() {
+        "audiodeskription" | "mit audiodeskription" | "hörfassung" | "ad" => Audiodeskription,
+        "gebärdensprache" | "mit gebärdensprache" | "in gebärdensprache" => Gebaerdensprache,
+        "originalversion mit untertitel" | "ov mit untertitel" | "omu" | "omdu" => {
+            OriginalUntertitel
+        }
+        "mit untertitel" => Untertitel,
+        "mit gesprochenen untertiteln" => GesprocheneUntertitel,
+        "originalversion" | "originalfassung" | "original" | "ov" => Original,
+        "klare sprache" => KlareSprache,
+        "engl." | "englisch" | "eng" | "englische fassung" => Sprache("Englisch"),
+        "frz." | "franz." | "fra" | "französisch" => Sprache("Französisch"),
+        "nld" | "niederländisch" => Sprache("Niederländisch"),
+        "swe" | "schwedisch" => Sprache("Schwedisch"),
+        "ita" | "italienisch" => Sprache("Italienisch"),
+        "dan" | "dänisch" => Sprache("Dänisch"),
+        "nor" | "norwegisch" => Sprache("Norwegisch"),
+        "tur" | "türkisch" | "türkische fassung" => Sprache("Türkisch"),
+        "rus" | "russisch" => Sprache("Russisch"),
+        "ukrainisch" => Sprache("Ukrainisch"),
+        "obersorbisch" => Sprache("Obersorbisch"),
+        _ => return None,
+    })
+}
+
+/// Grundtitel und Fassung: ein Zusatz am Titelende wie „(mit Untertitel)“, „(nld)“ oder
+/// „- Audiodeskription“ wird abgetrennt.
+pub fn split_version(title: &str) -> (String, Version) {
+    let t = title.trim_end();
+    if let Some(open) = t.ends_with(')').then(|| t.rfind('(')).flatten() {
+        if let Some(v) = version_from_note(&t[open + 1..t.len() - 1]) {
+            return (t[..open].trim_end().to_string(), v);
+        }
+    }
+    for sep in [" - ", " | ", " – "] {
+        if let Some(pos) = t.rfind(sep) {
+            if let Some(v) = version_from_note(&t[pos + sep.len()..]) {
+                return (t[..pos].trim_end().to_string(), v);
+            }
+        }
+    }
+    (t.to_string(), Version::Normal)
 }
 
 /// Kennzeichen im Dateinamen der ARD-Anstalten; sie stimmen, wo der Titel in der Filmliste
 /// falsch beschriftet ist (z. B. „(Audiodeskription)“ mit Datei `…_internationalerton_…`).
-const URL_MARKERS: &[(&str, Version)] = &[
-    ("_audiodeskription_", Version::Audiodeskription),
-    ("_internationalerton_", Version::Original),
-    ("_originalversion_", Version::Original),
-    ("_sendeton_", Version::Normal),
-];
-
-/// Zusätze im Titel, die eine Fassung bezeichnen (am Ende des Titels).
-const TITLE_SUFFIXES: &[(&str, Version)] = &[
-    ("(Audiodeskription)", Version::Audiodeskription),
-    ("- Audiodeskription", Version::Audiodeskription),
-    ("| Audiodeskription", Version::Audiodeskription),
-    ("(Originalversion)", Version::Original),
-    ("(OV)", Version::Original),
-];
-
-fn version_in_title(title: &str) -> Version {
-    if title.contains("Audiodeskription") {
-        Version::Audiodeskription
-    } else if title.contains("Originalversion")
-        || title.contains("(OV)")
-        || title.contains("Originalfassung")
-    {
-        Version::Original
+fn version_in_url(url: &str) -> Option<Version> {
+    let lower = url.to_ascii_lowercase();
+    if lower.contains("_audiodeskription_") {
+        Some(Version::Audiodeskription)
+    } else if lower.contains("_internationalerton_") || lower.contains("_originalversion_") {
+        Some(Version::Original)
+    } else if lower.contains("_sendeton_") {
+        Some(Version::Normal)
     } else {
-        Version::Normal
+        None
     }
 }
 
-/// Fassung nach Dateiname (falls gekennzeichnet), sonst nach Titel.
+/// Fassung nach Titel, berichtigt durch den Dateinamen (nur Ton-Fassungen).
 pub fn version_of(title: &str, url: &str) -> Version {
-    let lower = url.to_ascii_lowercase();
-    URL_MARKERS
-        .iter()
-        .find(|(m, _)| lower.contains(m))
-        .map_or_else(|| version_in_title(title), |(_, v)| *v)
+    let (_, from_title) = split_version(title);
+    match (version_in_url(url), from_title) {
+        (None, v) => v,
+        (Some(Version::Original), Version::OriginalUntertitel) => Version::OriginalUntertitel,
+        (Some(u), Version::Normal | Version::Audiodeskription | Version::Original) => u,
+        (Some(_), v) => v,
+    }
+}
+
+/// Eine Sendung mit allen Fassungen; die erste ist die bevorzugte.
+#[derive(Debug, Clone)]
+pub struct Group {
+    pub films: Vec<Film>,
+}
+
+impl Group {
+    pub fn main(&self) -> &Film {
+        &self.films[0]
+    }
+}
+
+/// Fasst Fassungen derselben Sendung zusammen (gleicher Sender, Grundtitel und Sendezeit).
+/// Die Reihenfolge der Sendungen bleibt; je Fassung zählt der erste Eintrag.
+pub fn group(films: Vec<Film>) -> Vec<Group> {
+    let mut index: std::collections::HashMap<(String, String, i64), usize> =
+        std::collections::HashMap::new();
+    let mut groups: Vec<Group> = Vec::new();
+    for f in films {
+        let key = (f.sender.clone(), f.base_title(), f.timestamp);
+        match index.get(&key) {
+            Some(&i) => {
+                let v = f.version();
+                if !groups[i].films.iter().any(|g| g.version() == v) {
+                    groups[i].films.push(f);
+                }
+            }
+            None => {
+                index.insert(key, groups.len());
+                groups.push(Group { films: vec![f] });
+            }
+        }
+    }
+    for g in &mut groups {
+        g.films.sort_by_key(|f| f.version().rank());
+    }
+    groups
 }
 
 impl Film {
@@ -112,21 +238,16 @@ impl Film {
         version_of(&self.title, &self.url)
     }
 
-    /// Titel mit der tatsächlichen Fassung: ein falscher Zusatz wird ersetzt.
+    /// Titel ohne Fassungszusatz.
+    pub fn base_title(&self) -> String {
+        split_version(&self.title).0
+    }
+
+    /// Titel mit der tatsächlichen Fassung, z. B. „Seitensprung (Originalversion)“.
     pub fn display_title(&self) -> String {
-        let actual = self.version();
-        if version_in_title(&self.title) == actual {
-            return self.title.clone();
-        }
-        let mut base = self.title.trim_end().to_string();
-        while let Some((suffix, _)) = TITLE_SUFFIXES.iter().find(|(s, _)| base.ends_with(s)) {
-            base.truncate(base.len() - suffix.len());
-            base = base.trim_end().to_string();
-        }
-        match actual {
-            Version::Normal => base,
-            Version::Audiodeskription => format!("{base} (Audiodeskription)"),
-            Version::Original => format!("{base} (Originalversion)"),
+        match self.version() {
+            Version::Normal => self.base_title(),
+            v => format!("{} ({})", self.base_title(), v.label()),
         }
     }
 
@@ -339,7 +460,7 @@ impl Filter {
             // Wie `version_of`: Kennzeichen im Dateinamen gehen dem Titel vor.
             let u = format!("lower({alias}url)");
             s.push_str(&format!(
-                " AND NOT ({u} LIKE '%\\_audiodeskription\\_%' ESCAPE '\\' OR ({alias}title LIKE '%Audiodeskription%' \
+                " AND NOT ({u} LIKE '%\\_audiodeskription\\_%' ESCAPE '\\' OR (({alias}title LIKE '%Audiodeskription%' OR {alias}title LIKE '%(Hörfassung)' OR {alias}title LIKE '%(AD)') \
                  AND {u} NOT LIKE '%\\_internationalerton\\_%' ESCAPE '\\' \
                  AND {u} NOT LIKE '%\\_originalversion\\_%' ESCAPE '\\' \
                  AND {u} NOT LIKE '%\\_sendeton\\_%' ESCAPE '\\'))"
@@ -811,6 +932,76 @@ mod tests {
     }
 
     #[test]
+    fn zusaetze_am_titelende() {
+        let v = |t: &str| split_version(t);
+        assert_eq!(
+            v("Halt nicht an!(nld)"),
+            ("Halt nicht an!".into(), Version::Sprache("Niederländisch"))
+        );
+        assert_eq!(
+            v("Sanfte Monster (Originalversion mit Untertitel)"),
+            ("Sanfte Monster".into(), Version::OriginalUntertitel)
+        );
+        assert_eq!(
+            v("Folge 2 (S01/E02) - Audiodeskription"),
+            ("Folge 2 (S01/E02)".into(), Version::Audiodeskription)
+        );
+        assert_eq!(
+            v("Wiesn (6) (Hörfassung)"),
+            ("Wiesn (6)".into(), Version::Audiodeskription)
+        );
+        assert_eq!(
+            v("Folge 7 (S02/E07)"),
+            ("Folge 7 (S02/E07)".into(), Version::Normal)
+        );
+        assert_eq!(
+            v("Stummfilm (stumm)"),
+            ("Stummfilm (stumm)".into(), Version::Normal)
+        );
+    }
+
+    #[test]
+    fn fassungen_werden_zusammengefasst() {
+        let film = |title: &str, ts: i64| Film {
+            id: 0,
+            sender: "ARTE.DE".into(),
+            topic: String::new(),
+            title: title.into(),
+            timestamp: ts,
+            duration: 0,
+            description: String::new(),
+            url: format!("https://x.invalid/{title}.mp4"),
+            url_low: None,
+            url_hd: None,
+            website: None,
+            subtitle: None,
+            kind: Kind::Film,
+        };
+        let groups = group(vec![
+            film("Sanfte Monster (mit Untertitel)", 10),
+            film("Sanfte Monster", 10),
+            film("Sanfte Monster (Originalversion mit Untertitel)", 10),
+            film("Sanfte Monster", 99),
+            film("Anderer Film", 10),
+        ]);
+        assert_eq!(groups.len(), 3);
+        let versions: Vec<Version> = groups[0].films.iter().map(Film::version).collect();
+        assert_eq!(
+            versions,
+            [
+                Version::Normal,
+                Version::Untertitel,
+                Version::OriginalUntertitel
+            ]
+        );
+        assert_eq!(groups[0].main().display_title(), "Sanfte Monster");
+        assert_eq!(
+            groups[0].films[2].display_title(),
+            "Sanfte Monster (Original mit Untertitel)"
+        );
+    }
+
+    #[test]
     fn url_nach_qualitaet() {
         let f = Film {
             id: 0,
@@ -940,6 +1131,18 @@ mod tests {
                 .map(|(s, _)| s.as_str())
                 .collect::<Vec<_>>()
         );
+        let films = mt.latest_filtered(Some(Kind::Film), None, &standard, now, 600);
+        let n = films.len();
+        let groups = group(films);
+        println!("Filme: {n} Einträge → {} Sendungen", groups.len());
+        for g in groups.iter().filter(|g| g.films.len() > 1).take(8) {
+            let v: Vec<&str> = g.films.iter().map(|f| f.version().badge()).collect();
+            println!("  {} | {}", g.main().base_title(), v.join(" · "));
+        }
+        if std::env::var_os("TVJOE_TEST_OHNE_NETZ").is_some() {
+            let _ = std::fs::remove_dir_all(path.parent().unwrap());
+            return;
+        }
         // Vorschaubilder: je Sender die Seite des neuesten Beitrags.
         let agent = net::agent(Duration::from_secs(10));
         for (sender, _) in mt.senders_filtered(&standard) {

@@ -2,7 +2,7 @@
 //!
 //! Tasten (Projektplan M4): Ziffern = Sender wählen (Pause aus den Einstellungen, Enter sofort),
 //! Pfeil links/rechts bzw. Bild hoch/runter = Senderwechsel, F = Vollbild, Esc = Vollbild aus,
-//! M = stumm, Q = Qualität eine Stufe höher (mit Umbruch), L = Senderliste, I = Info,
+//! M = stumm, Q = Qualität eine Stufe höher (mit Umbruch), L = Senderliste, I = ganzflächige Info,
 //! Pfeil hoch/runter, +/− und Mausrad = Lautstärke, Strg+Q = Beenden.
 
 use std::cell::{Cell, RefCell};
@@ -17,7 +17,9 @@ use tvjoe_core::mediathek::Film;
 use tvjoe_core::{Channel, Library, Quality, Settings, SourceKind, Strategy, Stream, net, paths};
 
 use crate::logos::Logos;
-use crate::osd::{ChannelInfo, MessageBar, Origin, Osd, VideoAction, VideoState};
+use crate::osd::{
+    ChannelInfo, InfoContent, InfoPanel, MessageBar, Origin, Osd, VideoAction, VideoState,
+};
 use crate::player::{Player, PlayerEvent};
 use crate::trace;
 
@@ -58,6 +60,8 @@ pub struct App {
     list: gtk::ListBox,
     rows: RefCell<Vec<Row>>,
     osd: Rc<Osd>,
+    /// Ganzflächige Info (Taste I).
+    info: Rc<InfoPanel>,
     /// Meldungsstreifen oben (Lautstärke, Ton, Qualität, Störungen).
     msg: Rc<MessageBar>,
     pub player: Option<Rc<Player>>,
@@ -130,6 +134,8 @@ impl App {
         }
         overlay.add_overlay(&osd.root);
         overlay.add_overlay(&msg.root);
+        let info = InfoPanel::new();
+        overlay.add_overlay(&info.root);
 
         let header = adw::HeaderBar::new();
         let sidebar_button = gtk::ToggleButton::builder()
@@ -163,6 +169,11 @@ impl App {
             .tooltip_text("Einstellungen (Strg+,)")
             .build();
         header.pack_end(&prefs_button);
+        let info_button = gtk::Button::builder()
+            .icon_name("dialog-information-symbolic")
+            .tooltip_text("Info (I)")
+            .build();
+        header.pack_end(&info_button);
         let content_bar = adw::ToolbarView::new();
         content_bar.add_top_bar(&header);
         content_bar.set_content(Some(&overlay));
@@ -187,6 +198,7 @@ impl App {
             list,
             rows: RefCell::new(Vec::new()),
             osd,
+            info,
             msg,
             player,
             lib: RefCell::new(lib),
@@ -224,6 +236,12 @@ impl App {
         grid_button.connect_clicked(move |_| {
             if let Some(app) = weak.upgrade() {
                 crate::grid::open(&app);
+            }
+        });
+        let weak = Rc::downgrade(&app);
+        info_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                app.toggle_info();
             }
         });
         let weak = Rc::downgrade(&app);
@@ -748,6 +766,7 @@ impl App {
             return;
         };
         self.vod.replace(None);
+        self.info.hide();
         player.load(&url, bitrate);
         trace(&format!("lade {name} ({url}, hls-bitrate {bitrate:?})"));
         self.tried.replace(vec![url.clone()]);
@@ -773,6 +792,7 @@ impl App {
         player.load(&url, None);
         trace(&format!("lade Mediathek {} ({url})", film.display_title()));
         self.vod.replace(Some(film.clone()));
+        self.info.hide();
         self.window
             .set_title(Some(&format!("{} – tvjoe", film.display_title())));
         self.list.unselect_all();
@@ -858,6 +878,10 @@ impl App {
                 player.toggle_pause();
             }
             VideoAction::Audio => self.cycle_audio(),
+            VideoAction::Info => {
+                self.toggle_info();
+                return;
+            }
         }
         self.show_film_info(&film, self.overlay_secs());
     }
@@ -1140,7 +1164,83 @@ impl App {
         self.split.set_show_sidebar(!self.split.shows_sidebar());
     }
 
-    /// Senderanzeige erneut zeigen (Taste I, Mausklick aufs Bild).
+    /// Ganzflächige Info ein/aus (Taste I, Knopf (i)): Mediathek-Beitrag oder laufende
+    /// Sendung aus dem EPG.
+    pub fn toggle_info(self: &Rc<Self>) {
+        if self.info.is_shown() {
+            self.info.hide();
+            return;
+        }
+        let content = match self.vod.borrow().clone() {
+            Some(f) => {
+                let meta: Vec<String> = [
+                    format!("{} · {}", f.sender, f.topic),
+                    [
+                        crate::mediathek::day_time(f.timestamp),
+                        format!("{} Min.", (f.duration + 30) / 60),
+                    ]
+                    .join(" · "),
+                ]
+                .into();
+                InfoContent {
+                    logo: crate::mediathek::sender_logo(self, &f.sender),
+                    title: f.display_title(),
+                    meta,
+                    desc: f.description.trim().to_string(),
+                    next: None,
+                }
+            }
+            None => {
+                let Some(id) = self.current.get() else { return };
+                let lib = self.lib.borrow();
+                let Some(ch) = lib.channel(id) else { return };
+                let logo = ch
+                    .logo
+                    .as_deref()
+                    .and_then(|u| {
+                        paths::logo_cache_dir().map(|d| d.join(net::cache_name(u, "png")))
+                    })
+                    .filter(|p| p.exists());
+                let (cur, nxt) = self
+                    .guide()
+                    .and_then(|g| {
+                        let (id, _) = g.match_channel(ch)?;
+                        let (c, n) = g.now_next(&id, epg::now());
+                        Some((c.cloned(), n.cloned()))
+                    })
+                    .unwrap_or((None, None));
+                match cur {
+                    Some(p) => {
+                        let mut meta = vec![format!(
+                            "{} · {}–{}",
+                            ch.display_name(),
+                            hm(p.start),
+                            hm(p.stop)
+                        )];
+                        meta.extend(p.subtitle.clone());
+                        InfoContent {
+                            logo,
+                            title: p.title.clone(),
+                            meta,
+                            desc: p.desc.clone().unwrap_or_default().trim().to_string(),
+                            next: nxt.map(|n| format!("Danach {}  {}", hm(n.start), n.title)),
+                        }
+                    }
+                    None => InfoContent {
+                        logo,
+                        title: ch.display_name().to_string(),
+                        meta: vec!["Kein Programm (EPG) für diesen Sender".to_string()],
+                        desc: String::new(),
+                        next: None,
+                    },
+                }
+            }
+        };
+        self.osd.hide();
+        self.info.show(&content);
+    }
+
+    /// Senderanzeige erneut zeigen (Mausklick aufs Bild).
     pub fn show_info(self: &Rc<Self>) {
         if let Some(film) = self.vod.borrow().clone() {
             self.show_film_info(&film, self.overlay_secs() * 2);
@@ -1189,11 +1289,12 @@ impl App {
             Key::comma if ctrl => crate::prefs::open(self),
             Key::q => self.cycle_quality(),
             Key::f => self.window.set_fullscreened(!self.window.is_fullscreen()),
+            Key::Escape if self.info.is_shown() => self.info.hide(),
             Key::Escape => self.window.set_fullscreened(false),
             Key::m => self.toggle_mute(),
             Key::a => self.cycle_audio(),
             Key::l => self.toggle_sidebar(),
-            Key::i => self.show_info(),
+            Key::i => self.toggle_info(),
             Key::g => crate::grid::open(self),
             _ => return glib::Propagation::Proceed,
         }

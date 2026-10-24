@@ -81,6 +81,28 @@
   color: #78aeed;
 }
 
+/* Ganzflächige Info (Taste I) */
+.tvjoe-info {
+  background-color: rgba(0, 0, 0, 0.88);
+  color: #f6f6f6;
+  padding: 40px 56px;
+}
+
+.tvjoe-info-title {
+  font-size: 26pt;
+  font-weight: 800;
+}
+
+.tvjoe-info-meta {
+  font-size: 14pt;
+  color: #c9c8c5;
+}
+
+.tvjoe-info-desc {
+  font-size: 15pt;
+  color: #f6f6f6;
+}
+
 /* Video-Bauchbinde (Mediathek): Knöpfe, Fortschrittsleiste, Zeit */
 .tvjoe-osd-button {
   color: #f6f6f6;
@@ -134,6 +156,23 @@
 
 .tvjoe-mt-tile {
   padding: 4px;
+}
+
+.tvjoe-mt-badge {
+  color: #78aeed;
+  font-size: smaller;
+  font-weight: 700;
+}
+
+.tvjoe-mt-detail-title {
+  font-size: 22pt;
+  font-weight: 800;
+  color: #f6f6f6;
+}
+
+.tvjoe-mt-detail-desc {
+  font-size: 12pt;
+  color: #f6f6f6;
 }
 
 .tvjoe-mt-sender {

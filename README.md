@@ -26,11 +26,21 @@ CPU-Last durch Hardware-Decoding.
 | F, Doppelklick / Esc | Vollbild / Vollbild aus |
 | M | Ton aus/an |
 | L | Senderliste ein/aus |
-| I | Info |
+| I, Esc | Info über das ganze Bild ein / aus |
+| A | Tonspur wechseln |
 | G | Programmraster |
 | Strg+E | Sender verwalten |
 | Strg+, | Einstellungen |
 | Strg+Q | Beenden |
+
+Beim Abspielen aus der Mediathek:
+
+| Taste | Wirkung |
+|---|---|
+| Leertaste | Pause / weiter |
+| ← / → | 10 Sekunden zurück / vor |
+| Bild ↑ / ↓ | 1 Minute zurück / vor |
+| Ziffern, Senderliste | zurück zum Fernsehen |
 
 ## Installieren (Ubuntu 24.04)
 

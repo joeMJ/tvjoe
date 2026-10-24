@@ -37,6 +37,8 @@ pub enum VideoAction {
     TogglePause,
     /// Nächste Tonspur.
     Audio,
+    /// Ganzflächige Info.
+    Info,
 }
 
 type ActionHandler = Box<dyn Fn(VideoAction)>;
@@ -193,6 +195,7 @@ impl Osd {
             "preferences-desktop-locale-symbolic",
             "Tonspur wechseln (A)",
         );
+        let info = osd_button("dialog-information-symbolic", "Info (I)");
         let progress = gtk::ProgressBar::builder()
             .hexpand(true)
             .valign(gtk::Align::Center)
@@ -211,6 +214,7 @@ impl Osd {
         video_row.append(&progress);
         video_row.append(&time);
         video_row.append(&audio);
+        video_row.append(&info);
         video_row.set_visible(false);
 
         let right = gtk::Box::new(gtk::Orientation::Vertical, 2);
@@ -282,6 +286,7 @@ impl Osd {
         wire(&fwd, VideoAction::Seek(10.0));
         wire(&fwd_min, VideoAction::Seek(60.0));
         wire(&audio, VideoAction::Audio);
+        wire(&info, VideoAction::Info);
         let click = gtk::GestureClick::new();
         let weak = Rc::downgrade(&osd);
         click.connect_pressed(move |g, _, x, _| {
@@ -494,5 +499,141 @@ impl MessageBar {
             });
             *self.timer.borrow_mut() = Some(id);
         }
+    }
+}
+
+/// Inhalt der ganzflächigen Info (Taste I, Knopf (i)).
+#[derive(Debug, Default, Clone)]
+pub struct InfoContent {
+    pub logo: Option<PathBuf>,
+    pub title: String,
+    /// Zeilen unter dem Titel (Sender · Thema, Zeit · Dauer …).
+    pub meta: Vec<String>,
+    pub desc: String,
+    /// Fußzeile, z. B. „Danach 21:45 Tagesthemen“.
+    pub next: Option<String>,
+}
+
+/// Ganzflächige Info über dem Bild: Logo, Titel, Angaben, volle Beschreibung.
+/// Ein Klick, I oder Esc schließt sie.
+pub struct InfoPanel {
+    pub root: gtk::Box,
+    logo: gtk::Picture,
+    logo_slot: gtk::Widget,
+    title: gtk::Label,
+    meta: gtk::Label,
+    desc: gtk::Label,
+    next: gtk::Label,
+}
+
+impl InfoPanel {
+    pub fn new() -> Rc<Self> {
+        let logo = gtk::Picture::builder()
+            .content_fit(gtk::ContentFit::Contain)
+            .can_shrink(true)
+            .height_request(72)
+            .build();
+        let logo_slot: gtk::Widget = adw::Clamp::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .maximum_size(72)
+            .tightening_threshold(72)
+            .valign(gtk::Align::Start)
+            .child(&crate::logo_box(&logo, 120))
+            .build()
+            .upcast();
+        let wrap = |class: &str| {
+            gtk::Label::builder()
+                .css_classes([class])
+                .xalign(0.0)
+                .wrap(true)
+                .wrap_mode(gtk::pango::WrapMode::WordChar)
+                .build()
+        };
+        let title = wrap("tvjoe-info-title");
+        let meta = wrap("tvjoe-info-meta");
+        let head_text = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        head_text.set_hexpand(true);
+        head_text.append(&title);
+        head_text.append(&meta);
+        let head = gtk::Box::new(gtk::Orientation::Horizontal, 24);
+        head.append(&logo_slot);
+        head.append(&head_text);
+
+        let desc = wrap("tvjoe-info-desc");
+        desc.set_valign(gtk::Align::Start);
+        let scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .child(&desc)
+            .build();
+        let next = wrap("tvjoe-info-meta");
+        let hint = gtk::Label::builder()
+            .label("I, Esc oder Klick schließt")
+            .css_classes(["tvjoe-osd-sub"])
+            .xalign(1.0)
+            .build();
+
+        let root = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(20)
+            .css_classes(["tvjoe-info"])
+            .halign(gtk::Align::Fill)
+            .valign(gtk::Align::Fill)
+            .visible(false)
+            .build();
+        root.append(&head);
+        root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        root.append(&scroller);
+        root.append(&next);
+        root.append(&hint);
+
+        let panel = Rc::new(Self {
+            root,
+            logo,
+            logo_slot,
+            title,
+            meta,
+            desc,
+            next,
+        });
+        let click = gtk::GestureClick::new();
+        let weak = Rc::downgrade(&panel);
+        click.connect_pressed(move |g, _, _, _| {
+            g.set_state(gtk::EventSequenceState::Claimed);
+            if let Some(p) = weak.upgrade() {
+                p.hide();
+            }
+        });
+        panel.root.add_controller(click);
+        panel
+    }
+
+    pub fn is_shown(&self) -> bool {
+        self.root.is_visible()
+    }
+
+    pub fn show(&self, c: &InfoContent) {
+        match &c.logo {
+            Some(p) => {
+                crate::logos::set_bright(&self.logo, p);
+                self.logo_slot.set_visible(true);
+            }
+            None => self.logo_slot.set_visible(false),
+        }
+        self.title.set_label(&c.title);
+        self.meta.set_label(&c.meta.join("\n"));
+        self.meta.set_visible(!c.meta.is_empty());
+        self.desc.set_label(if c.desc.is_empty() {
+            "Keine Beschreibung vorhanden."
+        } else {
+            &c.desc
+        });
+        self.next.set_label(c.next.as_deref().unwrap_or(""));
+        self.next.set_visible(c.next.is_some());
+        self.root.set_visible(true);
+    }
+
+    pub fn hide(&self) {
+        self.root.set_visible(false);
     }
 }

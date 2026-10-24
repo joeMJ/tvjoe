@@ -16,7 +16,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::gdk_pixbuf::Pixbuf;
 use gtk::{gio, glib};
-use tvjoe_core::mediathek::{self, Film, Filter, Kind, Mediathek};
+use tvjoe_core::mediathek::{self, Filter, Group, Kind, Mediathek, Version};
 use tvjoe_core::{epg, net, normalize_id, paths};
 
 use crate::app::{App, hm};
@@ -30,6 +30,11 @@ const THUMB_H: i32 = 144;
 const THUMB_SAVE_W: i32 = 320;
 const THUMB_SAVE_H: i32 = 180;
 const THUMB_THREADS: usize = 4;
+/// Abgefragte Einträge je Ansicht (mehrere Fassungen ergeben eine Kachel).
+const FETCH: usize = 600;
+/// Bild der Filminfo.
+const DETAIL_W: i32 = 640;
+const DETAIL_H: i32 = 360;
 const PAGE_BYTES: u64 = 512 * 1024;
 const IMAGE_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -273,9 +278,11 @@ struct MtWindow {
     stack: gtk::Stack,
     empty: adw::StatusPage,
     flow: gtk::FlowBox,
+    back: gtk::Button,
     mode: Cell<Mode>,
     sender: RefCell<Option<String>>,
-    films: RefCell<Vec<Film>>,
+    /// Sendungen der Ansicht (Fassungen zusammengefasst).
+    films: RefCell<Vec<Group>>,
     thumbs_of: RefCell<HashMap<i64, gtk::Picture>>,
     thumbs: Option<Thumbs>,
     db: RefCell<Option<Mediathek>>,
@@ -315,7 +322,7 @@ pub fn probe_tab(index: usize, search: Option<&str>) -> Option<gtk::Window> {
 
 /// Selbstprobe: erste Kachel abspielen.
 pub fn probe_play_first(app: &Rc<App>) {
-    let film = current().and_then(|w| w.films.borrow().first().cloned());
+    let film = current().and_then(|w| w.films.borrow().first().map(|g| g.main().clone()));
     if let Some(film) = film {
         app.play_film(&film);
         app.window.present();
@@ -350,6 +357,12 @@ impl MtWindow {
         }
         let stand = gtk::Label::builder().css_classes(["tvjoe-sub"]).build();
         let header = adw::HeaderBar::builder().title_widget(&tab_box).build();
+        let back = gtk::Button::builder()
+            .icon_name("go-previous-symbolic")
+            .tooltip_text("Zurück zur Übersicht (Esc)")
+            .visible(false)
+            .build();
+        header.pack_start(&back);
         header.pack_start(&stand);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
@@ -447,6 +460,7 @@ impl MtWindow {
             stack,
             empty,
             flow,
+            back,
             mode: Cell::new(Mode::Episodes),
             sender: RefCell::new(None),
             films: RefCell::new(Vec::new()),
@@ -499,15 +513,204 @@ impl MtWindow {
         let weak = Rc::downgrade(&w);
         w.flow.connect_child_activated(move |_, child| {
             let Some(w) = weak.upgrade() else { return };
-            let film = usize::try_from(child.index())
+            let group = usize::try_from(child.index())
                 .ok()
                 .and_then(|i| w.films.borrow().get(i).cloned());
-            if let (Some(film), Some(app)) = (film, w.app.upgrade()) {
-                app.play_film(&film);
-                app.window.present();
+            if let Some(group) = group {
+                w.show_detail(&group);
             }
         });
+        let weak = Rc::downgrade(&w);
+        w.back.connect_clicked(move |_| {
+            if let Some(w) = weak.upgrade() {
+                w.close_detail();
+            }
+        });
+        let keys = gtk::EventControllerKey::new();
+        let weak = Rc::downgrade(&w);
+        keys.connect_key_pressed(move |_, key, _, _| {
+            let Some(w) = weak.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            if key == gtk::gdk::Key::Escape && w.back.is_visible() {
+                w.close_detail();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        w.win.add_controller(keys);
         w
+    }
+
+    /// Ganzflächige Filminfo (Plex/Jellyfin-Stil): großes Bild, Titel, Sender · Thema,
+    /// Datum · Dauer, Fassungen, „Abspielen“, Beschreibung. Esc bzw. Pfeil führt zurück.
+    fn show_detail(self: &Rc<Self>, group: &Group) {
+        if let Some(old) = self.stack.child_by_name("detail") {
+            self.stack.remove(&old);
+        }
+        let main = group.main();
+        let picture = gtk::Picture::builder()
+            .content_fit(gtk::ContentFit::Cover)
+            .can_shrink(true)
+            .build();
+        let thumb = self
+            .thumbs_of
+            .borrow()
+            .get(&main.id)
+            .and_then(|p| p.paintable());
+        let image: gtk::Widget = match thumb {
+            Some(t) => {
+                picture.set_paintable(Some(&t));
+                picture.upcast()
+            }
+            None => match self
+                .app
+                .upgrade()
+                .and_then(|a| sender_logo(&a, &main.sender))
+            {
+                Some(path) => {
+                    let pic = crate::logos::bright_picture(&path);
+                    pic.set_margin_start(160);
+                    pic.set_margin_end(160);
+                    pic.set_margin_top(110);
+                    pic.set_margin_bottom(110);
+                    pic.upcast()
+                }
+                None => gtk::Label::builder()
+                    .label(&main.sender)
+                    .css_classes(["tvjoe-osd-name"])
+                    .build()
+                    .upcast(),
+            },
+        };
+        let frame = gtk::Overlay::builder()
+            .child(&image)
+            .css_classes(["tvjoe-mt-thumb"])
+            .overflow(gtk::Overflow::Hidden)
+            .width_request(DETAIL_W)
+            .height_request(DETAIL_H)
+            .valign(gtk::Align::Start)
+            .build();
+        let frame = adw::Clamp::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .maximum_size(DETAIL_H)
+            .tightening_threshold(DETAIL_H)
+            .valign(gtk::Align::Start)
+            .child(
+                &adw::Clamp::builder()
+                    .orientation(gtk::Orientation::Horizontal)
+                    .maximum_size(DETAIL_W)
+                    .tightening_threshold(DETAIL_W)
+                    .child(&frame)
+                    .build(),
+            )
+            .build();
+
+        let text = |t: &str, class: &str| {
+            gtk::Label::builder()
+                .label(t)
+                .css_classes([class])
+                .xalign(0.0)
+                .wrap(true)
+                .wrap_mode(gtk::pango::WrapMode::WordChar)
+                .build()
+        };
+        let right = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        right.set_hexpand(true);
+        right.append(&text(&main.base_title(), "tvjoe-mt-detail-title"));
+        right.append(&text(
+            &format!("{} · {}", main.sender, main.topic),
+            "tvjoe-osd-sub",
+        ));
+        let meta: Vec<String> = [day_time(main.timestamp), minutes(main.duration)]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect();
+        right.append(&text(&meta.join(" · "), "tvjoe-osd-sub"));
+
+        // Fassungen als Knöpfe; „Abspielen“ startet die gewählte.
+        let chosen = Rc::new(Cell::new(0usize));
+        if group.films.len() > 1 {
+            let row = gtk::Box::builder()
+                .css_classes(["linked"])
+                .margin_top(6)
+                .build();
+            let mut first: Option<gtk::ToggleButton> = None;
+            for (i, f) in group.films.iter().enumerate() {
+                let b = gtk::ToggleButton::builder()
+                    .label(f.version().label())
+                    .active(i == 0)
+                    .build();
+                if let Some(g) = &first {
+                    b.set_group(Some(g));
+                } else {
+                    first = Some(b.clone());
+                }
+                let chosen = chosen.clone();
+                b.connect_toggled(move |b| {
+                    if b.is_active() {
+                        chosen.set(i);
+                    }
+                });
+                row.append(&b);
+            }
+            row.set_halign(gtk::Align::Start);
+            right.append(&row);
+        }
+        let play = gtk::Button::builder()
+            .css_classes(["suggested-action", "pill"])
+            .halign(gtk::Align::Start)
+            .margin_top(6)
+            .child(
+                &adw::ButtonContent::builder()
+                    .icon_name("media-playback-start-symbolic")
+                    .label("Abspielen")
+                    .build(),
+            )
+            .build();
+        right.append(&play);
+        let films = group.films.clone();
+        let weak = Rc::downgrade(self);
+        play.connect_clicked(move |_| {
+            let Some(w) = weak.upgrade() else { return };
+            let (Some(app), Some(film)) = (w.app.upgrade(), films.get(chosen.get())) else {
+                return;
+            };
+            app.play_film(film);
+            app.window.present();
+        });
+        let desc = text(main.description.trim(), "tvjoe-mt-detail-desc");
+        desc.set_margin_top(10);
+        desc.set_valign(gtk::Align::Start);
+        right.append(&desc);
+
+        let page = gtk::Box::builder()
+            .spacing(32)
+            .margin_start(32)
+            .margin_end(32)
+            .margin_top(32)
+            .margin_bottom(32)
+            .build();
+        page.append(&frame);
+        page.append(&right);
+        let scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .child(&page)
+            .build();
+        self.stack.add_named(&scroller, Some("detail"));
+        self.stack.set_visible_child_name("detail");
+        self.back.set_visible(true);
+        play.grab_focus();
+    }
+
+    /// Zurück zur Übersicht (an dieselbe Stelle).
+    fn close_detail(&self) {
+        self.back.set_visible(false);
+        self.stack.set_visible_child_name("grid");
+        if let Some(old) = self.stack.child_by_name("detail") {
+            self.stack.remove(&old);
+        }
     }
 
     /// Einstellungen der Mediathek (Zahnrad): Filmliste, Audiodeskription, Sender einzeln.
@@ -740,14 +943,14 @@ impl MtWindow {
                     sender.as_deref(),
                     &filter,
                     epg::now(),
-                    LIMIT,
+                    FETCH,
                 ),
                 Mode::Films => db.latest_filtered(
                     Some(Kind::Film),
                     sender.as_deref(),
                     &filter,
                     epg::now(),
-                    LIMIT,
+                    FETCH,
                 ),
                 Mode::Search => {
                     let text = self.search.text();
@@ -756,10 +959,13 @@ impl MtWindow {
                         self.show_empty("Suche", "Mindestens zwei Zeichen eingeben.");
                         return;
                     }
-                    db.search_filtered(text.trim(), sender.as_deref(), &filter, LIMIT)
+                    db.search_filtered(text.trim(), sender.as_deref(), &filter, FETCH)
                 }
             }
         };
+        let mut films = mediathek::group(films);
+        films.truncate(LIMIT);
+        self.back.set_visible(false);
         while let Some(c) = self.flow.first_child() {
             self.flow.remove(&c);
         }
@@ -774,12 +980,13 @@ impl MtWindow {
         }
         let generation = self.thumbs.as_ref().map_or(0, Thumbs::next_generation);
         let mut logos: HashMap<String, Option<PathBuf>> = HashMap::new();
-        for film in &films {
+        for group in &films {
+            let film = group.main();
             let logo = logos
                 .entry(film.sender.clone())
                 .or_insert_with(|| sender_logo(&app, &film.sender))
                 .clone();
-            let (tile, thumb) = tile(film, logo.as_deref());
+            let (tile, thumb) = tile(group, logo.as_deref());
             self.flow.append(&tile);
             if let (Some(t), Some(site)) = (&self.thumbs, film.website.as_deref()) {
                 self.thumbs_of.borrow_mut().insert(film.id, thumb);
@@ -801,7 +1008,8 @@ impl MtWindow {
 
 /// Eine Kachel: Vorschaubild (bis es da ist: Senderlogo oder Sendername), Titel, Thema,
 /// Datum · Uhrzeit · Dauer. Gibt die Kachel und das Bild für das spätere Vorschaubild zurück.
-fn tile(film: &Film, logo: Option<&Path>) -> (gtk::Box, gtk::Picture) {
+fn tile(group: &Group, logo: Option<&Path>) -> (gtk::Box, gtk::Picture) {
+    let film = group.main();
     let fallback: gtk::Widget = match logo {
         Some(path) => {
             let pic = crate::logos::bright_picture(path);
@@ -844,7 +1052,7 @@ fn tile(film: &Film, logo: Option<&Path>) -> (gtk::Box, gtk::Picture) {
         .build();
 
     let title = gtk::Label::builder()
-        .label(film.display_title())
+        .label(film.base_title())
         .css_classes(["tvjoe-name"])
         .xalign(0.0)
         .wrap(true)
@@ -879,6 +1087,19 @@ fn tile(film: &Film, logo: Option<&Path>) -> (gtk::Box, gtk::Picture) {
     tile.append(&title);
     tile.append(&topic);
     tile.append(&meta);
+    // Fassungen als Kennzeichen („DE · UT · OmU“), eine einzelne nur, wenn sie nicht Deutsch ist.
+    let badges: Vec<&str> = group.films.iter().map(|f| f.version().badge()).collect();
+    if group.films.len() > 1 || film.version() != Version::Normal {
+        tile.append(
+            &gtk::Label::builder()
+                .label(badges.join(" · "))
+                .css_classes(["tvjoe-mt-badge"])
+                .xalign(0.0)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .max_width_chars(1)
+                .build(),
+        );
+    }
     let desc: String = film.description.chars().take(400).collect();
     tile.set_tooltip_text(Some(&format!("{}\n\n{desc}", film.display_title())));
     (tile, thumb)
