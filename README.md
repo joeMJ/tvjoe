@@ -32,6 +32,15 @@ CPU-Last durch Hardware-Decoding.
 | Strg+, | Einstellungen |
 | Strg+Q | Beenden |
 
+## Installieren (Ubuntu 24.04)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joeMJ/tvjoe/main/install.sh | bash
+```
+
+Lädt das neueste Release-Paket, prüft die Prüfsumme und installiert es (sudo). Derselbe Befehl
+aktualisiert eine vorhandene Installation.
+
 ## Bauen
 
 Benötigt (Ubuntu): `cargo`, `libgtk-4-dev`, `libadwaita-1-dev`, `libmpv-dev`, `pkg-config`.

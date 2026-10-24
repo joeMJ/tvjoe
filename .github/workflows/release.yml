@@ -1,0 +1,40 @@
+# Baut bei einem Versionsschild v… das .deb für Ubuntu 24.04 und legt ein Release mit
+# tvjoe_<version>_ubuntu24.04_amd64.deb und SHA256SUMS an (Namensschema der Updatefunktion
+# und von install.sh).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Systempakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libmpv-dev pkg-config
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Tests
+        run: cargo test --locked -p tvjoe-core
+
+      - name: Paket bauen
+        run: tools/build-deb.sh
+
+      - name: Release anlegen
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/deb/*.deb
+            target/deb/SHA256SUMS
