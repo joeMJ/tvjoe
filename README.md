@@ -13,6 +13,10 @@ CPU-Last durch Hardware-Decoding.
 - Import von M3U aus Datei oder URL mit Vorschau, Prüfung und Erreichbarkeitstest; Teilimport
 - Senderverwaltung: Umbenennen, Nummern, Reihenfolge, Aktiv/Favorit, Export als M3U8
 - Programmführer aus XMLTV (auch `.xml.gz`), Programmraster
+- Mediathek der öffentlich-rechtlichen Sender (Filmliste von MediathekView): Episoden als Serien
+  mit Staffeln, Filme, Suche; Fassungen (Untertitel, Original, Audiodeskription) zusammengefasst;
+  Pause/Spulen, Weitersehen ab der gemerkten Stelle, nächste Folge automatisch
+- Info über das ganze Bild (Taste I) für Mediathek und laufende Sendung
 - Optionale Updateprüfung über GitHub-Releases (standardmäßig aus)
 
 ## Tasten

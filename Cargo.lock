@@ -1182,14 +1182,14 @@ checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
 
 [[package]]
 name = "tvjoe"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "tvjoe-core",
 ]
 
 [[package]]
 name = "tvjoe-core"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "flate2",
  "liblzma",
@@ -1204,7 +1204,7 @@ dependencies = [
 
 [[package]]
 name = "tvjoe-gui"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "async-channel",
  "gtk4",
