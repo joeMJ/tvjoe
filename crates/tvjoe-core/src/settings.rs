@@ -70,6 +70,8 @@ pub struct Settings {
     pub mediathek_hide_ad: bool,
     /// Mediathek: ausgeblendete Sender (Kurzname aus der Filmliste).
     pub mediathek_hidden: Vec<String>,
+    /// Mediathek: Serien von A bis Z statt nach der neuesten Folge.
+    pub mediathek_series_az: bool,
 }
 
 impl Default for Settings {
@@ -103,6 +105,7 @@ impl Default for Settings {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
+            mediathek_series_az: false,
         }
     }
 }

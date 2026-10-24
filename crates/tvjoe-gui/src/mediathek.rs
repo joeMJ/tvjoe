@@ -34,6 +34,8 @@ const THUMB_THREADS: usize = 4;
 const FETCH: usize = 600;
 /// Episoden je Ansicht (werden zu Serien zusammengefasst).
 const FETCH_EPISODES: usize = 4000;
+/// Höchstzahl Serienkacheln (bei „A–Z“ sollen keine Buchstaben fehlen).
+const LIMIT_SERIES: usize = 400;
 /// Bild der Filminfo.
 const DETAIL_W: i32 = 640;
 const DETAIL_H: i32 = 360;
@@ -329,6 +331,8 @@ struct MtWindow {
     empty: adw::StatusPage,
     flow: gtk::FlowBox,
     back: gtk::Button,
+    /// Sortierung der Serien („Neueste“ / „A–Z“), nur im Reiter „Episoden“.
+    sort_box: gtk::Box,
     mode: Cell<Mode>,
     sender: RefCell<Option<String>>,
     /// Sendungen der Ansicht (Fassungen zusammengefasst).
@@ -473,6 +477,25 @@ impl MtWindow {
 
         let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
         body.append(&search_bar);
+        // Sortierung der Serien („Neueste“ / „A–Z“).
+        let newest = gtk::ToggleButton::builder().label("Neueste").build();
+        let az = gtk::ToggleButton::builder()
+            .label("A–Z")
+            .group(&newest)
+            .build();
+        if app.settings().mediathek_series_az {
+            az.set_active(true);
+        } else {
+            newest.set_active(true);
+        }
+        // In der Kopfleiste rechts, links neben dem Zahnrad (Nutzer, 2026-10-25).
+        let sort_box = gtk::Box::builder()
+            .css_classes(["linked"])
+            .valign(gtk::Align::Center)
+            .build();
+        sort_box.append(&newest);
+        sort_box.append(&az);
+        header.pack_end(&sort_box);
         body.append(&sender_scroller);
         body.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         body.append(&stack);
@@ -511,6 +534,7 @@ impl MtWindow {
             empty,
             flow,
             back,
+            sort_box,
             mode: Cell::new(Mode::Episodes),
             sender: RefCell::new(None),
             films: RefCell::new(Vec::new()),
@@ -541,6 +565,7 @@ impl MtWindow {
                 if b.is_active() {
                     w.mode.set(mode);
                     w.search_bar.set_visible(mode == Mode::Search);
+                    w.sort_box.set_visible(mode == Mode::Episodes);
                     if mode == Mode::Search {
                         w.search.grab_focus();
                     }
@@ -591,6 +616,15 @@ impl MtWindow {
             glib::Propagation::Proceed
         });
         w.win.add_controller(keys);
+        let weak = Rc::downgrade(&w);
+        az.connect_toggled(move |b| {
+            let Some(w) = weak.upgrade() else { return };
+            if let Some(app) = w.app.upgrade() {
+                app.settings_mut().mediathek_series_az = b.is_active();
+                app.save_settings();
+            }
+            w.reload();
+        });
         w
     }
 
@@ -825,7 +859,7 @@ impl MtWindow {
             .db
             .borrow()
             .as_ref()
-            .map(|db| db.topic_films(sender, topic, &filter_of(&app), epg::now()))
+            .map(|db| without_trailers(db.topic_films(sender, topic, &filter_of(&app), epg::now())))
             .unwrap_or_default();
         let mut episodes = mediathek::group(all);
         if episodes.is_empty() {
@@ -1343,7 +1377,19 @@ impl MtWindow {
         } else {
             mediathek::group(films)
         };
-        films.truncate(LIMIT);
+        if series && app.settings().mediathek_series_az {
+            // Umlaute wie ihr Grundbuchstabe („Ärzte“ unter A).
+            films.sort_by_cached_key(|g| {
+                g.main()
+                    .topic
+                    .to_lowercase()
+                    .replace('ä', "a")
+                    .replace('ö', "o")
+                    .replace('ü', "u")
+                    .replace('ß', "ss")
+            });
+        }
+        films.truncate(if series { LIMIT_SERIES } else { LIMIT });
         self.back.set_visible(false);
         while let Some(c) = self.flow.first_child() {
             self.flow.remove(&c);
@@ -1373,7 +1419,12 @@ impl MtWindow {
                 .map(|(p, d)| p / d);
             let count = series.then(|| {
                 self.db.borrow().as_ref().map_or(0, |db| {
-                    let all = db.topic_films(&film.sender, &film.topic, &filter, epg::now());
+                    let all = without_trailers(db.topic_films(
+                        &film.sender,
+                        &film.topic,
+                        &filter,
+                        epg::now(),
+                    ));
                     mediathek::group(all).len() as i64
                 })
             });
@@ -1396,6 +1447,14 @@ impl MtWindow {
             adj.set_value(0.0);
         }
     }
+}
+
+/// Serienseite und Folgenzahl ohne Trailer (Nutzer, 2026-10-25).
+fn without_trailers(films: Vec<Film>) -> Vec<Film> {
+    films
+        .into_iter()
+        .filter(|f| !f.title.trim_start().to_lowercase().starts_with("trailer:"))
+        .collect()
 }
 
 /// Reihenfolge der Folgen: Staffel, Folge, Sendezeit (ohne Angabe ans Ende bzw. nach Zeit).
