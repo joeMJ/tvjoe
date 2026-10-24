@@ -158,6 +158,18 @@
   padding: 4px;
 }
 
+.tvjoe-mt-seen trough {
+  min-height: 5px;
+  border-radius: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+.tvjoe-mt-seen progress {
+  min-height: 5px;
+  border-radius: 0;
+  background-color: #78aeed;
+}
+
 .tvjoe-mt-badge {
   color: #78aeed;
   font-size: smaller;

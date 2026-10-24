@@ -86,6 +86,7 @@ pub struct App {
     vod: RefCell<Option<Film>>,
     /// Zeitgeber für die Fortschrittszeile läuft.
     vod_timer: Cell<bool>,
+    vod_ticks: Cell<u32>,
 }
 
 impl App {
@@ -216,6 +217,7 @@ impl App {
             epg_timer: Cell::new(false),
             vod: RefCell::new(None),
             vod_timer: Cell::new(false),
+            vod_ticks: Cell::new(0),
         });
         let weak = Rc::downgrade(&app);
         app.osd.set_action_handler(move |a| {
@@ -659,6 +661,7 @@ impl App {
         self.window.connect_close_request(move |_| {
             if let Some(app) = weak.upgrade() {
                 app.save_settings();
+                app.save_vod_progress();
             }
             glib::Propagation::Proceed
         });
@@ -765,6 +768,7 @@ impl App {
         let Some((url, bitrate, name, info)) = picked else {
             return;
         };
+        self.save_vod_progress();
         self.vod.replace(None);
         self.info.hide();
         player.load(&url, bitrate);
@@ -784,12 +788,19 @@ impl App {
 
     /// Spielt einen Mediathek-Beitrag (Stufe nach der Qualitätseinstellung). Zurück zum
     /// Fernsehen über Ziffern oder die Senderliste.
-    pub fn play_film(self: &Rc<Self>, film: &Film) {
+    pub fn play_film(self: &Rc<Self>, film: &Film, start: Option<f64>) {
         let Some(player) = self.player.clone() else {
             return;
         };
+        self.save_vod_progress();
         let url = film.url_for(self.wanted_for_switch()).to_string();
-        player.load(&url, None);
+        player.load_from(&url, None, start);
+        if let Some(s) = start {
+            self.msg.show(
+                &format!("Weiter ab {}", crate::osd::clock(s)),
+                self.overlay_secs(),
+            );
+        }
         trace(&format!("lade Mediathek {} ({url})", film.display_title()));
         self.vod.replace(Some(film.clone()));
         self.info.hide();
@@ -811,9 +822,31 @@ impl App {
                 if app.osd.is_shown() {
                     app.osd.update_video(&app.video_state());
                 }
+                // Alle 10 s die Spielposition merken (auch bei Absturz nicht verloren).
+                let ticks = app.vod_ticks.get() + 1;
+                app.vod_ticks.set(ticks);
+                if ticks % 20 == 0 {
+                    app.save_vod_progress();
+                }
                 glib::ControlFlow::Continue
             });
         }
+    }
+
+    /// Spielposition des laufenden Mediathek-Videos merken.
+    pub fn save_vod_progress(&self) {
+        let Some(film) = self.vod.borrow().clone() else {
+            return;
+        };
+        let (Some(pos), dur, _) = self
+            .player
+            .as_ref()
+            .map_or((None, None, false), |p| p.position())
+        else {
+            return;
+        };
+        let dur = dur.unwrap_or(film.duration as f64);
+        crate::mediathek::save_progress(&film, pos, dur);
     }
 
     fn video_state(&self) -> VideoState {
@@ -918,6 +951,13 @@ impl App {
     fn on_stream_failed(self: &Rc<Self>, ev: PlayerEvent) {
         if self.vod.borrow().is_some() {
             trace(&format!("Mediathek-Video: {ev:?}"));
+            if ev == PlayerEvent::Ended {
+                // Zu Ende gesehen: gemerkte Position löschen.
+                if let Some(f) = self.vod.borrow().as_ref() {
+                    let d = f.duration.max(1) as f64;
+                    crate::mediathek::save_progress(f, d, d);
+                }
+            }
             let text = match ev {
                 PlayerEvent::Ended => "Beitrag zu Ende",
                 _ => "Video nicht abspielbar",

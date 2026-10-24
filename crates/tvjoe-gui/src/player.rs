@@ -175,6 +175,16 @@ impl Player {
     /// Lädt einen Stream. `max_bitrate` begrenzt bei adaptiven HLS-Streams die Stufe
     /// (mpv `hls-bitrate`: höchste Stufe mit Bitrate ≤ Grenze); `None` = beste Stufe.
     pub fn load(&self, url: &str, max_bitrate: Option<u64>) {
+        self.load_from(url, max_bitrate, None);
+    }
+
+    /// Wie [`Player::load`], ab `start` Sekunden (Weitersehen). Die Startstelle wird bei jedem
+    /// Laden neu gesetzt, damit sie nicht für den nächsten Stream gilt.
+    pub fn load_from(&self, url: &str, max_bitrate: Option<u64>, start: Option<f64>) {
+        let start = start.map_or_else(|| "none".to_string(), |s| format!("{s:.1}"));
+        if let Err(e) = self.mpv.set_property("start", start.as_str()) {
+            eprintln!("tvjoe: start={start}: {e:?}");
+        }
         let limit = max_bitrate.map_or_else(|| "max".to_string(), |b| b.to_string());
         if let Err(e) = self.mpv.set_property("hls-bitrate", limit.as_str()) {
             eprintln!("tvjoe: hls-bitrate={limit}: {e:?}");
@@ -362,5 +372,40 @@ mod tests {
             println!("hls-bitrate={limit}: Bildhöhe {height:?}");
             assert_eq!(height, Some(expected));
         }
+    }
+
+    /// Weitersehen: Eigenschaft `start` vor `loadfile` (wie `Player::load_from`), danach
+    /// `none` für den nächsten Stream. Netz nötig; `TVJOE_TEST_MP4` für eine andere Datei.
+    #[test]
+    #[ignore]
+    fn start_setzt_einstieg() {
+        let url = std::env::var("TVJOE_TEST_MP4").unwrap_or_else(|_| {
+            "https://ctv-videos.daserste.de/dach/2023/05/17/8e9e8d1d-92d6-4bd9-be2d-273e63f01886/JOB_547267__sendeton_1280x720-50p-3200kbit.mp4".into()
+        });
+        unsafe { libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr()) };
+        let mpv = libmpv2::Mpv::with_initializer(|i| {
+            i.set_option("vo", "null")?;
+            i.set_option("ao", "null")?;
+            Ok(())
+        })
+        .unwrap();
+        let pos = |start: &str| {
+            mpv.set_property("start", start).unwrap();
+            mpv.command("loadfile", &[&url]).unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+            for _ in 0..200 {
+                if let Ok(p) = mpv.get_property::<f64>("time-pos") {
+                    return Some(p);
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            None
+        };
+        let at = pos("600.0");
+        println!("start=600: time-pos {at:?}");
+        assert!(at.is_some_and(|p| (599.0..610.0).contains(&p)));
+        let at = pos("none");
+        println!("start=none: time-pos {at:?}");
+        assert!(at.is_some_and(|p| p < 5.0));
     }
 }

@@ -19,6 +19,10 @@ use crate::net;
 pub const FULL_URL: &str = "https://liste.mediathekview.de/Filmliste-akt.xz";
 pub const DIFF_URL: &str = "https://liste.mediathekview.de/Filmliste-diff.xz";
 const MAX_LIST_BYTES: u64 = 400 * 1024 * 1024;
+/// Spielpositionen: erst ab dieser Stelle (Sekunden) merken, ab diesem Anteil als gesehen.
+const PROGRESS_MIN: f64 = 60.0;
+const PROGRESS_DONE: f64 = 0.95;
+const PROGRESS_KEEP_SECS: i64 = 183 * 86_400;
 /// Nach dieser Zeit wird statt der Änderungsliste wieder die volle Liste geladen.
 const FULL_EVERY_SECS: i64 = 7 * 86_400;
 
@@ -513,6 +517,8 @@ CREATE TRIGGER IF NOT EXISTS films_ad AFTER DELETE ON films BEGIN
     INSERT INTO films_fts(films_fts, rowid, title, topic, description)
     VALUES ('delete', old.id, old.title, old.topic, old.description); END;
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS progress(url TEXT PRIMARY KEY, position REAL NOT NULL,
+    duration REAL NOT NULL, updated INTEGER NOT NULL);
 ";
 
 const COLUMNS: &str = "id, sender, topic, title, ts, duration, description, url, url_low, url_hd, website, subtitle, kind";
@@ -583,6 +589,39 @@ impl Mediathek {
                 .is_none_or(|t| now - t > FULL_EVERY_SECS)
     }
 
+    /// Spielposition merken (ab 1 Minute); ab 95 % gilt der Beitrag als gesehen und die
+    /// Position wird gelöscht. Unabhängig von der Filmliste (bleibt bei neuer Liste erhalten).
+    pub fn save_progress(&self, url: &str, position: f64, duration: f64, now: i64) {
+        let done = duration > 0.0 && position >= duration * PROGRESS_DONE;
+        let result = if position < PROGRESS_MIN || done {
+            self.conn
+                .execute("DELETE FROM progress WHERE url = ?1", [url])
+        } else {
+            self.conn.execute(
+                "INSERT INTO progress(url, position, duration, updated) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(url) DO UPDATE SET position = excluded.position,
+                 duration = excluded.duration, updated = excluded.updated",
+                params![url, position, duration, now],
+            )
+        };
+        if let Err(e) = result {
+            eprintln!("tvjoe: {}", db_err(e));
+        }
+    }
+
+    /// Gemerkte Position und Dauer eines Videos.
+    pub fn progress(&self, url: &str) -> Option<(f64, f64)> {
+        self.conn
+            .query_row(
+                "SELECT position, duration FROM progress WHERE url = ?1",
+                [url],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .ok()
+            .flatten()
+    }
+
     pub fn count(&self) -> i64 {
         self.conn
             .query_row("SELECT COUNT(*) FROM films", [], |r| r.get(0))
@@ -640,6 +679,12 @@ impl Mediathek {
         if let Some(e) = failure {
             return Err(e);
         }
+        // Positionen, die länger als ein halbes Jahr nicht angefasst wurden.
+        tx.execute(
+            "DELETE FROM progress WHERE updated < ?1",
+            [now - PROGRESS_KEEP_SECS],
+        )
+        .map_err(db_err)?;
         stats.purged = tx
             .execute("DELETE FROM films WHERE ts < ?1", [cutoff])
             .map_err(db_err)?;
@@ -929,6 +974,21 @@ mod tests {
         );
         assert_eq!(f.version(), Version::Audiodeskription);
         assert_eq!(f.display_title(), "Film (Audiodeskription)");
+    }
+
+    #[test]
+    fn spielposition_merken_und_loeschen() {
+        let path = tmp("progress");
+        let mt = Mediathek::open(&path).unwrap();
+        mt.save_progress("u", 30.0, 1000.0, 1);
+        assert_eq!(mt.progress("u"), None);
+        mt.save_progress("u", 300.0, 1000.0, 1);
+        assert_eq!(mt.progress("u"), Some((300.0, 1000.0)));
+        mt.save_progress("u", 400.0, 1000.0, 2);
+        assert_eq!(mt.progress("u"), Some((400.0, 1000.0)));
+        mt.save_progress("u", 960.0, 1000.0, 3);
+        assert_eq!(mt.progress("u"), None);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]

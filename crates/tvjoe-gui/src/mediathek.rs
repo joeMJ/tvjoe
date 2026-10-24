@@ -16,7 +16,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::gdk_pixbuf::Pixbuf;
 use gtk::{gio, glib};
-use tvjoe_core::mediathek::{self, Filter, Group, Kind, Mediathek, Version};
+use tvjoe_core::mediathek::{self, Film, Filter, Group, Kind, Mediathek, Version};
 use tvjoe_core::{epg, net, normalize_id, paths};
 
 use crate::app::{App, hm};
@@ -135,6 +135,36 @@ fn run_update(app: &Rc<App>) {
             w.rebuild();
         }
     });
+}
+
+thread_local! {
+    /// Eigene Verbindung für Spielpositionen (Hauptfenster, auch ohne offene Mediathek).
+    static PROGRESS_DB: RefCell<Option<Mediathek>> = const { RefCell::new(None) };
+}
+
+fn with_progress_db<T>(f: impl FnOnce(&Mediathek) -> Option<T>) -> Option<T> {
+    PROGRESS_DB.with(|db| {
+        let mut db = db.borrow_mut();
+        if db.is_none() {
+            *db = paths::mediathek_db()
+                .filter(|p| p.exists())
+                .and_then(|p| Mediathek::open(&p).ok());
+        }
+        db.as_ref().and_then(f)
+    })
+}
+
+/// Spielposition eines Beitrags merken (Regeln im Kern: ab 1 Minute, ab 95 % gesehen).
+pub fn save_progress(film: &Film, position: f64, duration: f64) {
+    with_progress_db(|db| {
+        db.save_progress(&film.url, position, duration, epg::now());
+        Some(())
+    });
+}
+
+/// Gemerkte Position und Dauer.
+pub fn progress_of(film: &Film) -> Option<(f64, f64)> {
+    with_progress_db(|db| db.progress(&film.url))
 }
 
 fn current() -> Option<Rc<MtWindow>> {
@@ -324,7 +354,7 @@ pub fn probe_tab(index: usize, search: Option<&str>) -> Option<gtk::Window> {
 pub fn probe_play_first(app: &Rc<App>) {
     let film = current().and_then(|w| w.films.borrow().first().map(|g| g.main().clone()));
     if let Some(film) = film {
-        app.play_film(&film);
+        app.play_film(&film, None);
         app.window.present();
     }
 }
@@ -628,8 +658,58 @@ impl MtWindow {
             .collect();
         right.append(&text(&meta.join(" · "), "tvjoe-osd-sub"));
 
-        // Fassungen als Knöpfe; „Abspielen“ startet die gewählte.
+        // Fassungen als Knöpfe; „Weitersehen ab …“ bzw. „Abspielen“ starten die gewählte.
         let chosen = Rc::new(Cell::new(0usize));
+        // Hervorhebung setzt `update`.
+        let button = |icon: &str, label: &str| {
+            gtk::Button::builder()
+                .css_classes(["pill"])
+                .child(
+                    &adw::ButtonContent::builder()
+                        .icon_name(icon)
+                        .label(label)
+                        .build(),
+                )
+                .build()
+        };
+        let resume = button("media-playback-start-symbolic", "Weitersehen");
+        let play = button("media-playback-start-symbolic", "Abspielen");
+        let films = Rc::new(group.films.clone());
+        // Knöpfe zur gewählten Fassung: mit gemerkter Position „Weitersehen ab 23:10“ und
+        // „Von vorn“, sonst nur „Abspielen“.
+        let update = {
+            let (films, resume, play) = (films.clone(), resume.clone(), play.clone());
+            move |i: usize| {
+                let pos = films.get(i).and_then(progress_of);
+                let set = |b: &gtk::Button, text: &str, suggested: bool| {
+                    if let Some(c) = b.child().and_downcast::<adw::ButtonContent>() {
+                        c.set_label(text);
+                    }
+                    if suggested {
+                        b.add_css_class("suggested-action");
+                    } else {
+                        b.remove_css_class("suggested-action");
+                    }
+                };
+                match pos {
+                    Some((p, _)) => {
+                        set(
+                            &resume,
+                            &format!("Weitersehen ab {}", crate::osd::clock(p)),
+                            true,
+                        );
+                        resume.set_visible(true);
+                        set(&play, "Von vorn", false);
+                    }
+                    None => {
+                        resume.set_visible(false);
+                        set(&play, "Abspielen", true);
+                    }
+                }
+            }
+        };
+        update(0);
+        let update = Rc::new(update);
         if group.films.len() > 1 {
             let row = gtk::Box::builder()
                 .css_classes(["linked"])
@@ -646,10 +726,11 @@ impl MtWindow {
                 } else {
                     first = Some(b.clone());
                 }
-                let chosen = chosen.clone();
+                let (chosen, update) = (chosen.clone(), update.clone());
                 b.connect_toggled(move |b| {
                     if b.is_active() {
                         chosen.set(i);
+                        update(i);
                     }
                 });
                 row.append(&b);
@@ -657,28 +738,31 @@ impl MtWindow {
             row.set_halign(gtk::Align::Start);
             right.append(&row);
         }
-        let play = gtk::Button::builder()
-            .css_classes(["suggested-action", "pill"])
-            .halign(gtk::Align::Start)
+        let buttons = gtk::Box::builder()
+            .spacing(10)
             .margin_top(6)
-            .child(
-                &adw::ButtonContent::builder()
-                    .icon_name("media-playback-start-symbolic")
-                    .label("Abspielen")
-                    .build(),
-            )
+            .halign(gtk::Align::Start)
             .build();
-        right.append(&play);
-        let films = group.films.clone();
-        let weak = Rc::downgrade(self);
-        play.connect_clicked(move |_| {
-            let Some(w) = weak.upgrade() else { return };
-            let (Some(app), Some(film)) = (w.app.upgrade(), films.get(chosen.get())) else {
-                return;
-            };
-            app.play_film(film);
-            app.window.present();
-        });
+        buttons.append(&resume);
+        buttons.append(&play);
+        right.append(&buttons);
+        for (b, from_start) in [(&resume, false), (&play, true)] {
+            let (films, chosen) = (films.clone(), chosen.clone());
+            let weak = Rc::downgrade(self);
+            b.connect_clicked(move |_| {
+                let Some(w) = weak.upgrade() else { return };
+                let (Some(app), Some(film)) = (w.app.upgrade(), films.get(chosen.get())) else {
+                    return;
+                };
+                let start = if from_start {
+                    None
+                } else {
+                    progress_of(film).map(|(p, _)| p)
+                };
+                app.play_film(film, start);
+                app.window.present();
+            });
+        }
         let desc = text(main.description.trim(), "tvjoe-mt-detail-desc");
         desc.set_margin_top(10);
         desc.set_valign(gtk::Align::Start);
@@ -701,7 +785,11 @@ impl MtWindow {
         self.stack.add_named(&scroller, Some("detail"));
         self.stack.set_visible_child_name("detail");
         self.back.set_visible(true);
-        play.grab_focus();
+        if resume.is_visible() {
+            resume.grab_focus();
+        } else {
+            play.grab_focus();
+        }
     }
 
     /// Zurück zur Übersicht (an dieselbe Stelle).
@@ -986,7 +1074,13 @@ impl MtWindow {
                 .entry(film.sender.clone())
                 .or_insert_with(|| sender_logo(&app, &film.sender))
                 .clone();
-            let (tile, thumb) = tile(group, logo.as_deref());
+            let seen = group
+                .films
+                .iter()
+                .find_map(progress_of)
+                .filter(|(_, d)| *d > 0.0)
+                .map(|(p, d)| p / d);
+            let (tile, thumb) = tile(group, logo.as_deref(), seen);
             self.flow.append(&tile);
             if let (Some(t), Some(site)) = (&self.thumbs, film.website.as_deref()) {
                 self.thumbs_of.borrow_mut().insert(film.id, thumb);
@@ -1008,7 +1102,7 @@ impl MtWindow {
 
 /// Eine Kachel: Vorschaubild (bis es da ist: Senderlogo oder Sendername), Titel, Thema,
 /// Datum · Uhrzeit · Dauer. Gibt die Kachel und das Bild für das spätere Vorschaubild zurück.
-fn tile(group: &Group, logo: Option<&Path>) -> (gtk::Box, gtk::Picture) {
+fn tile(group: &Group, logo: Option<&Path>, seen: Option<f64>) -> (gtk::Box, gtk::Picture) {
     let film = group.main();
     let fallback: gtk::Widget = match logo {
         Some(path) => {
@@ -1037,6 +1131,16 @@ fn tile(group: &Group, logo: Option<&Path>) -> (gtk::Box, gtk::Picture) {
         .height_request(THUMB_H)
         .build();
     frame.add_overlay(&thumb);
+    // Gemerkte Position als Strich am unteren Bildrand.
+    if let Some(f) = seen {
+        frame.add_overlay(
+            &gtk::ProgressBar::builder()
+                .fraction(f.clamp(0.0, 1.0))
+                .valign(gtk::Align::End)
+                .css_classes(["tvjoe-mt-seen"])
+                .build(),
+        );
+    }
     let frame = adw::Clamp::builder()
         .orientation(gtk::Orientation::Vertical)
         .maximum_size(THUMB_H)
