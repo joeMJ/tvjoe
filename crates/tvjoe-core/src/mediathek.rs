@@ -19,6 +19,9 @@ use crate::net;
 pub const FULL_URL: &str = "https://liste.mediathekview.de/Filmliste-akt.xz";
 pub const DIFF_URL: &str = "https://liste.mediathekview.de/Filmliste-diff.xz";
 const MAX_LIST_BYTES: u64 = 400 * 1024 * 1024;
+/// Beiträge mit späterem Sendetermin, die vorab in der Mediathek stehen (z. B. neue Staffeln),
+/// werden bis so weit in die Zukunft mit angezeigt.
+const AHEAD_SECS: i64 = 60 * 86_400;
 /// Spielpositionen: erst ab dieser Stelle (Sekunden) merken, ab diesem Anteil als gesehen.
 const PROGRESS_MIN: f64 = 60.0;
 const PROGRESS_DONE: f64 = 0.95;
@@ -196,6 +199,61 @@ pub fn version_of(title: &str, url: &str) -> Version {
         (Some(u), Version::Normal | Version::Audiodeskription | Version::Original) => u,
         (Some(_), v) => v,
     }
+}
+
+/// Staffel und Folge aus dem Titel: „(S02/E07)“, „Staffel 1, Folge 3“, „Folge 12“.
+/// Staffeln ab 100 (Jahreszahlen bei Nachrichten) zählen nicht.
+pub fn season_episode(title: &str) -> (Option<u32>, Option<u32>) {
+    let t = title.to_lowercase();
+    let number_after = |s: &str, key: &str| -> Option<u32> {
+        let i = s.find(key)? + key.len();
+        let digits: String = s[i..]
+            .trim_start()
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        digits.parse().ok()
+    };
+    // „(s02/e07)“
+    let mut season = None;
+    let mut episode = None;
+    if let Some(i) = t.find("(s") {
+        let rest = &t[i + 2..];
+        let s_digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if let Some(after) = rest[s_digits.len()..].strip_prefix("/e") {
+            let e_digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+            season = s_digits.parse().ok();
+            episode = e_digits.parse().ok();
+        }
+    }
+    if season.is_none() {
+        season = number_after(&t, "staffel ");
+    }
+    if episode.is_none() {
+        episode = number_after(&t, "folge ");
+    }
+    (season.filter(|s| *s < 100), episode)
+}
+
+/// Sport-Zusammenfassungen (Saison „2026/27“, Bundesliga, Liga, Sport im Thema): keine Serie,
+/// nicht im Reiter „Episoden“ (Nutzer, 2026-10-25).
+pub fn is_sport_topic(topic: &str) -> bool {
+    let t = topic.to_lowercase();
+    let season_year = t.as_bytes().windows(7).any(|w| {
+        w[..4].iter().all(u8::is_ascii_digit)
+            && w[4] == b'/'
+            && w[5..].iter().all(u8::is_ascii_digit)
+    });
+    season_year
+        || ["bundesliga", "liga", "sport"]
+            .iter()
+            .any(|k| t.contains(k))
+}
+
+/// Folge einer Serie mit Staffelangabe: wird mit allen älteren Folgen behalten, solange die
+/// Serie in den letzten Tagen eine Folge hatte.
+pub fn is_series_entry(topic: &str, title: &str) -> bool {
+    season_episode(title).0.is_some() && !is_sport_topic(topic)
 }
 
 /// Eine Sendung mit allen Fassungen; die erste ist die bevorzugte.
@@ -503,7 +561,7 @@ CREATE TABLE IF NOT EXISTS films(
     id INTEGER PRIMARY KEY, sender TEXT NOT NULL, topic TEXT NOT NULL, title TEXT NOT NULL,
     ts INTEGER NOT NULL, duration INTEGER NOT NULL, description TEXT NOT NULL,
     url TEXT NOT NULL UNIQUE, url_low TEXT, url_hd TEXT, website TEXT, subtitle TEXT,
-    kind INTEGER NOT NULL);
+    kind INTEGER NOT NULL, series INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS films_ts ON films(ts);
 CREATE INDEX IF NOT EXISTS films_sender_ts ON films(sender, ts);
 CREATE INDEX IF NOT EXISTS films_kind_ts ON films(kind, ts);
@@ -554,6 +612,20 @@ impl Mediathek {
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
             .map_err(db_err)?;
         conn.execute_batch(SCHEMA).map_err(db_err)?;
+        // Ältere Datenbanken: Spalte `series` nachrüsten; die nächste Aktualisierung lädt dann
+        // die volle Liste, damit ältere Serienfolgen dazukommen.
+        let has_series = conn.prepare("SELECT series FROM films LIMIT 0").is_ok();
+        if !has_series {
+            conn.execute_batch(
+                "ALTER TABLE films ADD COLUMN series INTEGER NOT NULL DEFAULT 0;
+                 DELETE FROM meta WHERE key = 'last_full';",
+            )
+            .map_err(db_err)?;
+        }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS films_series ON films(series, sender, topic, ts);",
+        )
+        .map_err(db_err)?;
         Ok(Self { conn })
     }
 
@@ -589,11 +661,12 @@ impl Mediathek {
                 .is_none_or(|t| now - t > FULL_EVERY_SECS)
     }
 
-    /// Spielposition merken (ab 1 Minute); ab 95 % gilt der Beitrag als gesehen und die
-    /// Position wird gelöscht. Unabhängig von der Filmliste (bleibt bei neuer Liste erhalten).
+    /// Spielposition merken (ab 1 Minute); ab 95 % gilt der Beitrag als gesehen. Unabhängig von der Filmliste (bleibt bei neuer Liste erhalten).
     pub fn save_progress(&self, url: &str, position: f64, duration: f64, now: i64) {
+        // Gesehen (ab 95 %) wird als Position = Dauer gemerkt (für „nächste Folge“).
         let done = duration > 0.0 && position >= duration * PROGRESS_DONE;
-        let result = if position < PROGRESS_MIN || done {
+        let position = if done { duration } else { position };
+        let result = if position < PROGRESS_MIN && !done {
             self.conn
                 .execute("DELETE FROM progress WHERE url = ?1", [url])
         } else {
@@ -607,6 +680,43 @@ impl Mediathek {
         if let Err(e) = result {
             eprintln!("tvjoe: {}", db_err(e));
         }
+    }
+
+    /// Zuletzt geänderte Position (Sekunden seit 1970) – für „Weitersehen“ in Serien.
+    pub fn progress_updated(&self, url: &str) -> Option<i64> {
+        self.conn
+            .query_row("SELECT updated FROM progress WHERE url = ?1", [url], |r| {
+                r.get(0)
+            })
+            .optional()
+            .ok()
+            .flatten()
+    }
+
+    /// Alle Beiträge eines Themas (Serie), auch vorab veröffentlichte, mit Anzeigefilter.
+    pub fn topic_films(&self, sender: &str, topic: &str, filter: &Filter, now: i64) -> Vec<Film> {
+        let sql = format!(
+            "SELECT {COLUMNS} FROM films WHERE sender = ?1 AND topic = ?2 AND ts <= ?3 + {AHEAD_SECS}{}
+             ORDER BY ts",
+            filter.sql("")
+        );
+        let Ok(mut st) = self.conn.prepare(&sql) else {
+            return Vec::new();
+        };
+        st.query_map(params![sender, topic, now], row_to_film)
+            .map(|rows| rows.filter_map(Result::ok).collect())
+            .unwrap_or_default()
+    }
+
+    /// Anzahl der Beiträge eines Themas.
+    pub fn topic_count(&self, sender: &str, topic: &str, filter: &Filter) -> i64 {
+        let sql = format!(
+            "SELECT COUNT(*) FROM films WHERE sender = ?1 AND topic = ?2{}",
+            filter.sql("")
+        );
+        self.conn
+            .query_row(&sql, params![sender, topic], |r| r.get(0))
+            .unwrap_or(0)
     }
 
     /// Gemerkte Position und Dauer eines Videos.
@@ -642,22 +752,34 @@ impl Mediathek {
         if full {
             tx.execute("DELETE FROM films", []).map_err(db_err)?;
         }
+        // Ältere Serienfolgen zuerst in eine Zwischentabelle; übernommen werden nur die von
+        // Serien mit aktueller Folge (spart Schreiben und Volltextindex).
+        tx.execute_batch(
+            "DROP TABLE IF EXISTS temp.old_series;
+             CREATE TEMP TABLE old_series AS SELECT * FROM films WHERE 0;",
+        )
+        .map_err(db_err)?;
         let mut stats = ImportStats::default();
         let mut failure: Option<String> = None;
         {
+            const COLS: &str = "(sender, topic, title, ts, duration, description, url, url_low,
+                url_hd, website, subtitle, kind, series)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
             let mut insert = tx
-                .prepare(
-                    "INSERT OR IGNORE INTO films(sender, topic, title, ts, duration, description,
-                     url, url_low, url_hd, website, subtitle, kind)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                )
+                .prepare(&format!("INSERT OR IGNORE INTO films{COLS}"))
+                .map_err(db_err)?;
+            let mut insert_old = tx
+                .prepare(&format!("INSERT INTO temp.old_series{COLS}"))
                 .map_err(db_err)?;
             parse_filmliste(reader, |f| {
                 stats.seen += 1;
-                if f.timestamp < cutoff || failure.is_some() {
+                let series = is_series_entry(&f.topic, &f.title);
+                let old = f.timestamp < cutoff;
+                if (old && !series) || failure.is_some() {
                     return;
                 }
-                match insert.execute(params![
+                let target = if old { &mut insert_old } else { &mut insert };
+                match target.execute(params![
                     f.sender,
                     f.topic,
                     f.title,
@@ -669,9 +791,11 @@ impl Mediathek {
                     f.url_hd,
                     f.website,
                     f.subtitle,
-                    f.kind as i64
+                    f.kind as i64,
+                    series
                 ]) {
-                    Ok(n) => stats.added += n,
+                    Ok(n) if !old => stats.added += n,
+                    Ok(_) => {}
                     Err(e) => failure = Some(db_err(e)),
                 }
             })?;
@@ -679,6 +803,19 @@ impl Mediathek {
         if let Some(e) = failure {
             return Err(e);
         }
+        stats.added += tx
+            .execute(
+                "INSERT OR IGNORE INTO films(sender, topic, title, ts, duration, description, url,
+                     url_low, url_hd, website, subtitle, kind, series)
+                 SELECT sender, topic, title, ts, duration, description, url, url_low, url_hd,
+                     website, subtitle, kind, series FROM temp.old_series o
+                 WHERE EXISTS (SELECT 1 FROM films r WHERE r.series = 1 AND r.ts >= ?1
+                     AND r.sender = o.sender AND r.topic = o.topic)",
+                [cutoff],
+            )
+            .map_err(db_err)?;
+        tx.execute("DROP TABLE temp.old_series", [])
+            .map_err(db_err)?;
         // Positionen, die länger als ein halbes Jahr nicht angefasst wurden.
         tx.execute(
             "DELETE FROM progress WHERE updated < ?1",
@@ -686,7 +823,12 @@ impl Mediathek {
         )
         .map_err(db_err)?;
         stats.purged = tx
-            .execute("DELETE FROM films WHERE ts < ?1", [cutoff])
+            .execute(
+                "DELETE FROM films WHERE ts < ?1 AND NOT (series = 1 AND EXISTS (
+                     SELECT 1 FROM films r WHERE r.series = 1 AND r.ts >= ?1
+                     AND r.sender = films.sender AND r.topic = films.topic))",
+                [cutoff],
+            )
             .map_err(db_err)?;
         tx.commit().map_err(db_err)?;
         if full {
@@ -697,7 +839,7 @@ impl Mediathek {
         Ok(stats)
     }
 
-    /// Neueste Beiträge, optional nach Art und Sender (nur bereits gesendete).
+    /// Neueste Beiträge, optional nach Art und Sender (auch vorab veröffentlichte).
     pub fn latest(
         &self,
         kind: Option<Kind>,
@@ -719,7 +861,7 @@ impl Mediathek {
     ) -> Vec<Film> {
         let sql = format!(
             "SELECT {COLUMNS} FROM films
-             WHERE ts <= ?1 AND (?2 IS NULL OR kind = ?2) AND (?3 IS NULL OR sender = ?3){}
+             WHERE ts <= ?1 + {AHEAD_SECS} AND (?2 IS NULL OR kind = ?2) AND (?3 IS NULL OR sender = ?3){}
              ORDER BY ts DESC LIMIT ?4",
             filter.sql("")
         );
@@ -987,7 +1129,68 @@ mod tests {
         mt.save_progress("u", 400.0, 1000.0, 2);
         assert_eq!(mt.progress("u"), Some((400.0, 1000.0)));
         mt.save_progress("u", 960.0, 1000.0, 3);
+        assert_eq!(mt.progress("u"), Some((1000.0, 1000.0)));
+        assert_eq!(mt.progress_updated("u"), Some(3));
+        mt.save_progress("u", 10.0, 1000.0, 4);
         assert_eq!(mt.progress("u"), None);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn staffel_folge_und_sport() {
+        assert_eq!(
+            season_episode("Folge 7: Der Sturm (S02/E07)"),
+            (Some(2), Some(7))
+        );
+        assert_eq!(
+            season_episode("Der Fall (Staffel 1, Folge 3)"),
+            (Some(1), Some(3))
+        );
+        assert_eq!(season_episode("Folge 12: Der Fund"), (None, Some(12)));
+        assert_eq!(season_episode("heute (S2026/E290)"), (None, Some(290)));
+        assert!(is_sport_topic("2. Bundesliga - 2026/27"));
+        assert!(is_sport_topic("BR24Sport"));
+        assert!(!is_sport_topic("Notruf Hafenkante"));
+        assert!(is_series_entry("Notruf Hafenkante", "Abgetaucht (S20/E05)"));
+        assert!(!is_series_entry(
+            "Bundesliga - 2026/27",
+            "Torspektakel (S06/E09)"
+        ));
+    }
+
+    #[test]
+    fn aeltere_serienfolgen_bleiben_wenn_serie_aktuell() {
+        let x = |sender: &str, topic: &str, title: &str, ts: i64, url: &str| {
+            format!(
+                r#""X":["{sender}","{topic}","{title}","1","1","00:45:00","1","","https://x.invalid/{url}.mp4","","","","","","","","{ts}","","",""]"#
+            )
+        };
+        let now = 1_792_900_000;
+        let old = now - 300 * 86_400;
+        let list = format!(
+            "{{{}}}",
+            [
+                x("ZDF", "Serie A", "Neu (S02/E01)", now - 3600, "a1"),
+                x("ZDF", "Serie A", "Alt (S01/E01)", old, "a2"),
+                x("ZDF", "Serie B", "Alt (S01/E01)", old, "b1"),
+                x("ZDF", "Liga - 2026/27", "Neu (S06/E09)", now - 3600, "c1"),
+                x("ZDF", "Liga - 2026/27", "Alt (S06/E01)", old, "c2"),
+                x("ZDF", "Magazin", "Alt ohne Staffel", old, "d1"),
+            ]
+            .join(",")
+        );
+        let path = tmp("serien");
+        let mut mt = Mediathek::open(&path).unwrap();
+        mt.import(list.as_bytes(), true, 14, now).unwrap();
+        let topics: Vec<String> = mt
+            .topic_films("ZDF", "Serie A", &Filter::ALL, now)
+            .into_iter()
+            .map(|f| f.title)
+            .collect();
+        assert_eq!(topics, ["Alt (S01/E01)", "Neu (S02/E01)"]);
+        assert_eq!(mt.topic_count("ZDF", "Serie B", &Filter::ALL), 0);
+        assert_eq!(mt.topic_count("ZDF", "Liga - 2026/27", &Filter::ALL), 1);
+        assert_eq!(mt.count(), 3);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

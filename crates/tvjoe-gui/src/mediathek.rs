@@ -32,9 +32,14 @@ const THUMB_SAVE_H: i32 = 180;
 const THUMB_THREADS: usize = 4;
 /// Abgefragte Einträge je Ansicht (mehrere Fassungen ergeben eine Kachel).
 const FETCH: usize = 600;
+/// Episoden je Ansicht (werden zu Serien zusammengefasst).
+const FETCH_EPISODES: usize = 4000;
 /// Bild der Filminfo.
 const DETAIL_W: i32 = 640;
 const DETAIL_H: i32 = 360;
+/// Bild der Serienseite.
+const SERIES_W: i32 = 448;
+const SERIES_H: i32 = 252;
 const PAGE_BYTES: u64 = 512 * 1024;
 const IMAGE_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -85,10 +90,14 @@ fn maybe_update(app: &Rc<App>) {
         return;
     };
     let hours = app.settings().mediathek_refresh_hours.max(1);
+    // Fällig nach der eingestellten Zeit, oder sofort, wenn die volle Liste fehlt (z. B. nach
+    // der Umstellung auf Serien mit älteren Folgen).
     let due = Mediathek::open(&db)
         .map(|mt| {
-            mt.last_update()
-                .is_none_or(|t| epg::now() - t >= i64::from(hours) * 3600)
+            mt.needs_full(epg::now())
+                || mt
+                    .last_update()
+                    .is_none_or(|t| epg::now() - t >= i64::from(hours) * 3600)
         })
         .unwrap_or(false);
     if due {
@@ -165,6 +174,17 @@ pub fn save_progress(film: &Film, position: f64, duration: f64) {
 /// Gemerkte Position und Dauer.
 pub fn progress_of(film: &Film) -> Option<(f64, f64)> {
     with_progress_db(|db| db.progress(&film.url))
+}
+
+fn progress_updated_of(film: &Film) -> Option<i64> {
+    with_progress_db(|db| db.progress_updated(&film.url))
+}
+
+/// Stelle zum Weitersehen: gemerkt und noch nicht zu Ende gesehen (unter 95 %).
+pub fn resume_position(film: &Film) -> Option<f64> {
+    progress_of(film)
+        .filter(|(p, d)| *d <= 0.0 || *p < d * 0.95)
+        .map(|(p, _)| p)
 }
 
 fn current() -> Option<Rc<MtWindow>> {
@@ -546,8 +566,10 @@ impl MtWindow {
             let group = usize::try_from(child.index())
                 .ok()
                 .and_then(|i| w.films.borrow().get(i).cloned());
-            if let Some(group) = group {
-                w.show_detail(&group);
+            match group {
+                Some(g) if w.mode.get() == Mode::Episodes => w.show_series(g.main()),
+                Some(g) => w.show_detail(&g),
+                None => {}
             }
         });
         let weak = Rc::downgrade(&w);
@@ -680,7 +702,7 @@ impl MtWindow {
         let update = {
             let (films, resume, play) = (films.clone(), resume.clone(), play.clone());
             move |i: usize| {
-                let pos = films.get(i).and_then(progress_of);
+                let pos = films.get(i).and_then(resume_position).map(|p| (p, 0.0));
                 let set = |b: &gtk::Button, text: &str, suggested: bool| {
                     if let Some(c) = b.child().and_downcast::<adw::ButtonContent>() {
                         c.set_label(text);
@@ -757,7 +779,7 @@ impl MtWindow {
                 let start = if from_start {
                     None
                 } else {
-                    progress_of(film).map(|(p, _)| p)
+                    resume_position(film)
                 };
                 app.play_film(film, start);
                 app.window.present();
@@ -790,6 +812,263 @@ impl MtWindow {
         } else {
             play.grab_focus();
         }
+    }
+
+    /// Serienseite: Bild und Titel, „Weitersehen“, Staffelwähler, Folgenliste. Ein Klick auf
+    /// eine Folge spielt sie; danach laufen die folgenden Folgen automatisch.
+    fn show_series(self: &Rc<Self>, tile_film: &Film) {
+        let (sender, topic) = (tile_film.sender.as_str(), tile_film.topic.as_str());
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let all = self
+            .db
+            .borrow()
+            .as_ref()
+            .map(|db| db.topic_films(sender, topic, &filter_of(&app), epg::now()))
+            .unwrap_or_default();
+        let mut episodes = mediathek::group(all);
+        if episodes.is_empty() {
+            return;
+        }
+        episodes.sort_by_key(|g| episode_key(g.main()));
+        let episodes = Rc::new(episodes);
+        if let Some(old) = self.stack.child_by_name("detail") {
+            self.stack.remove(&old);
+        }
+
+        // Weitersehen: zuletzt angefasste Folge; halb gesehen → dort weiter, sonst die nächste.
+        let last = episodes
+            .iter()
+            .enumerate()
+            .flat_map(|(i, g)| g.films.iter().map(move |f| (i, f)))
+            .filter_map(|(i, f)| progress_updated_of(f).map(|u| (u, i, f)))
+            .max_by_key(|(u, _, _)| *u);
+        let (target, start) = match last {
+            Some((_, i, f)) => match resume_position(f) {
+                Some(p) => (i, Some(p)),
+                None if i + 1 < episodes.len() => (i + 1, None),
+                None => (i, None),
+            },
+            None => (0, None),
+        };
+
+        // Bild der Kachel; fehlt es noch, das Senderlogo.
+        let thumb = self
+            .thumbs_of
+            .borrow()
+            .get(&tile_film.id)
+            .and_then(|p| p.paintable());
+        let picture: gtk::Widget = match thumb {
+            Some(t) => {
+                let pic = gtk::Picture::builder()
+                    .content_fit(gtk::ContentFit::Cover)
+                    .can_shrink(true)
+                    .build();
+                pic.set_paintable(Some(&t));
+                pic.upcast()
+            }
+            None => match sender_logo(&app, sender) {
+                Some(path) => {
+                    let pic = crate::logos::bright_picture(&path);
+                    pic.set_margin_start(110);
+                    pic.set_margin_end(110);
+                    pic.set_margin_top(80);
+                    pic.set_margin_bottom(80);
+                    pic.upcast()
+                }
+                None => gtk::Label::builder()
+                    .label(sender)
+                    .css_classes(["tvjoe-osd-name"])
+                    .build()
+                    .upcast(),
+            },
+        };
+        let frame = gtk::Overlay::builder()
+            .child(&picture)
+            .css_classes(["tvjoe-mt-thumb"])
+            .overflow(gtk::Overflow::Hidden)
+            .width_request(SERIES_W)
+            .height_request(SERIES_H)
+            .build();
+        let frame = adw::Clamp::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .maximum_size(SERIES_H)
+            .tightening_threshold(SERIES_H)
+            .valign(gtk::Align::Start)
+            .child(
+                &adw::Clamp::builder()
+                    .orientation(gtk::Orientation::Horizontal)
+                    .maximum_size(SERIES_W)
+                    .tightening_threshold(SERIES_W)
+                    .child(&frame)
+                    .build(),
+            )
+            .build();
+
+        let label = |t: &str, class: &str| {
+            gtk::Label::builder()
+                .label(t)
+                .css_classes([class])
+                .xalign(0.0)
+                .wrap(true)
+                .wrap_mode(gtk::pango::WrapMode::WordChar)
+                .build()
+        };
+        let text = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        text.set_hexpand(true);
+        text.append(&label(topic, "tvjoe-mt-detail-title"));
+        text.append(&label(
+            &format!(
+                "{sender} · {} {}",
+                episodes.len(),
+                if episodes.len() == 1 {
+                    "Folge"
+                } else {
+                    "Folgen"
+                }
+            ),
+            "tvjoe-osd-sub",
+        ));
+        let target_film = episodes[target].main();
+        let resume_text = match (last.is_some(), start) {
+            (_, Some(p)) => format!(
+                "Weitersehen: {} ab {}",
+                episode_code(target_film),
+                crate::osd::clock(p)
+            ),
+            (true, None) => format!("Weitersehen: {}", episode_code(target_film)),
+            (false, None) => format!("Ansehen ab {}", episode_code(target_film)),
+        };
+        let resume = gtk::Button::builder()
+            .css_classes(["suggested-action", "pill"])
+            .halign(gtk::Align::Start)
+            .margin_top(6)
+            .child(
+                &adw::ButtonContent::builder()
+                    .icon_name("media-playback-start-symbolic")
+                    .label(&resume_text)
+                    .build(),
+            )
+            .build();
+        text.append(&resume);
+        text.append(&label(&episode_title(target_film), "tvjoe-osd-sub"));
+        let head = gtk::Box::new(gtk::Orientation::Horizontal, 32);
+        head.append(&frame);
+        head.append(&text);
+
+        // Staffeln (in Folgenreihenfolge); ohne Staffelangaben kein Wähler.
+        let mut seasons: Vec<Option<u32>> = Vec::new();
+        for g in episodes.iter() {
+            let s = mediathek::season_episode(&g.main().title).0;
+            if !seasons.contains(&s) {
+                seasons.push(s);
+            }
+        }
+        let list = gtk::ListBox::builder()
+            .css_classes(["boxed-list"])
+            .selection_mode(gtk::SelectionMode::None)
+            .build();
+        let fill = {
+            let (list, episodes) = (list.clone(), episodes.clone());
+            move |season: Option<u32>| {
+                while let Some(c) = list.first_child() {
+                    list.remove(&c);
+                }
+                for (i, g) in episodes.iter().enumerate() {
+                    if mediathek::season_episode(&g.main().title).0 == season {
+                        list.append(&episode_row(i, g));
+                    }
+                }
+            }
+        };
+        let target_season = mediathek::season_episode(&episodes[target].main().title).0;
+        fill(target_season);
+        let fill = Rc::new(fill);
+
+        let body = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(20)
+            .margin_start(32)
+            .margin_end(32)
+            .margin_top(32)
+            .margin_bottom(32)
+            .build();
+        body.append(&head);
+        if seasons.len() > 1 {
+            let row = gtk::Box::builder()
+                .css_classes(["linked"])
+                .halign(gtk::Align::Start)
+                .build();
+            let mut first: Option<gtk::ToggleButton> = None;
+            for season in seasons {
+                let b = gtk::ToggleButton::builder()
+                    .label(match season {
+                        Some(n) => format!("Staffel {n}"),
+                        None => "Weitere".to_string(),
+                    })
+                    .active(season == target_season)
+                    .build();
+                match &first {
+                    Some(g) => b.set_group(Some(g)),
+                    None => first = Some(b.clone()),
+                }
+                let fill = fill.clone();
+                b.connect_toggled(move |b| {
+                    if b.is_active() {
+                        fill(season);
+                    }
+                });
+                row.append(&b);
+            }
+            body.append(&row);
+        }
+        body.append(&list);
+
+        let play_from = {
+            let (episodes, weak) = (episodes.clone(), Rc::downgrade(self));
+            move |index: usize, start: Option<f64>| {
+                let Some(w) = weak.upgrade() else { return };
+                let Some(app) = w.app.upgrade() else { return };
+                let Some(first) = episodes.get(index).map(|g| g.main().clone()) else {
+                    return;
+                };
+                // Folgende Folgen in derselben Fassung, sonst die bevorzugte.
+                let version = first.version();
+                let rest: Vec<_> = episodes[index + 1..]
+                    .iter()
+                    .map(|g| {
+                        g.films
+                            .iter()
+                            .find(|f| f.version() == version)
+                            .unwrap_or(g.main())
+                            .clone()
+                    })
+                    .collect();
+                app.play_series(&first, start, rest);
+                app.window.present();
+            }
+        };
+        let play_from = Rc::new(play_from);
+        let p = play_from.clone();
+        resume.connect_clicked(move |_| p(target, start));
+        let p = play_from.clone();
+        list.connect_row_activated(move |_, row| {
+            if let Ok(i) = usize::try_from(row.widget_name().as_str().parse::<i64>().unwrap_or(-1))
+            {
+                p(i, None);
+            }
+        });
+
+        let scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .child(&body)
+            .build();
+        self.stack.add_named(&scroller, Some("detail"));
+        self.stack.set_visible_child_name("detail");
+        self.back.set_visible(true);
+        resume.grab_focus();
     }
 
     /// Zurück zur Übersicht (an dieselbe Stelle).
@@ -1031,7 +1310,7 @@ impl MtWindow {
                     sender.as_deref(),
                     &filter,
                     epg::now(),
-                    FETCH,
+                    FETCH_EPISODES,
                 ),
                 Mode::Films => db.latest_filtered(
                     Some(Kind::Film),
@@ -1051,7 +1330,19 @@ impl MtWindow {
                 }
             }
         };
-        let mut films = mediathek::group(films);
+        // Episoden: eine Kachel je Serie (Sender + Thema, neueste Folge vorn), ohne Sport.
+        let series = self.mode.get() == Mode::Episodes;
+        let mut films = if series {
+            let mut seen = std::collections::HashSet::new();
+            films
+                .into_iter()
+                .filter(|f| !mediathek::is_sport_topic(&f.topic))
+                .filter(|f| seen.insert((f.sender.clone(), f.topic.clone())))
+                .map(|f| Group { films: vec![f] })
+                .collect()
+        } else {
+            mediathek::group(films)
+        };
         films.truncate(LIMIT);
         self.back.set_visible(false);
         while let Some(c) = self.flow.first_child() {
@@ -1080,7 +1371,14 @@ impl MtWindow {
                 .find_map(progress_of)
                 .filter(|(_, d)| *d > 0.0)
                 .map(|(p, d)| p / d);
-            let (tile, thumb) = tile(group, logo.as_deref(), seen);
+            let count = series.then(|| {
+                self.db.borrow().as_ref().map_or(0, |db| {
+                    let all = db.topic_films(&film.sender, &film.topic, &filter, epg::now());
+                    mediathek::group(all).len() as i64
+                })
+            });
+            let seen = if series { None } else { seen };
+            let (tile, thumb) = tile(group, logo.as_deref(), seen, count);
             self.flow.append(&tile);
             if let (Some(t), Some(site)) = (&self.thumbs, film.website.as_deref()) {
                 self.thumbs_of.borrow_mut().insert(film.id, thumb);
@@ -1100,9 +1398,117 @@ impl MtWindow {
     }
 }
 
+/// Reihenfolge der Folgen: Staffel, Folge, Sendezeit (ohne Angabe ans Ende bzw. nach Zeit).
+fn episode_key(f: &Film) -> (u32, u32, i64) {
+    let (s, e) = mediathek::season_episode(&f.title);
+    (s.unwrap_or(u32::MAX), e.unwrap_or(u32::MAX), f.timestamp)
+}
+
+/// „S02/E07“, „Folge 7“ oder das Sendedatum.
+fn episode_code(f: &Film) -> String {
+    match mediathek::season_episode(&f.title) {
+        (Some(s), Some(e)) => format!("S{s:02}/E{e:02}"),
+        (Some(s), None) => format!("Staffel {s}"),
+        (None, Some(e)) => format!("Folge {e}"),
+        (None, None) => glib::DateTime::from_unix_local(f.timestamp)
+            .ok()
+            .and_then(|d| d.format("%d.%m.%Y").ok())
+            .map(|s| s.to_string())
+            .unwrap_or_default(),
+    }
+}
+
+/// Folgentitel ohne „(S02/E07)“.
+fn episode_title(f: &Film) -> String {
+    let t = f.base_title();
+    if let Some(i) = t.find("(S") {
+        if let Some(len) = t[i..].find(')') {
+            let inner = &t[i + 2..i + len];
+            if inner.contains("/E")
+                && inner
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || c == '/' || c == 'E')
+            {
+                let cut = format!("{}{}", &t[..i], &t[i + len + 1..]);
+                return cut.split_whitespace().collect::<Vec<_>>().join(" ");
+            }
+        }
+    }
+    t
+}
+
+/// Zeile der Folgenliste; der Widget-Name trägt die Nummer in der Folgenliste.
+fn episode_row(index: usize, group: &Group) -> gtk::ListBoxRow {
+    let film = group.main();
+    let code = gtk::Label::builder()
+        .label(episode_code(film))
+        .css_classes(["tvjoe-num"])
+        .width_chars(9)
+        .xalign(0.0)
+        .build();
+    let title = gtk::Label::builder()
+        .label(episode_title(film))
+        .css_classes(["tvjoe-name"])
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
+    let mut meta: Vec<String> = [day_time(film.timestamp), minutes(film.duration)]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
+    if group.films.len() > 1 {
+        let badges: Vec<&str> = group.films.iter().map(|f| f.version().badge()).collect();
+        meta.push(badges.join(" · "));
+    }
+    let sub = gtk::Label::builder()
+        .label(meta.join(" · "))
+        .css_classes(["tvjoe-sub"])
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
+    let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    text.set_hexpand(true);
+    text.append(&title);
+    text.append(&sub);
+    if let Some((p, d)) = group
+        .films
+        .iter()
+        .find_map(progress_of)
+        .filter(|(_, d)| *d > 0.0)
+    {
+        text.append(
+            &gtk::ProgressBar::builder()
+                .fraction((p / d).clamp(0.0, 1.0))
+                .css_classes(["tvjoe-mt-seen"])
+                .margin_top(4)
+                .build(),
+        );
+    }
+    let hbox = gtk::Box::builder()
+        .spacing(16)
+        .margin_start(12)
+        .margin_end(12)
+        .margin_top(8)
+        .margin_bottom(8)
+        .build();
+    hbox.append(&code);
+    hbox.append(&text);
+    hbox.append(&gtk::Image::from_icon_name("media-playback-start-symbolic"));
+    gtk::ListBoxRow::builder()
+        .child(&hbox)
+        .activatable(true)
+        .name(index.to_string())
+        .build()
+}
+
 /// Eine Kachel: Vorschaubild (bis es da ist: Senderlogo oder Sendername), Titel, Thema,
 /// Datum · Uhrzeit · Dauer. Gibt die Kachel und das Bild für das spätere Vorschaubild zurück.
-fn tile(group: &Group, logo: Option<&Path>, seen: Option<f64>) -> (gtk::Box, gtk::Picture) {
+fn tile(
+    group: &Group,
+    logo: Option<&Path>,
+    seen: Option<f64>,
+    series_count: Option<i64>,
+) -> (gtk::Box, gtk::Picture) {
     let film = group.main();
     let fallback: gtk::Widget = match logo {
         Some(path) => {
@@ -1156,7 +1562,11 @@ fn tile(group: &Group, logo: Option<&Path>, seen: Option<f64>) -> (gtk::Box, gtk
         .build();
 
     let title = gtk::Label::builder()
-        .label(film.base_title())
+        .label(if series_count.is_some() {
+            film.topic.clone()
+        } else {
+            film.base_title()
+        })
         .css_classes(["tvjoe-name"])
         .xalign(0.0)
         .wrap(true)
@@ -1174,12 +1584,26 @@ fn tile(group: &Group, logo: Option<&Path>, seen: Option<f64>) -> (gtk::Box, gtk
             .max_width_chars(1)
             .build()
     };
-    let topic = sub(&format!("{} · {}", film.sender, film.topic));
-    let meta: Vec<String> = [day_time(film.timestamp), minutes(film.duration)]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect();
-    let meta = sub(&meta.join(" · "));
+    let (topic, meta) = match series_count {
+        Some(n) => (
+            sub(&format!(
+                "{} · {n} {}",
+                film.sender,
+                if n == 1 { "Folge" } else { "Folgen" }
+            )),
+            sub(&format!("Neueste Folge {}", day_time(film.timestamp))),
+        ),
+        None => {
+            let meta: Vec<String> = [day_time(film.timestamp), minutes(film.duration)]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect();
+            (
+                sub(&format!("{} · {}", film.sender, film.topic)),
+                sub(&meta.join(" · ")),
+            )
+        }
+    };
 
     let tile = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -1193,7 +1617,7 @@ fn tile(group: &Group, logo: Option<&Path>, seen: Option<f64>) -> (gtk::Box, gtk
     tile.append(&meta);
     // Fassungen als Kennzeichen („DE · UT · OmU“), eine einzelne nur, wenn sie nicht Deutsch ist.
     let badges: Vec<&str> = group.films.iter().map(|f| f.version().badge()).collect();
-    if group.films.len() > 1 || film.version() != Version::Normal {
+    if series_count.is_none() && (group.films.len() > 1 || film.version() != Version::Normal) {
         tile.append(
             &gtk::Label::builder()
                 .label(badges.join(" · "))

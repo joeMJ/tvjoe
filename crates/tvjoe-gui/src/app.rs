@@ -87,6 +87,8 @@ pub struct App {
     /// Zeitgeber für die Fortschrittszeile läuft.
     vod_timer: Cell<bool>,
     vod_ticks: Cell<u32>,
+    /// Folgende Folgen einer Serie (laufen nacheinander).
+    vod_next: RefCell<Vec<Film>>,
 }
 
 impl App {
@@ -218,6 +220,7 @@ impl App {
             vod: RefCell::new(None),
             vod_timer: Cell::new(false),
             vod_ticks: Cell::new(0),
+            vod_next: RefCell::new(Vec::new()),
         });
         let weak = Rc::downgrade(&app);
         app.osd.set_action_handler(move |a| {
@@ -789,6 +792,17 @@ impl App {
     /// Spielt einen Mediathek-Beitrag (Stufe nach der Qualitätseinstellung). Zurück zum
     /// Fernsehen über Ziffern oder die Senderliste.
     pub fn play_film(self: &Rc<Self>, film: &Film, start: Option<f64>) {
+        self.vod_next.borrow_mut().clear();
+        self.start_film(film, start);
+    }
+
+    /// Serie: erste Folge abspielen, die übrigen laufen danach automatisch.
+    pub fn play_series(self: &Rc<Self>, first: &Film, start: Option<f64>, rest: Vec<Film>) {
+        self.play_film(first, start);
+        *self.vod_next.borrow_mut() = rest;
+    }
+
+    fn start_film(self: &Rc<Self>, film: &Film, start: Option<f64>) {
         let Some(player) = self.player.clone() else {
             return;
         };
@@ -952,10 +966,24 @@ impl App {
         if self.vod.borrow().is_some() {
             trace(&format!("Mediathek-Video: {ev:?}"));
             if ev == PlayerEvent::Ended {
-                // Zu Ende gesehen: gemerkte Position löschen.
+                // Zu Ende gesehen merken; bei einer Serie die nächste Folge.
                 if let Some(f) = self.vod.borrow().as_ref() {
                     let d = f.duration.max(1) as f64;
                     crate::mediathek::save_progress(f, d, d);
+                }
+                let next = {
+                    let mut q = self.vod_next.borrow_mut();
+                    (!q.is_empty()).then(|| q.remove(0))
+                };
+                if let Some(next) = next {
+                    // Gesehen ist schon gemerkt; nicht erneut mit der Endposition speichern.
+                    self.vod.replace(None);
+                    self.start_film(&next, None);
+                    self.msg.show(
+                        &format!("Nächste Folge: {}", next.display_title()),
+                        self.overlay_secs(),
+                    );
+                    return;
                 }
             }
             let text = match ev {
