@@ -242,6 +242,15 @@ impl Player {
         }
     }
 
+    /// Zeilensprung entfernen (Kammstreifen bei 576i/1080i): `auto` wirkt nur bei Bildern,
+    /// die als Zeilensprung gekennzeichnet sind; mit VAAPI erledigt das die Grafikeinheit.
+    pub fn set_deinterlace(&self, on: bool) {
+        let v = if on { "auto" } else { "no" };
+        if let Err(e) = self.mpv.set_property("deinterlace", v) {
+            eprintln!("tvjoe: deinterlace={v}: {e:?}");
+        }
+    }
+
     /// Wiedergabe beenden (kein Stream).
     pub fn stop(&self) {
         let _ = self.mpv.command("stop", &[]);

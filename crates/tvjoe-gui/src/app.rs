@@ -463,6 +463,51 @@ impl App {
         }
     }
 
+    /// Für die Sicherung: Einstellungen und beide Senderlisten.
+    pub fn backup(&self) -> tvjoe_core::backup::Backup {
+        let (tv, sat) = if self.sat.get() {
+            (self.other_lib.borrow().clone(), self.lib.borrow().clone())
+        } else {
+            (self.lib.borrow().clone(), self.other_lib.borrow().clone())
+        };
+        tvjoe_core::backup::Backup::new(self.settings.borrow().clone(), tv, sat)
+    }
+
+    /// Sicherung übernehmen: Einstellungen und Senderlisten ersetzen und speichern (die
+    /// bisherigen Dateien bleiben als `.bak`), Senderliste neu aufbauen, Sender starten.
+    pub fn apply_backup(self: &Rc<Self>, b: tvjoe_core::backup::Backup) {
+        self.relay.replace(None);
+        self.current.set(None);
+        for (lib, path) in [
+            (&b.tv, paths::library_path()),
+            (&b.sat, paths::satip_library_path()),
+        ] {
+            if let Some(p) = path {
+                if let Err(e) = lib.save(&p) {
+                    eprintln!("tvjoe: {e}");
+                }
+            }
+        }
+        *self.settings.borrow_mut() = b.settings;
+        self.settings.borrow_mut().satip_active = self.sat.get();
+        self.save_settings();
+        let (tv, sat) = (b.tv, b.sat);
+        if self.sat.get() {
+            *self.lib.borrow_mut() = sat;
+            *self.other_lib.borrow_mut() = tv;
+        } else {
+            *self.lib.borrow_mut() = tv;
+            *self.other_lib.borrow_mut() = sat;
+        }
+        self.rebuild_list();
+        self.update_media_buttons();
+        self.update_inhibit();
+        if let Some(p) = &self.player {
+            p.set_deinterlace(self.settings.borrow().deinterlace);
+        }
+        self.load_epg(false);
+    }
+
     /// Nach einem Suchlauf: SAT-Senderliste neu einlesen.
     pub fn reload_sat_list(self: &Rc<Self>) {
         let lib = paths::satip_library_path()
@@ -727,7 +772,7 @@ impl App {
         let logo = ch
             .logo
             .as_deref()
-            .filter(|_| st.osd_logo)
+            .filter(|_| self.logos_shown())
             .and_then(|u| paths::logo_cache_dir().map(|d| d.join(net::cache_name(u, "png"))))
             .filter(|p| p.exists());
         let (mut now, mut desc, mut next) = (None, None, None);
@@ -834,8 +879,18 @@ impl App {
         self.rebuild_list();
     }
 
+    /// Senderlogos für die laufende Fernsehquelle zeigen (getrennt für Internet und SAT).
+    fn logos_shown(&self) -> bool {
+        let s = self.settings.borrow();
+        if self.sat.get() {
+            s.sat_logo
+        } else {
+            s.osd_logo
+        }
+    }
+
     /// Senderliste neu aufbauen (Logos, Programm), ggf. ersten Sender starten.
-    fn rebuild_list(self: &Rc<Self>) {
+    pub fn rebuild_list(self: &Rc<Self>) {
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
         }
@@ -899,7 +954,9 @@ impl App {
             text.append(&next);
             let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 10);
             hbox.append(&num);
-            hbox.append(&crate::logo_box(&logo, 56));
+            if self.logos_shown() {
+                hbox.append(&crate::logo_box(&logo, 56));
+            }
             hbox.append(&text);
             if ch.favorite {
                 hbox.append(
@@ -1027,6 +1084,9 @@ impl App {
 
     /// Verbindet den Logo-Thread mit den Zeilen und fordert alle Logos an (nach dem Start).
     pub fn load_logos(self: &Rc<Self>, cache_dir: PathBuf) {
+        if !self.logos_shown() {
+            return;
+        }
         let (logos, results) = Logos::spawn(cache_dir);
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
@@ -1800,6 +1860,7 @@ impl App {
                 let logo = ch
                     .logo
                     .as_deref()
+                    .filter(|_| self.logos_shown())
                     .and_then(|u| {
                         paths::logo_cache_dir().map(|d| d.join(net::cache_name(u, "png")))
                     })

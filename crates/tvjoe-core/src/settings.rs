@@ -44,6 +44,9 @@ pub struct Settings {
     pub last_channel: Option<u64>,
     /// Lautstärke in Prozent (0–130).
     pub volume: u32,
+    /// Zeilensprung entfernen (mpv `deinterlace=auto`: nur als Zeilensprung gekennzeichnete
+    /// Bilder, z. B. 576i/1080i über SAT).
+    pub deinterlace: bool,
     /// XMLTV-Quellen (Dateien oder URLs).
     pub epg_sources: Vec<String>,
     /// EPG aus dem Netz neu laden, wenn der Cache älter ist (Stunden; 0 = nur per Knopf).
@@ -55,7 +58,10 @@ pub struct Settings {
     /// Senderanzeige: welche Teile erscheinen (Kategorie standardmäßig aus).
     pub osd_number: bool,
     pub osd_origin: bool,
+    /// Senderlogos bei Internet-Sendern (Bauchbinde, Info, Senderliste).
     pub osd_logo: bool,
+    /// Senderlogos bei SAT-Sendern (Bauchbinde, Info, Senderliste).
+    pub sat_logo: bool,
     pub osd_category: bool,
     pub osd_quality: bool,
     pub osd_epg: bool,
@@ -108,6 +114,7 @@ impl Default for Settings {
             resume_last: true,
             last_channel: None,
             volume: 100,
+            deinterlace: true,
             epg_sources: Vec::new(),
             epg_refresh_hours: 24,
             update_last_check: None,
@@ -115,6 +122,7 @@ impl Default for Settings {
             osd_number: true,
             osd_origin: true,
             osd_logo: true,
+            sat_logo: true,
             osd_category: false,
             osd_quality: true,
             osd_epg: true,

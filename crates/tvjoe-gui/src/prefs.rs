@@ -72,7 +72,10 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         "Quellsymbol vor der Qualität (Internet, Satellit)",
         s.osd_origin,
     );
-    let osd_logo = switch("Senderlogo (schwarzweiß)", s.osd_logo);
+    let osd_logo = switch("Senderlogo bei Internet-Sendern (schwarzweiß)", s.osd_logo);
+    osd_logo.set_subtitle("Auch in der Info und in der Senderliste");
+    let sat_logo = switch("Senderlogo bei SAT-Sendern (schwarzweiß)", s.sat_logo);
+    sat_logo.set_subtitle("Auch in der Info und in der Senderliste");
     let osd_category = switch(
         "Kategorie (Vollprogramm, Spartenprogramm …)",
         s.osd_category,
@@ -102,8 +105,14 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         .subtitle("Fehlt sie, wird die nächstniedrigere genommen")
         .active(s.quality_cap)
         .build();
+    let deinterlace = adw::SwitchRow::builder()
+        .title("Zeilensprung entfernen")
+        .subtitle("Gegen Kammstreifen bei Bewegung (z. B. SD-Sender über SAT); wirkt nur bei Zeilensprung-Bildern")
+        .active(s.deinterlace)
+        .build();
     quality.add(&level);
     quality.add(&cap);
+    quality.add(&deinterlace);
     let strategy = adw::ComboRow::builder()
         .title("Beim Senderwechsel")
         .model(&gtk::StringList::new(&[
@@ -161,6 +170,10 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
 
     let p_control = new_page("bedienung", "Bedienung", "input-keyboard-symbolic");
     p_control.add(&control);
+    // Eine geladene Sicherung wird erst nach dem Schließen übernommen (nach den Werten
+    // dieses Dialogs, damit sie diese ersetzt).
+    let pending: Rc<std::cell::RefCell<Option<tvjoe_core::backup::Backup>>> = Rc::default();
+    p_control.add(&crate::backup::prefs_group(app, &dialog, &pending));
     let p_osd = new_page("anzeige", "Senderanzeige", "video-display-symbolic");
     p_osd.add(&osd);
     let p_quality = new_page("qualitaet", "Qualität", "emblem-photos-symbolic");
@@ -211,6 +224,10 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     let weak = Rc::downgrade(app);
     dialog.connect_closed(move |_| {
         let Some(app) = weak.upgrade() else { return };
+        let logos_before = {
+            let s = app.settings();
+            (s.osd_logo, s.sat_logo)
+        };
         {
             let mut s = app.settings_mut();
             s.numpad_pause_ms = pause.value() as u32;
@@ -231,9 +248,11 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             s.epg_refresh_hours = hours.value() as u32;
             s.quality = levels.get(level.selected() as usize).copied().flatten();
             s.quality_cap = cap.is_active();
+            s.deinterlace = deinterlace.is_active();
             s.osd_number = osd_number.is_active();
             s.osd_origin = osd_origin.is_active();
             s.osd_logo = osd_logo.is_active();
+            s.sat_logo = sat_logo.is_active();
             s.osd_category = osd_category.is_active();
             s.osd_quality = osd_quality.is_active();
             s.osd_epg = osd_epg.is_active();
@@ -244,11 +263,24 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             apply_satip(&mut s);
         }
         app.save_settings();
+        if let Some(p) = &app.player {
+            p.set_deinterlace(app.settings().deinterlace);
+        }
         app.reapply_quality();
         app.update_inhibit();
         crate::mediathek::settings_changed();
         app.update_media_buttons();
         crate::jfview::refresh();
+        let logos_after = {
+            let s = app.settings();
+            (s.osd_logo, s.sat_logo)
+        };
+        if logos_after != logos_before {
+            app.rebuild_list();
+        }
+        if let Some(b) = pending.take() {
+            app.apply_backup(b);
+        }
     });
     dialog.present(Some(parent));
 }

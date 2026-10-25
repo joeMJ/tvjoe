@@ -1,6 +1,7 @@
 //! Kernbibliothek von tvjoe. Enthält keine Oberflächen- und keine Player-Abhängigkeit,
 //! damit sie sich unter Linux und Windows ohne GTK testen lässt.
 
+pub mod backup;
 pub mod check;
 pub mod epg;
 pub mod ids;

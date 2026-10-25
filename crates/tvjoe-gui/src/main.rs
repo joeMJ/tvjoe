@@ -1,6 +1,7 @@
 //! Oberfläche von tvjoe (wird vom Starter `tvjoe` aufgerufen).
 
 mod app;
+mod backup;
 mod dnd;
 mod gl;
 mod grid;
@@ -124,7 +125,10 @@ fn activate(application: &adw::Application, opts: &Options) {
     trace("Bibliothek geladen");
 
     let player = match player::Player::new(opts.mute, settings.volume) {
-        Ok(p) => Some(p),
+        Ok(p) => {
+            p.set_deinterlace(settings.deinterlace);
+            Some(p)
+        }
         Err(e) => {
             eprintln!("tvjoe: libmpv ließ sich nicht starten: {e:?}");
             None

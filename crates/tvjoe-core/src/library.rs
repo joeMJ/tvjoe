@@ -312,7 +312,8 @@ impl Library {
 
     /// Ergebnis eines Suchlaufs übernehmen: bekannte Sender (gleiche Kennung) behalten Nummer,
     /// eigenen Namen, Favorit und Aktiv-Zustand und bekommen die neue Adresse; neue Sender
-    /// kommen ans Ende; nicht mehr gefundene werden als „fehlt“ markiert.
+    /// kommen inaktiv und ohne Nummer ans Ende (beim ersten Suchlauf in eine leere Liste aktiv
+    /// und nummeriert); nicht mehr gefundene werden als „fehlt“ markiert.
     pub fn sync_scanned(
         &mut self,
         source_name: &str,
@@ -323,6 +324,7 @@ impl Library {
             Some(s) => s.id,
             None => self.add_source(source_name, location),
         };
+        let fresh = self.channels.is_empty();
         let mut out = ImportOutcome::default();
         let mut next_number = self
             .channels
@@ -343,7 +345,10 @@ impl Library {
                 out.updated += 1;
                 continue;
             }
-            next_number += 1;
+            let number = fresh.then(|| {
+                next_number += 1;
+                next_number
+            });
             let id = self.alloc_id();
             self.channels.push(Channel {
                 id,
@@ -356,9 +361,9 @@ impl Library {
                 custom_group: None,
                 logo: None,
                 epg_id: None,
-                number: Some(next_number),
+                number,
                 favorite: false,
-                active: true,
+                active: fresh,
                 radio: false,
                 missing: false,
                 streams: vec![it.stream.clone()],
@@ -577,6 +582,9 @@ impl Library {
         variants: &HashMap<usize, Vec<Variant>>,
     ) -> Option<ImportOutcome> {
         self.source(source)?;
+        // Neue Sender kommen inaktiv und ohne Nummer ans Ende (die Sortierung bleibt), außer
+        // bei der ersten Übernahme in eine leere Liste.
+        let fresh = self.channels.is_empty();
 
         let mut idxs: Vec<usize> = match selection {
             Some(s) => s.to_vec(),
@@ -603,9 +611,7 @@ impl Library {
         for cand in cands.into_iter().map(Candidate::finish) {
             match self.find_existing(source, &cand, &claimed) {
                 Some(pos) => {
-                    let number = self.channels[pos]
-                        .number
-                        .is_none()
+                    let number = (self.channels[pos].number.is_none() && self.channels[pos].active)
                         .then(|| self.free_number(cand.chno));
                     let ch = &mut self.channels[pos];
                     ch.key = cand.key;
@@ -623,7 +629,7 @@ impl Library {
                 }
                 None => {
                     let id = self.alloc_id();
-                    let number = Some(self.free_number(cand.chno));
+                    let number = fresh.then(|| self.free_number(cand.chno));
                     self.channels.push(Channel {
                         id,
                         source,
@@ -637,7 +643,7 @@ impl Library {
                         epg_id: None,
                         number,
                         favorite: false,
-                        active: true,
+                        active: fresh,
                         radio: false,
                         missing: false,
                         streams: cand.streams,
@@ -801,16 +807,22 @@ mod tests {
         lib.import(a, &base(), None, 1).unwrap();
         let drei = pl(&[("1", "Drei.de", "sd", "https://x.invalid/d.m3u8")]);
         lib.import(b, &drei, None, 1).unwrap();
-        // 1 und 2 sind vergeben: Drei bekommt die nächste freie Nummer.
-        assert_eq!(name(&lib, "Drei.de").number, Some(3));
+        // Neu in einer bestehenden Liste: inaktiv, ohne Nummer, am Ende.
+        let d = name(&lib, "Drei.de");
+        assert_eq!((d.number, d.active), (None, false));
+        assert_eq!(lib.channels.last().unwrap().name, "Drei.de");
+        // Erste Übernahme in die leere Liste: aktiv und nummeriert.
+        assert!(name(&lib, "Eins.de").active && name(&lib, "Eins.de").number.is_some());
         // Gleicher Sender in zwei Quellen bleibt getrennt.
         lib.import(b, &base(), None, 2).unwrap();
         assert_eq!(
             lib.channels.iter().filter(|c| c.name == "Eins.de").count(),
             2
         );
-        let nums: HashSet<_> = lib.channels.iter().filter_map(|c| c.number).collect();
-        assert_eq!(nums.len(), lib.channels.len());
+        // Vergebene Nummern bleiben eindeutig (neue Sender haben keine).
+        let numbered: Vec<_> = lib.channels.iter().filter_map(|c| c.number).collect();
+        let nums: HashSet<_> = numbered.iter().collect();
+        assert_eq!(nums.len(), numbered.len());
     }
 
     #[test]
