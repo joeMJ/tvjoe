@@ -16,6 +16,12 @@ CPU-Last durch Hardware-Decoding.
 - Mediathek der öffentlich-rechtlichen Sender (Filmliste von MediathekView): Episoden als Serien
   mit Staffeln, Filme, Suche; Fassungen (Untertitel, Original, Audiodeskription) zusammengefasst;
   Pause/Spulen, Weitersehen ab der gemerkten Stelle, nächste Folge automatisch
+- Eigener Jellyfin-Server als zweite Mediathek (Anmeldung per Quick Connect, ohne Passwort in
+  tvjoe): Filme, Sammlungen, Serien, Suche; Gesehen-Stand mit Jellyfin abgeglichen;
+  Wiedergabe der Originaldatei per Hardware-Decoding oder, mit Bandbreitengrenze, vom Server
+  umgerechnet
+- Quellenumschalter TV | Mediathek | Jellyfin in der Kopfleiste; Programm, Mediathek und
+  Verwaltung als Ebene über dem Bild (Ton läuft weiter) oder bei kleinem Fenster als eigenes Fenster
 - Info über das ganze Bild (Taste I) für Mediathek und laufende Sendung
 - Optionale Updateprüfung über GitHub-Releases (standardmäßig aus)
 
@@ -86,6 +92,11 @@ Sobald die Mediathek einmal geöffnet wurde, kommen hinzu: höchstens einmal tä
 von `liste.mediathekview.de`, für die Vorschaubilder die Sendungsseiten der Sender und deren
 Bilder (im Cache abgelegt) und beim Abspielen die Videos von den Servern der Sender. Auch dabei
 wird jeweils die IP-Adresse übermittelt.
+
+Ist Jellyfin eingeschaltet, spricht tvjoe nur mit dem eingetragenen Server: Abgleich der
+Bibliothek (30 s nach dem Start, dann alle 30 Minuten), Plakate, Wiedergabe und Meldung des
+Gesehen-Stands. Der Zugangsschlüssel liegt in `~/.config/tvjoe/jellyfin.toml` (nur für den
+Nutzer lesbar) und geht nur an diesen Server.
 
 ## Mediathek und MediathekView
 
