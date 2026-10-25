@@ -120,6 +120,23 @@ Schritt 'Programme bauen'
 $env:PATH = "$Ucrt\bin;$env:PATH"
 $env:MSYSTEM = 'UCRT64'
 $env:PKG_CONFIG = Join-Path $Ucrt 'bin\pkg-config.exe'
+# Keine Pfade des Bau-Rechners in die Programme (Rust schreibt Quelltextpfade für Fehlermeldungen
+# hinein, der C-Teil über __FILE__): Benutzerprofil, Cargo-Registry und Projektordner umbenennen,
+# jeweils auch in Kurzform (8.3). Reihenfolge allgemein vor speziell (die letzte passende gilt).
+$fso = New-Object -ComObject Scripting.FileSystemObject
+function Formen([string]$Pfad) {
+    if (-not $Pfad -or -not (Test-Path $Pfad)) { return @() }
+    $voll = (Resolve-Path $Pfad).ProviderPath.TrimEnd('\')
+    @($voll, $fso.GetFolder($voll).ShortPath.TrimEnd('\'), $Pfad.TrimEnd('\')) | Select-Object -Unique
+}
+$cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE '.cargo' }
+$maps = @()
+foreach ($p in Formen $env:USERPROFILE) { $maps += , @($p, '~') }
+foreach ($p in Formen (Join-Path $cargoHome 'registry\src')) { $maps += , @($p, 'cargo-registry') }
+foreach ($p in (@(Formen $Root) + @([IO.Directory]::GetCurrentDirectory()) | Select-Object -Unique)) { $maps += , @($p, 'tvjoe') }
+# Durch 0x1F getrennt: Pfade mit Leerzeichen bleiben ganz.
+$env:CARGO_ENCODED_RUSTFLAGS = @($maps | ForEach-Object { "--remap-path-prefix=$($_[0])=$($_[1])" }) -join [char]0x1f
+$env:CFLAGS = @($maps | ForEach-Object { "-ffile-prefix-map=$($_[0])=$($_[1])" }) -join ' '
 Push-Location $Root
 try {
     Ausfuehren 'cargo build' { cargo "+$Toolchain" build --release }
@@ -127,6 +144,17 @@ try {
     Pop-Location
 }
 $bauOrdner = Join-Path $Root 'target\release'
+# Gegenprobe: Kein Pfad des Bau-Rechners darf in den Programmen stehen.
+$verboten = @($maps | ForEach-Object { $_[0] }) + @($env:USERNAME, $env:COMPUTERNAME) | Where-Object { $_ } | Select-Object -Unique
+foreach ($exe in @('tvjoe.exe', 'tvjoe-gui.exe')) {
+    $text = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes((Join-Path $bauOrdner $exe)))
+    foreach ($v in $verboten) {
+        if ($text.IndexOf($v, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            Fehler "$exe enthält eine Angabe des Bau-Rechners („$v“)." 'Zuordnungen für --remap-path-prefix prüfen (cargo clean -p tvjoe-gui und neu bauen).'
+        }
+    }
+}
+Write-Host 'Keine Pfade, Benutzer- oder Rechnernamen des Bau-Rechners in den Programmen.'
 
 Schritt 'Bereitstellungsordner'
 if (Test-Path $Stage) {
