@@ -58,7 +58,12 @@ fn gl_error_text(detail: &str) -> String {
     } else {
         "Grafiktreiber bzw. Mesa prüfen (tvjoe --check)."
     };
-    format!("Kein Videobild: OpenGL ist nicht verfügbar ({detail}). {hint}")
+    // Unter Windows sagt die GTK-Begründung („libEGL ist nicht verfügbar“) Anwendern nichts.
+    if cfg!(windows) {
+        format!("Kein Videobild: OpenGL ist nicht verfügbar. {hint}")
+    } else {
+        format!("Kein Videobild: OpenGL ist nicht verfügbar ({detail}). {hint}")
+    }
 }
 
 /// Empfang eines SAT>IP-Tuners für Bauchbinde und Info.

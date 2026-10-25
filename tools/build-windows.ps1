@@ -129,7 +129,10 @@ try {
 $bauOrdner = Join-Path $Root 'target\release'
 
 Schritt 'Bereitstellungsordner'
-if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
+if (Test-Path $Stage) {
+    try { Remove-Item $Stage -Recurse -Force }
+    catch { Fehler "Alter Bereitstellungsordner lässt sich nicht löschen: $($_.Exception.Message)" 'Laufendes tvjoe beenden und keine Konsole in target\windows\stage stehen lassen.' }
+}
 $bin = Join-Path $Stage 'bin'
 New-Item -ItemType Directory -Force $bin | Out-Null
 foreach ($exe in @('tvjoe.exe', 'tvjoe-gui.exe')) {
