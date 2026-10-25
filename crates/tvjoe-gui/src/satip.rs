@@ -269,7 +269,15 @@ fn confirm_firewall(
         glib::spawn_future_local(async move {
             if rx.recv().await == Ok(true) {
                 run_check(&group, &rows, &host, &button);
+                return;
             }
+            let row = adw::ActionRow::builder()
+                .title("Freigabe nicht eingetragen")
+                .subtitle("Abgebrochen oder vom System abgelehnt. Die Regel lässt sich auch von Hand eintragen (siehe docs/SAT-IP.md).")
+                .build();
+            row.add_prefix(&gtk::Image::from_icon_name("dialog-warning-symbolic"));
+            group.add(&row);
+            rows.borrow_mut().push(row.upcast());
         });
     });
     d.present(Some(parent));

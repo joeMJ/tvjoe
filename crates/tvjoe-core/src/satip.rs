@@ -882,10 +882,17 @@ pub fn firewall_rule_command(host: &str) -> Option<Vec<String>> {
     if !cfg!(windows) {
         return Some(ufw_rule_command(host));
     }
-    let rule = firewall_rule_text(host).replace('"', "''");
+    // Die erhöhte PowerShell bekommt die Regel als -EncodedCommand (Base64 aus UTF-16LE): so muss
+    // nichts maskiert werden (Start-Process fügt -ArgumentList ohne Anführungszeichen zusammen).
+    // Rückgabewert 0 nur, wenn die Regel angelegt wurde; Abbruch der Benutzerkontensteuerung oder
+    // ein Fehler ergeben ≠ 0.
+    let script = format!(
+        "try {{ New-NetFirewallRule -DisplayName 'tvjoe SAT>IP {host}' -Direction Inbound -Protocol UDP -RemoteAddress {host} -Action Allow -ErrorAction Stop | Out-Null; exit 0 }} catch {{ exit 1 }}"
+    );
+    let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let inner = format!(
-        "$p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','{}'; exit $p.ExitCode",
-        rule.replace('\'', "''")
+        "try {{ $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-EncodedCommand','{}'; exit $p.ExitCode }} catch {{ exit 1 }}",
+        base64(&utf16)
     );
     Some(vec![
         "powershell.exe".into(),
@@ -895,9 +902,40 @@ pub fn firewall_rule_command(host: &str) -> Option<Vec<String>> {
     ])
 }
 
+/// Base64 (Standardalphabet, mit Auffüllung) für -EncodedCommand.
+fn base64(data: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ABC[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_wie_ueblich() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    }
 
     #[test]
     fn freigabe_nur_fuer_schlichte_adressen() {

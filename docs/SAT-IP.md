@@ -69,6 +69,16 @@ sudo ufw allow from <Adresse des Geräts> proto udp comment 'SAT>IP'
 
 Erlaubt wird nur UDP von diesem einen Gerät. Auf jedem Rechner mit tvjoe ist die Regel einmal nötig.
 
+Unter Windows verwirft die Windows-Firewall den Strom ebenfalls stillschweigend (ohne Rückfrage).
+**Prüfen** bietet dort **Freigabe eintragen …** an; nach Rückfrage und Bestätigung der
+Benutzerkontensteuerung legt tvjoe diese Regel an (gilt für alle Netzprofile):
+
+```powershell
+New-NetFirewallRule -DisplayName "tvjoe SAT>IP <Adresse des Geräts>" -Direction Inbound -Protocol UDP -RemoteAddress <Adresse des Geräts> -Action Allow
+```
+
+Von Hand geht das in einer PowerShell **als Administrator** mit derselben Zeile.
+
 ## Unterwegs per WireGuard
 
 Über einen WireGuard-Tunnel ins Heimnetz geht die SAT-Quelle nur, wenn der Datenstrom den Weg
