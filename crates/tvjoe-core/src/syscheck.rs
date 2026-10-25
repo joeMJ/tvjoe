@@ -76,6 +76,7 @@ pub const DEV_PACKAGES: &[&str] = &[
 #[cfg(windows)]
 pub const DEV_PACKAGES: &[&str] = &["gtk4", "libadwaita-1", "mpv"];
 
+#[cfg(not(windows))]
 fn triplet() -> Option<&'static str> {
     match std::env::consts::ARCH {
         "x86_64" => Some("x86_64-linux-gnu"),
