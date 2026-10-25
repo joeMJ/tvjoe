@@ -82,7 +82,24 @@ tvjoe sendet keine Nutzungsdaten. Netzzugriffe: die Streams und Logos aus den ei
 die eingetragenen EPG-Quellen und – nur wenn eingeschaltet – eine Anfrage an die GitHub-API
 zur Updateprüfung (dabei wird die IP-Adresse übermittelt).
 
+Sobald die Mediathek einmal geöffnet wurde, kommen hinzu: höchstens einmal täglich die Filmliste
+von `liste.mediathekview.de`, für die Vorschaubilder die Sendungsseiten der Sender und deren
+Bilder (im Cache abgelegt) und beim Abspielen die Videos von den Servern der Sender. Auch dabei
+wird jeweils die IP-Adresse übermittelt.
+
+## Mediathek und MediathekView
+
+Die Mediathek nutzt die Filmliste von [MediathekView](https://mediathekview.de/), einem
+ehrenamtlichen Projekt, das die Mediatheken der öffentlich-rechtlichen Sender verzeichnet. tvjoe
+lädt die Liste höchstens einmal täglich; die Videos kommen direkt von den Sendern.
+MediathekView finanziert die Server über Spenden – wer die Mediathek in tvjoe nutzt, kann das
+Projekt hier unterstützen: [mediathekview.de/spenden](https://mediathekview.de/spenden/).
+
 ## Lizenz
 
-Apache-2.0, siehe [LICENSE](LICENSE). libmpv ist unter Ubuntu mit GPL-Funktionen gebaut; für
-ausgelieferte Binärpakete gelten deren Bedingungen zusätzlich.
+Apache-2.0, siehe [LICENSE](LICENSE). Bibliotheken Dritter und ihre Lizenzen:
+[THIRD_PARTY.md](THIRD_PARTY.md).
+
+Die Ubuntu-Pakete von libmpv stehen laut deren copyright-Datei unter GPL-3+ (gelinkt gegen
+libsmbclient). Für die ausgelieferten tvjoe-Binärpakete gelten diese Bedingungen zusätzlich;
+Apache-2.0 ist mit GPL-3 verträglich.

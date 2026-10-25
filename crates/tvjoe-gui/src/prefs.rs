@@ -152,7 +152,20 @@ pub fn open(app: &Rc<App>) {
     page.add(&quality);
     page.add(&guide);
     page.add(&updates);
+
+    // Am Ende: Über tvjoe (Version, Lizenzen, Verweis auf das README bei GitHub).
+    let about = adw::PreferencesGroup::new();
+    let about_row = adw::ActionRow::builder()
+        .title("Über tvjoe")
+        .subtitle(format!("Version {VERSION}, Lizenzen"))
+        .activatable(true)
+        .build();
+    about_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+    about.add(&about_row);
+    page.add(&about);
     dialog.add(&page);
+    let parent = dialog.clone();
+    about_row.connect_activated(move |_| about_dialog().present(Some(&parent)));
 
     let weak = Rc::downgrade(app);
     now_button.connect_clicked(move |_| {
@@ -198,6 +211,75 @@ pub fn open(app: &Rc<App>) {
         app.update_inhibit();
     });
     dialog.present(Some(&app.window));
+}
+
+const README_URL: &str = "https://github.com/joeMJ/tvjoe#readme";
+const THIRD_PARTY_URL: &str = "https://github.com/joeMJ/tvjoe/blob/main/THIRD_PARTY.md";
+
+/// „Über tvjoe“: Version, Entwickler, Lizenz, Verweis auf das README, Mediathek-Daten von
+/// MediathekView, Bibliotheken mit Lizenzen (vollständige Liste in THIRD_PARTY.md).
+fn about_dialog() -> adw::AboutDialog {
+    let d = adw::AboutDialog::builder()
+        .application_name("tvjoe")
+        .application_icon("io.github.joeMJ.tvjoe")
+        .version(VERSION)
+        .developer_name("John Lose (joeMJ)")
+        .developers(["John Lose (joeMJ)"])
+        .copyright("© 2026 John Lose")
+        .license_type(gtk::License::Apache20)
+        .website(README_URL)
+        .comments(
+            "Streaming-Client für Live-TV und die Mediatheken der öffentlich-rechtlichen Sender.\n\n\
+             Die Filmliste der Mediathek stammt von MediathekView (mediathekview.de); \
+             die Videos kommen direkt von den Sendern.\n\n\
+             Privates Hobbyprojekt – nicht gepflegt.",
+        )
+        .build();
+    d.add_link("README bei GitHub", README_URL);
+    d.add_link("MediathekView", "https://mediathekview.de/");
+    d.add_link("Bibliotheken Dritter (THIRD_PARTY.md)", THIRD_PARTY_URL);
+    d.add_acknowledgement_section(
+        Some("Filmliste der Mediathek"),
+        &["MediathekView https://mediathekview.de/"],
+    );
+    d.add_legal_section(
+        "GTK 4 und libadwaita",
+        Some("The GTK Team, GNOME"),
+        gtk::License::Lgpl21,
+        None,
+    );
+    d.add_legal_section(
+        "mpv / libmpv",
+        Some("mpv-Entwickler"),
+        gtk::License::Custom,
+        Some(
+            "Quelltext GPL-2+ bzw. LGPL-2.1+. Die Ubuntu-Pakete von libmpv stehen laut deren \
+             copyright-Datei unter GPL-3+ (gelinkt gegen libsmbclient); für die tvjoe-Pakete gelten \
+             diese Bedingungen zusätzlich.",
+        ),
+    );
+    d.add_legal_section(
+        "SQLite (eingebaut)",
+        None,
+        gtk::License::Custom,
+        Some("Public Domain, siehe https://sqlite.org/copyright.html"),
+    );
+    d.add_legal_section(
+        "xz / liblzma (eingebaut)",
+        None,
+        gtk::License::Bsd,
+        Some("0BSD"),
+    );
+    d.add_legal_section(
+        "Rust-Bibliotheken",
+        None,
+        gtk::License::Custom,
+        Some(&format!(
+            "Rund 150 Pakete, überwiegend MIT bzw. Apache-2.0, dazu ISC, BSD-3-Clause, Zlib, \
+             Unicode-3.0, CDLA-Permissive-2.0 und LGPL-2.1 (libmpv2). Vollständige Liste: {THIRD_PARTY_URL}"
+        )),
+    );
+    d
 }
 
 fn alert(app: &App, heading: &str, body: &str) -> adw::AlertDialog {

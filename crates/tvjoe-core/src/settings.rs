@@ -64,7 +64,7 @@ pub struct Settings {
     pub inhibit_windowed: bool,
     /// Senderliste beim Start einblenden (sie liegt über dem Bild).
     pub sidebar_on_start: bool,
-    /// Mediathek: Filmliste im Hintergrund neu laden, wenn älter (Stunden, mindestens 1).
+    /// Mediathek: Filmliste im Hintergrund neu laden, wenn älter (Stunden, mindestens 24).
     pub mediathek_refresh_hours: u32,
     /// Mediathek: so viele Tage zurück behalten.
     pub mediathek_days: u32,

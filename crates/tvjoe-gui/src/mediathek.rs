@@ -30,6 +30,8 @@ const THUMB_H: i32 = 144;
 const THUMB_SAVE_W: i32 = 320;
 const THUMB_SAVE_H: i32 = 180;
 const THUMB_THREADS: usize = 4;
+/// Filmliste höchstens einmal in so vielen Stunden laden (Nutzer, 2026-10-25).
+const MIN_REFRESH_HOURS: u32 = 24;
 /// Abgefragte Einträge je Ansicht (mehrere Fassungen ergeben eine Kachel).
 const FETCH: usize = 600;
 /// Episoden je Ansicht (werden zu Serien zusammengefasst).
@@ -57,6 +59,8 @@ thread_local! {
     static UPDATING: Cell<bool> = const { Cell::new(false) };
     static LAST_ERROR: RefCell<Option<String>> = const { RefCell::new(None) };
     static TIMER: Cell<bool> = const { Cell::new(false) };
+    /// Letzter Ladeversuch (Sekunden seit 1970), auch fehlgeschlagene.
+    static LAST_ATTEMPT: Cell<i64> = const { Cell::new(0) };
 }
 
 fn filter_of(app: &App) -> Filter {
@@ -91,15 +95,21 @@ fn maybe_update(app: &Rc<App>) {
     let Some(db) = paths::mediathek_db().filter(|p| p.exists()) else {
         return;
     };
-    let hours = app.settings().mediathek_refresh_hours.max(1);
-    // Fällig nach der eingestellten Zeit, oder sofort, wenn die volle Liste fehlt (z. B. nach
-    // der Umstellung auf Serien mit älteren Folgen).
+    let hours = app
+        .settings()
+        .mediathek_refresh_hours
+        .max(MIN_REFRESH_HOURS);
+    let now = epg::now();
+    // Nach einem Fehlschlag frühestens nach einer Stunde erneut versuchen.
+    if now - LAST_ATTEMPT.with(Cell::get) < 3600 {
+        return;
+    }
+    // Höchstens einmal in 24 Stunden laden (Rücksicht auf den Server von MediathekView); ob
+    // die volle Liste oder die Änderungsliste geladen wird, entscheidet der Kern.
     let due = Mediathek::open(&db)
         .map(|mt| {
-            mt.needs_full(epg::now())
-                || mt
-                    .last_update()
-                    .is_none_or(|t| epg::now() - t >= i64::from(hours) * 3600)
+            mt.last_update()
+                .is_none_or(|t| now - t >= i64::from(hours) * 3600)
         })
         .unwrap_or(false);
     if due {
@@ -113,6 +123,7 @@ fn run_update(app: &Rc<App>) {
     if UPDATING.with(|u| u.replace(true)) {
         return;
     }
+    LAST_ATTEMPT.with(|t| t.set(epg::now()));
     let (Some(db), Some(cache)) = (paths::mediathek_db(), paths::cache_dir()) else {
         UPDATING.with(|u| u.set(false));
         return;
@@ -352,8 +363,9 @@ pub fn open(app: &Rc<App>) {
     w.rebuild();
     w.win.present();
     start_background(app);
+    // Leere Datenbank: erstes Laden (mit denselben Grenzen wie im Hintergrund).
     if w.db.borrow().as_ref().is_none_or(|db| db.count() == 0) {
-        run_update(app);
+        maybe_update(app);
     }
 }
 
@@ -1128,10 +1140,10 @@ impl MtWindow {
             .title("Filmliste")
             .description("Von MediathekView, im Hintergrund geladen, sobald die Mediathek einmal geöffnet wurde")
             .build();
-        let hours = adw::SpinRow::with_range(1.0, 168.0, 1.0);
+        let hours = adw::SpinRow::with_range(f64::from(MIN_REFRESH_HOURS), 168.0, 1.0);
         hours.set_title("Neu laden nach");
-        hours.set_subtitle("Stunden");
-        hours.set_value(f64::from(s.mediathek_refresh_hours.max(1)));
+        hours.set_subtitle("Stunden; höchstens einmal täglich");
+        hours.set_value(f64::from(s.mediathek_refresh_hours.max(MIN_REFRESH_HOURS)));
         let days = adw::SpinRow::with_range(1.0, 90.0, 1.0);
         days.set_title("Beiträge behalten");
         days.set_subtitle("Tage; gilt ab der nächsten Aktualisierung");

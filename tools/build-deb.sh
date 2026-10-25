@@ -30,6 +30,8 @@ ln -s ../lib/tvjoe/tvjoe "$stage/usr/bin/tvjoe"
 install -Dm644 data/io.github.joeMJ.tvjoe.desktop "$stage/usr/share/applications/io.github.joeMJ.tvjoe.desktop"
 install -Dm644 data/io.github.joeMJ.tvjoe.svg "$stage/usr/share/icons/hicolor/scalable/apps/io.github.joeMJ.tvjoe.svg"
 install -Dm644 LICENSE "$stage/usr/share/doc/tvjoe/copyright"
+install -Dm644 THIRD_PARTY.md "$stage/usr/share/doc/tvjoe/THIRD_PARTY.md"
+install -Dm644 THIRD_PARTY_LICENSES.txt "$stage/usr/share/doc/tvjoe/THIRD_PARTY_LICENSES.txt"
 
 size=$(du -sk "$stage/usr" | cut -f1)
 mkdir -p "$stage/DEBIAN"
