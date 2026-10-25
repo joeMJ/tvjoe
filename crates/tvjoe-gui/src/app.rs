@@ -71,6 +71,7 @@ pub struct App {
     list: gtk::ListBox,
     rows: RefCell<Vec<Row>>,
     osd: Rc<Osd>,
+    tv_button: gtk::Button,
     mediathek_button: gtk::Button,
     jellyfin_button: gtk::Button,
     jellyfin_logo: gtk::Image,
@@ -167,21 +168,38 @@ impl App {
             .tooltip_text("Sender verwalten (Strg+E)")
             .build();
         header.pack_start(&manage_button);
+        // Rechts (pack_end von außen nach innen): Vollbild, Einstellungen, Programm, Info,
+        // davor abgesetzt der Quellenumschalter TV | Mediathek | Jellyfin (Nutzer, 2026-10-25).
         let fullscreen_button = gtk::Button::builder()
             .icon_name("view-fullscreen-symbolic")
             .tooltip_text("Vollbild (F)")
             .build();
         header.pack_end(&fullscreen_button);
+        let prefs_button = gtk::Button::builder()
+            .icon_name("emblem-system-symbolic")
+            .tooltip_text("Einstellungen (Strg+,)")
+            .build();
+        header.pack_end(&prefs_button);
         let grid_button = gtk::Button::builder()
             .icon_name("x-office-calendar-symbolic")
             .tooltip_text("Programm (G)")
             .build();
         header.pack_end(&grid_button);
+        let info_button = gtk::Button::builder()
+            .icon_name("dialog-information-symbolic")
+            .tooltip_text("Info (I)")
+            .build();
+        header.pack_end(&info_button);
+        let tv_button = gtk::Button::builder()
+            .icon_name("video-display-symbolic")
+            .tooltip_text("Fernsehen")
+            .css_classes(["tvjoe-source"])
+            .build();
         let mediathek_button = gtk::Button::builder()
             .icon_name("folder-videos-symbolic")
             .tooltip_text("ÖR-Mediathek")
+            .css_classes(["tvjoe-source"])
             .build();
-        header.pack_end(&mediathek_button);
         // Jellyfin: Logo des Servers (einfarbig), bis es geladen ist ein Server-Symbol.
         let jellyfin_logo = gtk::Image::builder()
             .icon_name("network-server-symbolic")
@@ -190,18 +208,16 @@ impl App {
         let jellyfin_button = gtk::Button::builder()
             .child(&jellyfin_logo)
             .tooltip_text("Jellyfin")
+            .css_classes(["tvjoe-source"])
             .build();
-        header.pack_end(&jellyfin_button);
-        let prefs_button = gtk::Button::builder()
-            .icon_name("emblem-system-symbolic")
-            .tooltip_text("Einstellungen (Strg+,)")
+        let sources = gtk::Box::builder()
+            .css_classes(["linked"])
+            .margin_end(18)
             .build();
-        header.pack_end(&prefs_button);
-        let info_button = gtk::Button::builder()
-            .icon_name("dialog-information-symbolic")
-            .tooltip_text("Info (I)")
-            .build();
-        header.pack_end(&info_button);
+        sources.append(&tv_button);
+        sources.append(&mediathek_button);
+        sources.append(&jellyfin_button);
+        header.pack_end(&sources);
         // Kopfleiste über die ganze Breite; darunter liegt die Senderliste über dem Bild
         // (eingeklappter Modus), das Bild behält seine Größe.
         let split = adw::OverlaySplitView::builder()
@@ -232,6 +248,7 @@ impl App {
             list,
             rows: RefCell::new(Vec::new()),
             osd,
+            tv_button: tv_button.clone(),
             mediathek_button: mediathek_button.clone(),
             jellyfin_button: jellyfin_button.clone(),
             jellyfin_logo,
@@ -280,6 +297,12 @@ impl App {
             }
         });
         crate::layer::connect(&app);
+        let weak = Rc::downgrade(&app);
+        tv_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                app.back_to_tv();
+            }
+        });
         // Senderliste: passt sie nicht mehr sinnvoll über das Bild, als eigenes Fenster.
         let weak = Rc::downgrade(&app);
         app.split.connect_show_sidebar_notify(move |split| {
@@ -342,6 +365,44 @@ impl App {
             let _ = &keep;
         });
         app
+    }
+
+    /// Quellenumschalter „TV“: offene Ebene schließen; läuft ein Video, zurück zum zuletzt
+    /// gesehenen Sender. Läuft schon Fernsehen, nichts weiter.
+    pub fn back_to_tv(self: &Rc<Self>) {
+        crate::layer::close_layer(self);
+        if self.vod.borrow().is_none() && self.current.get().is_some() {
+            return;
+        }
+        let id = self
+            .current
+            .get()
+            .or(self.settings.borrow().last_channel)
+            .filter(|id| self.lib.borrow().channel(*id).is_some_and(usable));
+        match id {
+            Some(id) => self.play_channel(id),
+            None => self.start(None),
+        }
+    }
+
+    /// Weiße Linie unter der laufenden Quelle (TV, Mediathek, Jellyfin).
+    fn update_source_indicator(&self) {
+        let (tv, oer, jelly) = match self.vod.borrow().as_ref() {
+            Some(Vod::Oer(_)) => (false, true, false),
+            Some(Vod::Jelly(_)) => (false, false, true),
+            None => (self.current.get().is_some(), false, false),
+        };
+        for (b, on) in [
+            (&self.tv_button, tv),
+            (&self.mediathek_button, oer),
+            (&self.jellyfin_button, jelly),
+        ] {
+            if on {
+                b.add_css_class("tvjoe-source-active");
+            } else {
+                b.remove_css_class("tvjoe-source-active");
+            }
+        }
     }
 
     /// Knöpfe der Mediatheken nach den Einstellungen ein-/ausblenden; Jellyfin-Logo laden.
@@ -905,6 +966,7 @@ impl App {
         }
         self.osd.show_channel(&info, self.overlay_secs());
         self.update_inhibit();
+        self.update_source_indicator();
     }
 
     /// Spielt einen Mediathek-Beitrag (Stufe nach der Qualitätseinstellung). Zurück zum
@@ -959,6 +1021,7 @@ impl App {
         self.list.unselect_all();
         self.show_vod_info(self.overlay_secs());
         self.update_inhibit();
+        self.update_source_indicator();
         if !self.vod_timer.replace(true) {
             let weak = Rc::downgrade(self);
             glib::timeout_add_local(Duration::from_millis(500), move || {
