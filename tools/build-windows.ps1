@@ -209,17 +209,58 @@ foreach ($l in @('LICENSE', 'THIRD_PARTY.md', 'THIRD_PARTY_LICENSES.txt')) {
     if (-not (Test-Path $p)) { Fehler "Lizenzdatei fehlt: $p" }
     Copy-Item $p $Stage
 }
-# Lizenztexte der Pakete, aus denen die mitgelieferten DLLs stammen (pacman -Qo).
+# Herkunft aller mitgelieferten Dateien aus ucrt64 (pacman -Qo): DLLs und gdbus.exe in bin\, die
+# Bildlader und die Daten (Symbole, Texte). Je Paket Lizenztexte in licenses\ und ein Eintrag in der
+# Quellenliste; die Quellpakete selbst stellt das Release daneben bereit (GPL/LGPL: Quelltext am
+# selben Ort wie die Programme).
 $pakete = @{}
-foreach ($name in $gesehen.Keys) {
-    $o = & $Bash -lc "pacman -Qoq /ucrt64/bin/$name" 2>$null
-    if ($o) { $pakete[$o.Trim()] = $true }
+function Besitzer([string]$MsysPfad) {
+    $o = & $Bash -lc "pacman -Qoq '$MsysPfad'" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $o) { $pakete[([string]$o).Trim()] = $true }
+    else { Fehler "Kein MSYS2-Paket gefunden für $MsysPfad." 'Datei stammt nicht aus einem Paket; so lässt sich ihre Quelle nicht belegen.' }
 }
+foreach ($f in (Get-ChildItem $bin -File | Where-Object { $_.Name -notlike 'tvjoe*' })) { Besitzer "/ucrt64/bin/$($f.Name)" }
+foreach ($f in (Get-ChildItem (Join-Path $Stage "$pixbuf\loaders") -Filter '*.dll')) { Besitzer "/ucrt64/$($pixbuf -replace '\\', '/')/loaders/$($f.Name)" }
+foreach ($rel in @('share/icons/Adwaita/index.theme', 'share/icons/hicolor/index.theme')) { Besitzer "/ucrt64/$rel" }
+foreach ($f in (Get-ChildItem (Join-Path $Stage $loc) -Filter '*.mo')) { Besitzer "/ucrt64/$($loc -replace '\\', '/')/$($f.Name)" }
 foreach ($pk in $pakete.Keys) {
     $q = Join-Path $Ucrt "share\licenses\$($pk -replace '^mingw-w64-ucrt-x86_64-', '')"
     if (Test-Path $q) { Copy-Item $q (Join-Path $lic ($pk -replace '^mingw-w64-ucrt-x86_64-', '')) -Recurse -Force }
 }
 Write-Host "Lizenztexte von $((Get-ChildItem $lic -Directory).Count) Paketen"
+
+Schritt 'Quellenliste'
+# Version, Paketbasis und Lizenz aus der lokalen Paketdatenbank von MSYS2; Quellpaket bei MSYS2 unter
+# repo.msys2.org/mingw/sources/<Basis>-<Version>.src.tar.zst.
+$db = Join-Path $Msys 'var\lib\pacman\local'
+$zeilen = foreach ($pk in ($pakete.Keys | Sort-Object)) {
+    $dir = Get-ChildItem $db -Directory | Where-Object { $_.Name -match ('^' + [regex]::Escape($pk) + '-[^-]+-[^-]+$') } | Select-Object -First 1
+    if (-not $dir) { Fehler "Paketdatenbank-Eintrag für $pk fehlt." }
+    $desc = Get-Content (Join-Path $dir.FullName 'desc')
+    function Feld([string]$Name) { $i = [array]::IndexOf($desc, "%$Name%"); if ($i -ge 0) { $desc[$i + 1] } else { '' } }
+    $lizenz = @(for ($i = [array]::IndexOf($desc, '%LICENSE%') + 1; $i -gt 0 -and $i -lt $desc.Count -and $desc[$i]; $i++) { $desc[$i] }) -join ' / '
+    [pscustomobject]@{ Paket = $pk; Version = Feld 'VERSION'; Basis = Feld 'BASE'; Lizenz = $lizenz }
+}
+$tsv = foreach ($z in $zeilen) { "$($z.Paket)`t$($z.Version)`t$($z.Basis)`thttps://repo.msys2.org/mingw/sources/$($z.Basis)-$($z.Version).src.tar.zst" }
+$quellenText = @(
+    "tvjoe $Version für Windows – Quellen der mitgelieferten Komponenten",
+    '',
+    'Die Programme tvjoe.exe und tvjoe-gui.exe stehen unter der Apache-2.0-Lizenz (LICENSE); ihr Quelltext:',
+    "  https://github.com/joeMJ/tvjoe/tree/v$Version",
+    '',
+    'Alle übrigen Dateien (DLLs, gdbus.exe, Bildlader, Symbole, Texte) stammen unverändert aus den folgenden',
+    'MSYS2-Paketen (Umgebung ucrt64). Ihre Lizenztexte liegen im Ordner licenses\. Den vollständigen Quelltext',
+    'genau dieser Fassungen stellt die Release-Seite neben der MSI bereit:',
+    "  https://github.com/joeMJ/tvjoe/releases/tag/v$Version  →  tvjoe-$Version-windows-quellen.tar",
+    'Die Quellpakete sind außerdem bei MSYS2 unter der jeweils genannten Adresse zu finden.',
+    '',
+    'Paket | Version | Lizenz | Quellpaket'
+) + ($zeilen | ForEach-Object { "$($_.Paket) | $($_.Version) | $($_.Lizenz) | https://repo.msys2.org/mingw/sources/$($_.Basis)-$($_.Version).src.tar.zst" })
+[IO.File]::WriteAllLines((Join-Path $Stage 'QUELLEN.txt'), $quellenText, (New-Object Text.UTF8Encoding $true))
+New-Item -ItemType Directory -Force $Out | Out-Null
+$quellenTsv = Join-Path $Out "tvjoe-$Version-windows-quellen.tsv"
+[IO.File]::WriteAllLines($quellenTsv, $tsv, (New-Object Text.UTF8Encoding $false))
+Write-Host "$($zeilen.Count) MSYS2-Pakete, Liste: QUELLEN.txt im Paket und $quellenTsv"
 
 if (-not $NoSign) {
     Schritt 'Eigene Programme signieren'
