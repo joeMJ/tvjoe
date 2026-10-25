@@ -640,7 +640,8 @@ pub fn to_channels(host: &str, services: &[ScannedService]) -> Vec<crate::Scanne
         })
         .map(|s| crate::ScannedChannel {
             key: s.key(),
-            name: s.name.clone(),
+            // Ersatzdienste von SES heißen „ALT_Name“; angezeigt wird nur der Name.
+            name: s.name.strip_prefix("ALT_").unwrap_or(&s.name).to_string(),
             group: (!s.provider.is_empty()).then(|| s.provider.clone()),
             stream: crate::Stream {
                 quality: Some(if s.hd {
