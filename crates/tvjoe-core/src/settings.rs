@@ -74,6 +74,18 @@ pub struct Settings {
     pub mediathek_hidden: Vec<String>,
     /// Mediathek: Serien von A bis Z statt nach der neuesten Folge.
     pub mediathek_series_az: bool,
+    /// ÖR-Mediathek eingeschaltet (Knopf in der Kopfleiste, Laden der Filmliste).
+    pub mediathek_oer: bool,
+    /// Jellyfin eingeschaltet.
+    pub jellyfin_enabled: bool,
+    /// Jellyfin-Server (Adresse); der Zugang liegt getrennt in `jellyfin.toml`.
+    pub jellyfin_server: String,
+    /// Jellyfin: Bandbreite begrenzen (kbit/s, 0 = aus; sonst Umrechnen auf dem Server).
+    pub jellyfin_max_kbps: u32,
+    /// Jellyfin: ausgeblendete Bibliotheken (Namen).
+    pub jellyfin_hidden: Vec<String>,
+    /// Jellyfin: Filme und Serien von A bis Z statt zuletzt hinzugefügt.
+    pub jellyfin_az: bool,
 }
 
 impl Default for Settings {
@@ -109,6 +121,15 @@ impl Default for Settings {
                 .map(|s| s.to_string())
                 .collect(),
             mediathek_series_az: false,
+            mediathek_oer: true,
+            jellyfin_enabled: false,
+            jellyfin_server: String::new(),
+            jellyfin_max_kbps: 0,
+            jellyfin_az: false,
+            jellyfin_hidden: crate::jellyfin_lib::HIDDEN_DEFAULT
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         }
     }
 }

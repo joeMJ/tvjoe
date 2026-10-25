@@ -96,6 +96,37 @@ pub fn bright(path: &Path) -> Option<gdk::Texture> {
     texture
 }
 
+/// Farbiges Logo auf dunklem, deckendem Grund (Jellyfin) als weiße Fläche: die Deckkraft
+/// folgt der Helligkeit, der dunkle Grund wird durchsichtig.
+pub fn white_from_dark(path: &Path) -> Option<gdk::Texture> {
+    let pb = Pixbuf::from_file(path)
+        .ok()?
+        .add_alpha(false, 0, 0, 0)
+        .ok()?;
+    let (w, h, stride) = (pb.width(), pb.height(), pb.rowstride() as usize);
+    let mut px = pb.read_pixel_bytes().to_vec();
+    for y in 0..h as usize {
+        for p in px[y * stride..y * stride + w as usize * 4].chunks_exact_mut(4) {
+            let v = p[0].max(p[1]).max(p[2]);
+            let a = (f64::from(v.saturating_sub(40)) / 60.0).min(1.0);
+            p[0] = 255;
+            p[1] = 255;
+            p[2] = 255;
+            p[3] = (a * f64::from(p[3])).round() as u8;
+        }
+    }
+    Some(
+        gdk::MemoryTexture::new(
+            w,
+            h,
+            gdk::MemoryFormat::R8g8b8a8,
+            &glib::Bytes::from(&px[..]),
+            stride,
+        )
+        .upcast(),
+    )
+}
+
 /// Bild mit [`bright`], sonst die Datei unverändert.
 pub fn bright_picture(path: &Path) -> gtk::Picture {
     let pic = gtk::Picture::builder()

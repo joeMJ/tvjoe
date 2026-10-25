@@ -168,6 +168,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     let p_guide = new_page("programm", "Programm", "x-office-calendar-symbolic");
     p_guide.add(&guide);
     let (p_media, apply_media) = crate::mediathek::prefs_page(app);
+    let (p_jellyfin, apply_jellyfin) = crate::jellyfin::prefs_page(app);
     let p_updates = new_page("updates", "Updates", "software-update-available-symbolic");
     p_updates.add(&updates);
 
@@ -182,7 +183,13 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     about.add(&about_row);
     p_updates.add(&about);
     for p in [
-        &p_control, &p_osd, &p_quality, &p_guide, &p_media, &p_updates,
+        &p_control,
+        &p_osd,
+        &p_quality,
+        &p_guide,
+        &p_media,
+        &p_jellyfin,
+        &p_updates,
     ] {
         dialog.add(p);
     }
@@ -231,11 +238,14 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             s.osd_description = osd_description.is_active();
             s.update_check = check.is_active();
             apply_media(&mut s);
+            apply_jellyfin(&mut s);
         }
         app.save_settings();
         app.reapply_quality();
         app.update_inhibit();
         crate::mediathek::settings_changed();
+        app.update_media_buttons();
+        crate::jfview::refresh();
     });
     dialog.present(Some(parent));
 }

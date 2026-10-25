@@ -1,0 +1,1161 @@
+//! Jellyfin-Ansicht, aufgebaut wie die ÖR-Mediathek: oben „Filme“, „Serien“, „Suche“, darunter
+//! die Leiste der Bibliotheken, darunter Kacheln mit Filmplakat. Sammlungen (Filmreihen) und
+//! Serien öffnen eine Seite mit ihren Teilen bzw. Staffeln und Folgen, Filme eine Filminfo.
+//! Daten aus dem Zwischenspeicher (`jellyfin_lib`), Plakate vom Server (im Cache abgelegt).
+
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::{Rc, Weak};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
+
+use adw::prelude::*;
+use gtk::glib;
+use tvjoe_core::jellyfin_lib::{Item, JellyfinLibrary};
+use tvjoe_core::{net, paths};
+
+use crate::app::App;
+use crate::trace;
+
+const POSTER_W: i32 = 170;
+const POSTER_H: i32 = 255;
+const DETAIL_W: i32 = 300;
+const DETAIL_H: i32 = 450;
+/// Mindestfläche (Kopfzeile mit Reitern, zwei bis drei Plakatspalten).
+const MIN_SIZE: (i32, i32) = (900, 600);
+const IMAGE_THREADS: usize = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Movies,
+    Series,
+    Search,
+}
+
+thread_local! {
+    static VIEW: RefCell<Option<Rc<JfView>>> = const { RefCell::new(None) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plakate
+
+struct Images {
+    requests: mpsc::Sender<(u64, String, String)>,
+    generation: Arc<AtomicU64>,
+}
+
+impl Images {
+    fn spawn(dir: PathBuf) -> (Self, async_channel::Receiver<(String, PathBuf)>) {
+        let (req_tx, req_rx) = mpsc::channel::<(u64, String, String)>();
+        let req_rx = Arc::new(Mutex::new(req_rx));
+        let (res_tx, res_rx) = async_channel::unbounded();
+        let generation = Arc::new(AtomicU64::new(0));
+        for _ in 0..IMAGE_THREADS {
+            let (req_rx, res_tx, generation, dir) = (
+                req_rx.clone(),
+                res_tx.clone(),
+                generation.clone(),
+                dir.clone(),
+            );
+            std::thread::spawn(move || {
+                let agent = net::agent(Duration::from_secs(15));
+                loop {
+                    let next = req_rx.lock().ok().and_then(|r| r.recv().ok());
+                    let Some((gen_, id, url)) = next else { break };
+                    let path = dir.join(net::cache_name(&url, "jpg"));
+                    if !path.exists() {
+                        if gen_ != generation.load(Ordering::Relaxed) {
+                            continue;
+                        }
+                        let saved = net::fetch(&agent, &url, 2 << 20).and_then(|b| {
+                            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                            let tmp = path.with_extension("tmp");
+                            std::fs::write(&tmp, b).map_err(|e| e.to_string())?;
+                            std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+                        });
+                        if let Err(e) = saved {
+                            trace(&format!("Jellyfin-Plakat {id}: {e}"));
+                            continue;
+                        }
+                    }
+                    if res_tx.send_blocking((id, path)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        (
+            Self {
+                requests: req_tx,
+                generation,
+            },
+            res_rx,
+        )
+    }
+
+    fn next_generation(&self) -> u64 {
+        self.generation.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    fn request(&self, generation: u64, id: &str, url: String) {
+        let _ = self.requests.send((generation, id.to_string(), url));
+    }
+}
+
+/// Adresse des Plakats (Höhe in Pixeln); ohne Bild-Kennung kein Plakat.
+fn poster_url(server: &str, it: &Item, height: i32) -> Option<String> {
+    let tag = it.image_tag.as_deref()?;
+    Some(format!(
+        "{server}/Items/{}/Images/Primary?maxHeight={height}&tag={tag}&quality=85",
+        it.id
+    ))
+}
+
+// ---------------------------------------------------------------------------------------------
+// Hilfen
+
+/// „1 h 33 min“ bzw. „45 min“.
+fn runtime(secs: i64) -> String {
+    if secs <= 0 {
+        return String::new();
+    }
+    let m = (secs + 30) / 60;
+    if m >= 60 {
+        format!("{} h {} min", m / 60, m % 60)
+    } else {
+        format!("{m} min")
+    }
+}
+
+/// „S01E04“.
+fn episode_code(it: &Item) -> String {
+    match (it.season_no, it.episode_no) {
+        (Some(s), Some(e)) => format!("S{s:02}E{e:02}"),
+        (None, Some(e)) => format!("Folge {e}"),
+        _ => String::new(),
+    }
+}
+
+/// Anteil gesehen (0–1), wenn angefangen und nicht fertig.
+fn seen_fraction(it: &Item) -> Option<f64> {
+    (!it.played && it.position_secs > 0.0 && it.runtime_secs > 0)
+        .then(|| (it.position_secs / it.runtime_secs as f64).clamp(0.0, 1.0))
+}
+
+/// Weitersehen in einer geordneten Liste (Folgen, Teile einer Sammlung): zuletzt gespielter
+/// Eintrag; angefangen → dort weiter, fertig → der nächste; sonst der erste.
+fn next_in(list: &[Item]) -> Option<(usize, Option<f64>)> {
+    if list.is_empty() {
+        return None;
+    }
+    let last = list
+        .iter()
+        .enumerate()
+        .filter(|(_, it)| it.played || it.position_secs > 0.0)
+        .max_by(|a, b| a.1.last_played.cmp(&b.1.last_played));
+    Some(match last {
+        Some((i, it)) if !it.played && it.position_secs > 0.0 => (i, Some(it.position_secs)),
+        Some((i, _)) if i + 1 < list.len() => (i + 1, None),
+        Some((i, _)) => (i, None),
+        None => (0, None),
+    })
+}
+
+fn label(text: &str, class: &str) -> gtk::Label {
+    gtk::Label::builder()
+        .label(text)
+        .css_classes([class])
+        .xalign(0.0)
+        .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .build()
+}
+
+/// Abspielen (Schritt 4: Wiedergabe mit Fortschritt und Gesehen-Stand).
+fn play(app: &Rc<App>, item: &Item, start: Option<f64>, rest: Vec<Item>) {
+    let _ = (item, start, rest);
+    app.show_message("Jellyfin: die Wiedergabe folgt im nächsten Schritt");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Ansicht
+
+struct JfView {
+    app: Weak<App>,
+    body: gtk::Widget,
+    header_start: gtk::Box,
+    header_center: gtk::Widget,
+    header_end: gtk::Box,
+    tabs: [gtk::ToggleButton; 3],
+    search: gtk::SearchEntry,
+    search_bar: gtk::Box,
+    libbar: gtk::Box,
+    libbar_scroller: gtk::ScrolledWindow,
+    status: gtk::Label,
+    stack: gtk::Stack,
+    empty: adw::StatusPage,
+    flow: gtk::FlowBox,
+    tab: Cell<Tab>,
+    library: RefCell<Option<String>>,
+    items: RefCell<Vec<Item>>,
+    posters: RefCell<HashMap<String, gtk::Picture>>,
+    images: Option<Images>,
+    server: String,
+    detail_open: Cell<bool>,
+}
+
+fn db() -> Option<JellyfinLibrary> {
+    paths::jellyfin_db()
+        .filter(|p| p.exists())
+        .and_then(|p| JellyfinLibrary::open(&p).ok())
+}
+
+pub fn open(app: &Rc<App>) {
+    let existing = VIEW.with(|v| v.borrow().clone());
+    let view = match existing {
+        Some(v) => v,
+        None => {
+            let v = JfView::new(app);
+            VIEW.with(|slot| *slot.borrow_mut() = Some(v.clone()));
+            v
+        }
+    };
+    view.rebuild();
+    crate::layer::open(app, view);
+}
+
+/// Nach einem Abgleich oder geänderten Einstellungen: eine offene Ansicht neu aufbauen.
+pub fn refresh() {
+    if let Some(v) = VIEW.with(|v| v.borrow().clone()) {
+        if v.body.is_mapped() && !v.detail_open.get() {
+            v.rebuild();
+        }
+    }
+}
+
+/// Selbstprobe: öffnen, Reiter wählen, erste Kachel öffnen.
+pub fn probe_open(app: &Rc<App>, tab: usize) -> Option<gtk::Window> {
+    open(app);
+    let v = VIEW.with(|v| v.borrow().clone())?;
+    v.tabs.get(tab)?.set_active(true);
+    let view: Rc<dyn crate::layer::View> = v;
+    crate::layer::window_of(app, &view)
+}
+
+pub fn probe_first(app: &Rc<App>) -> Option<gtk::Window> {
+    let v = VIEW.with(|v| v.borrow().clone())?;
+    let first = v.items.borrow().first().cloned()?;
+    v.activate(&first);
+    let view: Rc<dyn crate::layer::View> = v;
+    crate::layer::window_of(app, &view)
+}
+
+impl crate::layer::View for JfView {
+    fn title(&self) -> String {
+        "Jellyfin".to_string()
+    }
+    fn min_size(&self) -> (i32, i32) {
+        MIN_SIZE
+    }
+    fn body(&self) -> gtk::Widget {
+        self.body.clone()
+    }
+    fn header_start(&self) -> Option<gtk::Widget> {
+        Some(self.header_start.clone().upcast())
+    }
+    fn header_center(&self) -> Option<gtk::Widget> {
+        Some(self.header_center.clone())
+    }
+    fn header_end(&self) -> Option<gtk::Widget> {
+        Some(self.header_end.clone().upcast())
+    }
+    fn back(&self) -> bool {
+        if self.detail_open.get() {
+            self.close_detail();
+            true
+        } else {
+            false
+        }
+    }
+    fn can_go_back(&self) -> bool {
+        self.detail_open.get()
+    }
+}
+
+impl JfView {
+    fn new(app: &Rc<App>) -> Rc<Self> {
+        let tab = |l: &str| gtk::ToggleButton::builder().label(l).build();
+        let tabs = [tab("Filme"), tab("Serien"), tab("Suche")];
+        tabs[1].set_group(Some(&tabs[0]));
+        tabs[2].set_group(Some(&tabs[0]));
+        tabs[0].set_active(true);
+        let tab_box = gtk::Box::builder().css_classes(["linked"]).build();
+        for t in &tabs {
+            tab_box.append(t);
+        }
+        let status = gtk::Label::builder().css_classes(["tvjoe-sub"]).build();
+        let header_start = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        header_start.append(&status);
+
+        let newest = gtk::ToggleButton::builder().label("Neueste").build();
+        let az = gtk::ToggleButton::builder()
+            .label("A–Z")
+            .group(&newest)
+            .build();
+        if app.settings().jellyfin_az {
+            az.set_active(true);
+        } else {
+            newest.set_active(true);
+        }
+        let sort_box = gtk::Box::builder()
+            .css_classes(["linked"])
+            .valign(gtk::Align::Center)
+            .build();
+        sort_box.append(&newest);
+        sort_box.append(&az);
+        let prefs_button = gtk::Button::builder()
+            .icon_name("emblem-system-symbolic")
+            .tooltip_text("Einstellungen von Jellyfin")
+            .build();
+        let header_end = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        header_end.append(&sort_box);
+        header_end.append(&prefs_button);
+
+        let search = gtk::SearchEntry::builder()
+            .placeholder_text("Titel, Serie oder Beschreibung")
+            .hexpand(true)
+            .build();
+        let search_bar = gtk::Box::builder()
+            .margin_start(16)
+            .margin_end(16)
+            .margin_top(8)
+            .visible(false)
+            .build();
+        search_bar.append(&search);
+        let libbar = gtk::Box::builder()
+            .spacing(6)
+            .margin_start(16)
+            .margin_end(16)
+            .margin_top(8)
+            .margin_bottom(8)
+            .build();
+        let libbar_scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Automatic)
+            .vscrollbar_policy(gtk::PolicyType::Never)
+            .child(&libbar)
+            .build();
+        let flow = gtk::FlowBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .activate_on_single_click(true)
+            .homogeneous(true)
+            .max_children_per_line(30)
+            .column_spacing(14)
+            .row_spacing(18)
+            .margin_start(16)
+            .margin_end(16)
+            .margin_top(8)
+            .margin_bottom(16)
+            .valign(gtk::Align::Start)
+            .build();
+        let grid_scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .child(&flow)
+            .build();
+        let empty = adw::StatusPage::builder()
+            .icon_name("network-server-symbolic")
+            .vexpand(true)
+            .build();
+        let stack = gtk::Stack::new();
+        stack.add_named(&grid_scroller, Some("grid"));
+        stack.add_named(&empty, Some("empty"));
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        body.append(&search_bar);
+        body.append(&libbar_scroller);
+        body.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        body.append(&stack);
+
+        let (images, results) = match paths::thumb_cache_dir().map(Images::spawn) {
+            Some((i, r)) => (Some(i), Some(r)),
+            None => (None, None),
+        };
+        let server = crate::jellyfin::account()
+            .map(|a| a.server)
+            .unwrap_or_default();
+        let v = Rc::new(Self {
+            app: Rc::downgrade(app),
+            body: body.upcast(),
+            header_start,
+            header_center: tab_box.upcast(),
+            header_end,
+            tabs,
+            search,
+            search_bar,
+            libbar,
+            libbar_scroller,
+            status,
+            stack,
+            empty,
+            flow,
+            tab: Cell::new(Tab::Movies),
+            library: RefCell::new(None),
+            items: RefCell::new(Vec::new()),
+            posters: RefCell::new(HashMap::new()),
+            images,
+            server,
+            detail_open: Cell::new(false),
+        });
+        if let Some(results) = results {
+            let weak = Rc::downgrade(&v);
+            glib::spawn_future_local(async move {
+                while let Ok((id, path)) = results.recv().await {
+                    let Some(v) = weak.upgrade() else { break };
+                    if let Some(p) = v.posters.borrow().get(&id) {
+                        p.set_filename(Some(&path));
+                    }
+                }
+            });
+        }
+        for (i, t) in [Tab::Movies, Tab::Series, Tab::Search]
+            .into_iter()
+            .enumerate()
+        {
+            let weak = Rc::downgrade(&v);
+            v.tabs[i].connect_toggled(move |b| {
+                let Some(v) = weak.upgrade() else { return };
+                if b.is_active() {
+                    v.tab.set(t);
+                    v.search_bar.set_visible(t == Tab::Search);
+                    v.libbar_scroller.set_visible(t == Tab::Movies);
+                    if t == Tab::Search {
+                        v.search.grab_focus();
+                    }
+                    v.close_detail();
+                    v.reload();
+                }
+            });
+        }
+        let weak = Rc::downgrade(&v);
+        v.search.connect_search_changed(move |_| {
+            if let Some(v) = weak.upgrade() {
+                v.reload();
+            }
+        });
+        let weak = Rc::downgrade(&v);
+        v.flow.connect_child_activated(move |_, child| {
+            let Some(v) = weak.upgrade() else { return };
+            let it = usize::try_from(child.index())
+                .ok()
+                .and_then(|i| v.items.borrow().get(i).cloned());
+            if let Some(it) = it {
+                v.activate(&it);
+            }
+        });
+        let weak = Rc::downgrade(&v);
+        az.connect_toggled(move |b| {
+            let Some(v) = weak.upgrade() else { return };
+            if let Some(app) = v.app.upgrade() {
+                app.settings_mut().jellyfin_az = b.is_active();
+                app.save_settings();
+            }
+            v.reload();
+        });
+        let weak = Rc::downgrade(&v);
+        prefs_button.connect_clicked(move |_| {
+            let Some(v) = weak.upgrade() else { return };
+            if let Some(app) = v.app.upgrade() {
+                crate::prefs::open_at(&app, Some("jellyfin"), &v.body);
+            }
+        });
+        v
+    }
+
+    fn hidden(&self) -> Vec<String> {
+        self.app
+            .upgrade()
+            .map(|a| a.settings().jellyfin_hidden.clone())
+            .unwrap_or_default()
+    }
+
+    fn az(&self) -> bool {
+        self.app.upgrade().is_some_and(|a| a.settings().jellyfin_az)
+    }
+
+    fn rebuild(self: &Rc<Self>) {
+        self.build_libbar();
+        self.reload();
+    }
+
+    /// Leiste der Film-Bibliotheken („Alle“ und je sichtbare Bibliothek).
+    fn build_libbar(self: &Rc<Self>) {
+        while let Some(c) = self.libbar.first_child() {
+            self.libbar.remove(&c);
+        }
+        let hidden = self.hidden();
+        let libs: Vec<String> = db()
+            .map(|d| d.libraries())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|l| l.kind != "tvshows" && l.kind != "boxsets" && !hidden.contains(&l.name))
+            .map(|l| l.name)
+            .collect();
+        if self
+            .library
+            .borrow()
+            .as_ref()
+            .is_some_and(|l| !libs.contains(l))
+        {
+            self.library.replace(None);
+        }
+        let all = gtk::ToggleButton::builder()
+            .label("Alle")
+            .css_classes(["tvjoe-mt-sender"])
+            .active(self.library.borrow().is_none())
+            .build();
+        self.libbar.append(&all);
+        let weak = Rc::downgrade(self);
+        all.connect_toggled(move |b| {
+            if let (true, Some(v)) = (b.is_active(), weak.upgrade()) {
+                v.library.replace(None);
+                v.reload();
+            }
+        });
+        for name in libs {
+            let b = gtk::ToggleButton::builder()
+                .label(&name)
+                .css_classes(["tvjoe-mt-sender"])
+                .group(&all)
+                .active(self.library.borrow().as_deref() == Some(name.as_str()))
+                .build();
+            let weak = Rc::downgrade(self);
+            b.connect_toggled(move |b| {
+                if let (true, Some(v)) = (b.is_active(), weak.upgrade()) {
+                    v.library.replace(Some(name.clone()));
+                    v.reload();
+                }
+            });
+            self.libbar.append(&b);
+        }
+    }
+
+    fn show_status(&self, db: &JellyfinLibrary) {
+        let when = db
+            .last_sync()
+            .and_then(|t| glib::DateTime::from_unix_local(t).ok())
+            .and_then(|d| d.format("%d.%m. %H:%M").ok())
+            .map(|s| format!("Stand {s} · "))
+            .unwrap_or_default();
+        self.status.set_label(&format!(
+            "{when}{} Filme · {} Serien",
+            db.count("Movie"),
+            db.count("Series")
+        ));
+    }
+
+    fn show_empty(&self, title: &str, text: &str) {
+        self.empty.set_title(title);
+        self.empty.set_description(Some(text));
+        self.stack.set_visible_child_name("empty");
+    }
+
+    /// Kacheln des Reiters neu laden.
+    fn reload(self: &Rc<Self>) {
+        let Some(db) = db() else {
+            self.items.borrow_mut().clear();
+            self.show_empty(
+                "Bibliothek wird abgeglichen",
+                "Der erste Abgleich mit dem Jellyfin-Server dauert etwa eine halbe Minute.",
+            );
+            return;
+        };
+        self.show_status(&db);
+        let hidden = self.hidden();
+        let items = match self.tab.get() {
+            Tab::Movies => db.movies(&hidden, self.library.borrow().as_deref(), self.az()),
+            Tab::Series => db.series(&hidden, self.az()),
+            Tab::Search => {
+                let text = self.search.text();
+                if text.trim().chars().count() < 2 {
+                    self.items.borrow_mut().clear();
+                    self.show_empty("Suche", "Mindestens zwei Zeichen eingeben.");
+                    return;
+                }
+                db.search(text.trim(), &hidden, 300)
+            }
+        };
+        while let Some(c) = self.flow.first_child() {
+            self.flow.remove(&c);
+        }
+        self.posters.borrow_mut().clear();
+        if items.is_empty() {
+            self.items.borrow_mut().clear();
+            self.show_empty("Keine Einträge", "Für diese Auswahl gibt es nichts.");
+            return;
+        }
+        let generation = self.images.as_ref().map_or(0, Images::next_generation);
+        for it in &items {
+            let sub = match it.kind.as_str() {
+                "BoxSet" => format!("Sammlung · {} Filme", db.collection_count(&it.id)),
+                "Series" => format!("Serie · {} Folgen", db.episode_count(&it.id)),
+                "Episode" => format!(
+                    "{} · {}",
+                    it.series_name.clone().unwrap_or_default(),
+                    episode_code(it)
+                ),
+                _ => [
+                    it.year.map(|y| y.to_string()).unwrap_or_default(),
+                    runtime(it.runtime_secs),
+                ]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" · "),
+            };
+            let (tile, poster) = tile(it, &sub);
+            self.flow.append(&tile);
+            if let (Some(img), Some(url)) =
+                (&self.images, poster_url(&self.server, it, POSTER_H * 3 / 2))
+            {
+                self.posters.borrow_mut().insert(it.id.clone(), poster);
+                img.request(generation, &it.id, url);
+            }
+        }
+        self.items.replace(items);
+        self.stack.set_visible_child_name("grid");
+    }
+
+    /// Kachel geklickt: Film → Filminfo, Sammlung → Teile, Serie/Folge → Serienseite.
+    fn activate(self: &Rc<Self>, it: &Item) {
+        match it.kind.as_str() {
+            "BoxSet" => {
+                let parts = db().map(|d| d.collection(&it.id)).unwrap_or_default();
+                self.show_list(it, parts, false);
+            }
+            "Series" => {
+                let eps = db().map(|d| d.episodes(&it.id)).unwrap_or_default();
+                self.show_list(it, eps, true);
+            }
+            "Episode" => {
+                let series = it
+                    .series_id
+                    .as_deref()
+                    .and_then(|id| db().and_then(|d| d.item(id)));
+                match series {
+                    Some(s) => self.activate(&s),
+                    None => self.show_movie(it),
+                }
+            }
+            _ => self.show_movie(it),
+        }
+    }
+
+    fn set_detail(&self, open: bool) {
+        self.detail_open.set(open);
+        if let Some(app) = self.app.upgrade() {
+            crate::layer::update_header(&app);
+        }
+    }
+
+    fn close_detail(&self) {
+        if !self.detail_open.get() {
+            return;
+        }
+        self.set_detail(false);
+        self.stack.set_visible_child_name("grid");
+        if let Some(old) = self.stack.child_by_name("detail") {
+            self.stack.remove(&old);
+        }
+    }
+
+    fn present_detail(&self, page: &gtk::Widget) {
+        if let Some(old) = self.stack.child_by_name("detail") {
+            self.stack.remove(&old);
+        }
+        let scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .child(page)
+            .build();
+        self.stack.add_named(&scroller, Some("detail"));
+        self.stack.set_visible_child_name("detail");
+        self.set_detail(true);
+    }
+
+    /// Großes Plakat (schon geladenes Kachelbild, sonst vom Server).
+    fn big_poster(&self, it: &Item) -> gtk::Widget {
+        let pic = gtk::Picture::builder()
+            .content_fit(gtk::ContentFit::Cover)
+            .can_shrink(true)
+            .build();
+        if let Some(url) = poster_url(&self.server, it, DETAIL_H * 3 / 2) {
+            if let Some(dir) = paths::thumb_cache_dir() {
+                let path = dir.join(net::cache_name(&url, "jpg"));
+                if path.exists() {
+                    pic.set_filename(Some(&path));
+                } else if let Some(t) = self
+                    .posters
+                    .borrow()
+                    .get(&it.id)
+                    .and_then(|p| p.paintable())
+                {
+                    pic.set_paintable(Some(&t));
+                }
+            }
+        }
+        let frame = gtk::Overlay::builder()
+            .child(&pic)
+            .css_classes(["tvjoe-mt-thumb"])
+            .overflow(gtk::Overflow::Hidden)
+            .width_request(DETAIL_W)
+            .height_request(DETAIL_H)
+            .valign(gtk::Align::Start)
+            .build();
+        adw::Clamp::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .maximum_size(DETAIL_H)
+            .tightening_threshold(DETAIL_H)
+            .valign(gtk::Align::Start)
+            .child(
+                &adw::Clamp::builder()
+                    .orientation(gtk::Orientation::Horizontal)
+                    .maximum_size(DETAIL_W)
+                    .tightening_threshold(DETAIL_W)
+                    .child(&frame)
+                    .build(),
+            )
+            .build()
+            .upcast()
+    }
+
+    fn page(&self, poster: &gtk::Widget, right: &gtk::Box) -> gtk::Widget {
+        let page = gtk::Box::builder()
+            .spacing(32)
+            .margin_start(32)
+            .margin_end(32)
+            .margin_top(32)
+            .margin_bottom(32)
+            .build();
+        page.append(poster);
+        page.append(right);
+        page.upcast()
+    }
+
+    /// Filminfo: Plakat, Titel, Jahr · Laufzeit · Genres, Weitersehen/Von vorn, Beschreibung.
+    fn show_movie(self: &Rc<Self>, it: &Item) {
+        let right = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        right.set_hexpand(true);
+        right.append(&label(&it.name, "tvjoe-mt-detail-title"));
+        let meta: Vec<String> = [
+            it.year.map(|y| y.to_string()).unwrap_or_default(),
+            runtime(it.runtime_secs),
+            it.genres.clone(),
+            if it.played {
+                "gesehen".to_string()
+            } else {
+                String::new()
+            },
+        ]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
+        right.append(&label(&meta.join(" · "), "tvjoe-osd-sub"));
+        let buttons = gtk::Box::builder()
+            .spacing(10)
+            .margin_top(6)
+            .halign(gtk::Align::Start)
+            .build();
+        let resume = seen_fraction(it).map(|_| it.position_secs);
+        if let Some(pos) = resume {
+            buttons.append(&self.play_button(
+                &format!("Weitersehen ab {}", crate::osd::clock(pos)),
+                true,
+                it,
+                Some(pos),
+                Vec::new(),
+            ));
+        }
+        buttons.append(&self.play_button(
+            if resume.is_some() {
+                "Von vorn"
+            } else {
+                "Abspielen"
+            },
+            resume.is_none(),
+            it,
+            None,
+            Vec::new(),
+        ));
+        right.append(&buttons);
+        let desc = label(it.overview.trim(), "tvjoe-mt-detail-desc");
+        desc.set_margin_top(10);
+        right.append(&desc);
+        let poster = self.big_poster(it);
+        self.present_detail(&self.page(&poster, &right));
+    }
+
+    fn play_button(
+        self: &Rc<Self>,
+        text: &str,
+        suggested: bool,
+        it: &Item,
+        start: Option<f64>,
+        rest: Vec<Item>,
+    ) -> gtk::Button {
+        let b = gtk::Button::builder()
+            .css_classes(if suggested {
+                vec!["suggested-action", "pill"]
+            } else {
+                vec!["pill"]
+            })
+            .child(
+                &adw::ButtonContent::builder()
+                    .icon_name("media-playback-start-symbolic")
+                    .label(text)
+                    .build(),
+            )
+            .build();
+        let weak = Rc::downgrade(self);
+        let it = it.clone();
+        b.connect_clicked(move |_| {
+            let Some(v) = weak.upgrade() else { return };
+            if let Some(app) = v.app.upgrade() {
+                play(&app, &it, start, rest.clone());
+            }
+        });
+        b
+    }
+
+    /// Seite einer Sammlung (Teile nach Jahr) oder Serie (Staffeln, Folgen): Weitersehen,
+    /// Liste; ein Klick spielt den Eintrag, danach laufen die folgenden automatisch.
+    fn show_list(self: &Rc<Self>, head: &Item, list: Vec<Item>, series: bool) {
+        let list = Rc::new(list);
+        let right = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        right.set_hexpand(true);
+        right.append(&label(&head.name, "tvjoe-mt-detail-title"));
+        let count = if series {
+            format!("{} Folgen", list.len())
+        } else {
+            format!("{} Filme", list.len())
+        };
+        let mut meta = vec![count];
+        if !head.genres.is_empty() {
+            meta.push(head.genres.clone());
+        }
+        right.append(&label(&meta.join(" · "), "tvjoe-osd-sub"));
+        if let Some((i, start)) = next_in(&list) {
+            let target = &list[i];
+            let what = if series {
+                format!("{} {}", episode_code(target), target.name)
+            } else {
+                target.name.clone()
+            };
+            let text = match start {
+                Some(p) => format!("Weitersehen: {what} ab {}", crate::osd::clock(p)),
+                None if list.iter().any(|x| x.played || x.position_secs > 0.0) => {
+                    format!("Weitersehen: {what}")
+                }
+                None => format!("Ansehen ab {what}"),
+            };
+            let b = self.play_button(&text, true, target, start, list[i + 1..].to_vec());
+            b.set_halign(gtk::Align::Start);
+            b.set_margin_top(6);
+            right.append(&b);
+        }
+        if !head.overview.is_empty() {
+            let d = label(head.overview.trim(), "tvjoe-osd-sub");
+            d.set_lines(4);
+            d.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            right.append(&d);
+        }
+
+        // Staffelwähler (nur Serien mit mehreren Staffeln) und Liste.
+        let rows = gtk::ListBox::builder()
+            .css_classes(["boxed-list"])
+            .selection_mode(gtk::SelectionMode::None)
+            .margin_top(10)
+            .build();
+        let fill = {
+            let (rows, list) = (rows.clone(), list.clone());
+            move |season: Option<Option<i64>>| {
+                while let Some(c) = rows.first_child() {
+                    rows.remove(&c);
+                }
+                for (i, it) in list.iter().enumerate() {
+                    if season.is_none_or(|s| it.season_no == s) {
+                        rows.append(&list_row(i, it, series));
+                    }
+                }
+            }
+        };
+        let mut seasons: Vec<Option<i64>> = Vec::new();
+        if series {
+            for it in list.iter() {
+                if !seasons.contains(&it.season_no) {
+                    seasons.push(it.season_no);
+                }
+            }
+        }
+        let start_season = next_in(&list).map(|(i, _)| list[i].season_no);
+        if seasons.len() > 1 {
+            fill(Some(start_season.flatten()));
+            let fill = Rc::new(fill);
+            let row = gtk::Box::builder()
+                .css_classes(["linked"])
+                .halign(gtk::Align::Start)
+                .margin_top(10)
+                .build();
+            let mut first: Option<gtk::ToggleButton> = None;
+            for s in seasons {
+                let b = gtk::ToggleButton::builder()
+                    .label(match s {
+                        Some(0) => "Extras".to_string(),
+                        Some(n) => format!("Staffel {n}"),
+                        None => "Weitere".to_string(),
+                    })
+                    .active(Some(s) == start_season)
+                    .build();
+                match &first {
+                    Some(g) => b.set_group(Some(g)),
+                    None => first = Some(b.clone()),
+                }
+                let fill = fill.clone();
+                b.connect_toggled(move |b| {
+                    if b.is_active() {
+                        fill(Some(s));
+                    }
+                });
+                row.append(&b);
+            }
+            // Viele Staffeln: waagerecht blättern statt die Seite zu verbreitern.
+            right.append(
+                &gtk::ScrolledWindow::builder()
+                    .hscrollbar_policy(gtk::PolicyType::Automatic)
+                    .vscrollbar_policy(gtk::PolicyType::Never)
+                    .child(&row)
+                    .build(),
+            );
+        } else {
+            fill(None);
+        }
+        right.append(&rows);
+        let weak = Rc::downgrade(self);
+        let l = list.clone();
+        rows.connect_row_activated(move |_, row| {
+            let Some(v) = weak.upgrade() else { return };
+            let Ok(i) = row.widget_name().parse::<usize>() else {
+                return;
+            };
+            let (Some(app), Some(it)) = (v.app.upgrade(), l.get(i)) else {
+                return;
+            };
+            let start = seen_fraction(it).map(|_| it.position_secs);
+            play(&app, it, start, l[i + 1..].to_vec());
+        });
+        let poster = self.big_poster(head);
+        self.present_detail(&self.page(&poster, &right));
+    }
+}
+
+/// Zeile einer Sammlung bzw. Serie; der Widget-Name trägt die Nummer in der Liste.
+fn list_row(index: usize, it: &Item, series: bool) -> gtk::ListBoxRow {
+    let code = gtk::Label::builder()
+        .label(if series {
+            episode_code(it)
+        } else {
+            it.year.map(|y| y.to_string()).unwrap_or_default()
+        })
+        .css_classes(["tvjoe-num"])
+        .width_chars(9)
+        .xalign(0.0)
+        .build();
+    let title = gtk::Label::builder()
+        .label(&it.name)
+        .css_classes(["tvjoe-name"])
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
+    let mut meta = vec![runtime(it.runtime_secs)];
+    if it.played {
+        meta.push("gesehen".into());
+    }
+    let sub = gtk::Label::builder()
+        .label(
+            meta.into_iter()
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" · "),
+        )
+        .css_classes(["tvjoe-sub"])
+        .xalign(0.0)
+        .build();
+    let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    text.set_hexpand(true);
+    text.append(&title);
+    text.append(&sub);
+    if let Some(f) = seen_fraction(it) {
+        text.append(
+            &gtk::ProgressBar::builder()
+                .fraction(f)
+                .css_classes(["tvjoe-mt-seen"])
+                .margin_top(4)
+                .build(),
+        );
+    }
+    let hbox = gtk::Box::builder()
+        .spacing(16)
+        .margin_start(12)
+        .margin_end(12)
+        .margin_top(8)
+        .margin_bottom(8)
+        .build();
+    hbox.append(&code);
+    hbox.append(&text);
+    hbox.append(&gtk::Image::from_icon_name(if it.played {
+        "object-select-symbolic"
+    } else {
+        "media-playback-start-symbolic"
+    }));
+    gtk::ListBoxRow::builder()
+        .child(&hbox)
+        .activatable(true)
+        .name(index.to_string())
+        .build()
+}
+
+/// Kachel mit Plakat (bis es da ist: Titel), Titel und Zeile darunter; gesehen = Haken,
+/// angefangen = Strich am unteren Rand.
+fn tile(it: &Item, sub: &str) -> (gtk::Box, gtk::Picture) {
+    let fallback = gtk::Label::builder()
+        .label(&it.name)
+        .css_classes(["tvjoe-name"])
+        .wrap(true)
+        .justify(gtk::Justification::Center)
+        .margin_start(10)
+        .margin_end(10)
+        .build();
+    let poster = gtk::Picture::builder()
+        .content_fit(gtk::ContentFit::Cover)
+        .can_shrink(true)
+        .build();
+    let frame = gtk::Overlay::builder()
+        .child(&fallback)
+        .css_classes(["tvjoe-mt-thumb"])
+        .overflow(gtk::Overflow::Hidden)
+        .width_request(POSTER_W)
+        .height_request(POSTER_H)
+        .build();
+    frame.add_overlay(&poster);
+    if it.played {
+        frame.add_overlay(
+            &gtk::Image::builder()
+                .icon_name("object-select-symbolic")
+                .css_classes(["tvjoe-jf-played"])
+                .halign(gtk::Align::End)
+                .valign(gtk::Align::Start)
+                .margin_top(6)
+                .margin_end(6)
+                .build(),
+        );
+    }
+    if let Some(f) = seen_fraction(it) {
+        frame.add_overlay(
+            &gtk::ProgressBar::builder()
+                .fraction(f)
+                .valign(gtk::Align::End)
+                .css_classes(["tvjoe-mt-seen"])
+                .build(),
+        );
+    }
+    let frame = adw::Clamp::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .maximum_size(POSTER_H)
+        .tightening_threshold(POSTER_H)
+        .child(
+            &adw::Clamp::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .maximum_size(POSTER_W)
+                .tightening_threshold(POSTER_W)
+                .child(&frame)
+                .build(),
+        )
+        .build();
+    let title = gtk::Label::builder()
+        .label(&it.name)
+        .css_classes(["tvjoe-name"])
+        .xalign(0.0)
+        .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .lines(2)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .max_width_chars(1)
+        .build();
+    let sub = gtk::Label::builder()
+        .label(sub)
+        .css_classes(["tvjoe-sub"])
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .max_width_chars(1)
+        .build();
+    let tile = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(4)
+        .width_request(POSTER_W)
+        .css_classes(["tvjoe-mt-tile"])
+        .build();
+    tile.append(&frame);
+    tile.append(&title);
+    tile.append(&sub);
+    let desc: String = it.overview.chars().take(400).collect();
+    tile.set_tooltip_text(Some(&format!("{}\n\n{desc}", it.name)));
+    (tile, poster)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(id: &str, played: bool, pos: f64, last: Option<&str>) -> Item {
+        Item {
+            id: id.into(),
+            kind: "Episode".into(),
+            name: id.into(),
+            sort_name: id.into(),
+            series_id: None,
+            series_name: None,
+            season_id: None,
+            season_no: Some(1),
+            episode_no: None,
+            year: None,
+            premiere: None,
+            runtime_secs: 3000,
+            overview: String::new(),
+            genres: String::new(),
+            image_tag: None,
+            date_created: None,
+            played,
+            position_secs: pos,
+            last_played: last.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn weitersehen_in_liste() {
+        let none = [item("a", false, 0.0, None), item("b", false, 0.0, None)];
+        assert_eq!(next_in(&none), Some((0, None)));
+        let done = [
+            item("a", true, 0.0, Some("2026-01-01")),
+            item("b", false, 0.0, None),
+        ];
+        assert_eq!(next_in(&done), Some((1, None)));
+        let half = [
+            item("a", true, 0.0, Some("2026-01-01")),
+            item("b", false, 600.0, Some("2026-01-02")),
+            item("c", false, 0.0, None),
+        ];
+        assert_eq!(next_in(&half), Some((1, Some(600.0))));
+        assert_eq!(runtime(5580), "1 h 33 min");
+        assert_eq!(runtime(2700), "45 min");
+    }
+}

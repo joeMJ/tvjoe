@@ -23,6 +23,16 @@ pub fn settings_path() -> Option<PathBuf> {
     config_dir().map(|d| d.join("settings.toml"))
 }
 
+/// Zwischenspeicher der Jellyfin-Bibliothek.
+pub fn jellyfin_db() -> Option<PathBuf> {
+    cache_dir().map(|d| d.join("jellyfin.sqlite"))
+}
+
+/// Zugang zum Jellyfin-Server (nur für den Nutzer lesbar).
+pub fn jellyfin_account_path() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("jellyfin.toml"))
+}
+
 pub fn logo_cache_dir() -> Option<PathBuf> {
     cache_dir().map(|d| d.join("logos"))
 }

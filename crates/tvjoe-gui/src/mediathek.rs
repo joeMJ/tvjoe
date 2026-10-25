@@ -95,6 +95,9 @@ fn maybe_update(app: &Rc<App>) {
     let Some(db) = paths::mediathek_db().filter(|p| p.exists()) else {
         return;
     };
+    if !app.settings().mediathek_oer {
+        return;
+    }
     let hours = app
         .settings()
         .mediathek_refresh_hours
@@ -215,6 +218,23 @@ pub fn prefs_page(
         .icon_name("folder-videos-symbolic")
         .build();
 
+    let which = adw::PreferencesGroup::builder()
+        .title("Mediatheken")
+        .description("Ausgeschaltet verschwindet der Knopf in der Kopfleiste, und im Hintergrund wird nichts geladen")
+        .build();
+    let oer = adw::SwitchRow::builder()
+        .title("ÖR-Mediathek")
+        .subtitle("Öffentlich-rechtliche Sender, Filmliste von MediathekView")
+        .active(s.mediathek_oer)
+        .build();
+    let jelly = adw::SwitchRow::builder()
+        .title("Jellyfin")
+        .subtitle("Eigener Server, einrichten im Reiter „Jellyfin“")
+        .active(s.jellyfin_enabled)
+        .build();
+    which.add(&oer);
+    which.add(&jelly);
+
     let list = adw::PreferencesGroup::builder()
         .title("Filmliste")
         .description(
@@ -267,10 +287,13 @@ pub fn prefs_page(
         })
         .collect();
 
+    page.add(&which);
     page.add(&list);
     page.add(&view);
     page.add(&senders);
     let apply = move |s: &mut tvjoe_core::Settings| {
+        s.mediathek_oer = oer.is_active();
+        s.jellyfin_enabled = jelly.is_active();
         s.mediathek_refresh_hours = hours.value() as u32;
         s.mediathek_days = days.value() as u32;
         s.mediathek_hide_ad = hide_ad.is_active();

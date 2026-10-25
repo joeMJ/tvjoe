@@ -5,6 +5,8 @@ mod dnd;
 mod gl;
 mod grid;
 mod import;
+mod jellyfin;
+mod jfview;
 mod layer;
 mod logos;
 mod manage;

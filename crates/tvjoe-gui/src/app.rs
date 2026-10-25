@@ -68,6 +68,9 @@ pub struct App {
     list: gtk::ListBox,
     rows: RefCell<Vec<Row>>,
     osd: Rc<Osd>,
+    mediathek_button: gtk::Button,
+    jellyfin_button: gtk::Button,
+    jellyfin_logo: gtk::Image,
     /// Ebene über dem Bild (Programm, Mediathek, Verwaltung).
     pub layer: Rc<crate::layer::Layer>,
     /// Bildbereich (für die Mindestgröße der Ebenen).
@@ -173,9 +176,19 @@ impl App {
         header.pack_end(&grid_button);
         let mediathek_button = gtk::Button::builder()
             .icon_name("folder-videos-symbolic")
-            .tooltip_text("Mediathek")
+            .tooltip_text("ÖR-Mediathek")
             .build();
         header.pack_end(&mediathek_button);
+        // Jellyfin: Logo des Servers (einfarbig), bis es geladen ist ein Server-Symbol.
+        let jellyfin_logo = gtk::Image::builder()
+            .icon_name("network-server-symbolic")
+            .pixel_size(18)
+            .build();
+        let jellyfin_button = gtk::Button::builder()
+            .child(&jellyfin_logo)
+            .tooltip_text("Jellyfin")
+            .build();
+        header.pack_end(&jellyfin_button);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
             .tooltip_text("Einstellungen (Strg+,)")
@@ -216,6 +229,9 @@ impl App {
             list,
             rows: RefCell::new(Vec::new()),
             osd,
+            mediathek_button: mediathek_button.clone(),
+            jellyfin_button: jellyfin_button.clone(),
+            jellyfin_logo,
             layer,
             video: overlay.clone(),
             info,
@@ -294,6 +310,16 @@ impl App {
             }
         });
         let weak = Rc::downgrade(&app);
+        jellyfin_button.connect_clicked(move |_| {
+            let Some(app) = weak.upgrade() else { return };
+            if crate::jellyfin::account().is_none() {
+                crate::prefs::open_at(&app, Some("jellyfin"), &app.window);
+            } else {
+                crate::jfview::open(&app);
+            }
+        });
+        app.update_media_buttons();
+        let weak = Rc::downgrade(&app);
         mediathek_button.connect_clicked(move |_| {
             if let Some(app) = weak.upgrade() {
                 crate::mediathek::open(&app);
@@ -313,6 +339,32 @@ impl App {
             let _ = &keep;
         });
         app
+    }
+
+    /// Meldung oben im Bild (Dauer wie die Einblendung).
+    pub fn show_message(&self, text: &str) {
+        self.msg.show(text, self.overlay_secs());
+    }
+
+    /// Knöpfe der Mediatheken nach den Einstellungen ein-/ausblenden; Jellyfin-Logo laden.
+    pub fn update_media_buttons(self: &Rc<Self>) {
+        let (oer, jelly) = {
+            let s = self.settings.borrow();
+            (s.mediathek_oer, s.jellyfin_enabled)
+        };
+        self.mediathek_button.set_visible(oer);
+        self.jellyfin_button.set_visible(jelly);
+        if jelly {
+            crate::jellyfin::load_logo(self);
+            crate::jellyfin::start_background(self);
+        }
+    }
+
+    /// Logo des Jellyfin-Servers als weiße Fläche in den Knopf.
+    pub fn set_jellyfin_logo(&self, path: &Path) {
+        if let Some(t) = crate::logos::white_from_dark(path) {
+            self.jellyfin_logo.set_paintable(Some(&t));
+        }
     }
 
     /// Größe des Bildbereichs (logische Pixel).

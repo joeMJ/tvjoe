@@ -4,6 +4,8 @@
 pub mod check;
 pub mod epg;
 pub mod ids;
+pub mod jellyfin;
+pub mod jellyfin_lib;
 pub mod library;
 pub mod m3u;
 pub mod mediathek;

@@ -249,6 +249,35 @@ const GROESSE_STEPS: &[Step] = &[
     ),
 ];
 
+/// Jellyfin (`TVJOE_SELFTEST_JELLYFIN=1`, nur diese Schritte; braucht Zugang und Einstellungen
+/// im Testordner): erster Abgleich nach 30 s, dann Filme, Serien, erste Kachel.
+const JELLYFIN_STEPS: &[Step] = &[
+    ("60-warten-auf-abgleich", main_window, 65000),
+    (
+        "61-jellyfin-filme",
+        |p| crate::jfview::probe_open(&p.app, 0),
+        6000,
+    ),
+    (
+        "62-jellyfin-erste-kachel",
+        |p| crate::jfview::probe_first(&p.app),
+        4000,
+    ),
+    (
+        "63-jellyfin-serien",
+        |p| {
+            crate::layer::close_layer(&p.app);
+            crate::jfview::probe_open(&p.app, 1)
+        },
+        6000,
+    ),
+    (
+        "64-jellyfin-serienseite",
+        |p| crate::jfview::probe_first(&p.app),
+        4000,
+    ),
+];
+
 /// Mediathek (`TVJOE_SELFTEST_MEDIATHEK=1`): beim ersten Öffnen wird die Filmliste geladen.
 const MEDIATHEK_STEPS: &[Step] = &[
     (
@@ -348,6 +377,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         EBENE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_GROESSE").is_some() {
         GROESSE_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_JELLYFIN").is_some() {
+        JELLYFIN_STEPS.to_vec()
     } else {
         STEPS.to_vec()
     };
