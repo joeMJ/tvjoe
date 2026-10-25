@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="48" viewBox="0 0 260 48" role="img" aria-label="Auf Windows installieren">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a5d82"/>
+      <stop offset="1" stop-color="#253f5c"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="258" height="46" rx="10" fill="url(#g)" stroke="#1b2f45" stroke-width="1.5"/>
+  <g fill="#7fc3ff">
+    <rect x="18" y="13" width="10" height="10" rx="1"/><rect x="30" y="13" width="10" height="10" rx="1"/>
+    <rect x="18" y="25" width="10" height="10" rx="1"/><rect x="30" y="25" width="10" height="10" rx="1"/>
+  </g>
+  <text x="54" y="30" font-family="Segoe UI, Ubuntu, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#ffffff">Auf Windows installieren</text>
+</svg>
