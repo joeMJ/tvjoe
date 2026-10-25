@@ -68,10 +68,11 @@ fn offer_install(packages: &[&str]) -> bool {
             packages.join(", "),
             packages
                 .iter()
-                .map(|p| if p.starts_with("mingw-") {
-                    p.to_string()
-                } else {
-                    format!("mingw-w64-ucrt-x86_64-{p}")
+                .map(|p| match *p {
+                    p if p.starts_with("mingw-") => p.to_string(),
+                    // pkg-config-Modul → MSYS2-Paket
+                    "libadwaita-1" => "mingw-w64-ucrt-x86_64-libadwaita".to_string(),
+                    p => format!("mingw-w64-ucrt-x86_64-{p}"),
                 })
                 .collect::<Vec<_>>()
                 .join(" ")

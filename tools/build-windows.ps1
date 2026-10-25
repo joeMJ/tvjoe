@@ -163,6 +163,10 @@ foreach ($mo in @('gtk40.mo', 'gtk40-properties.mo', 'libadwaita.mo', 'glib20.mo
 
 Schritt 'DLLs einsammeln'
 # Abhängigkeiten der Programme und der Bildlader rekursiv mit ldd (MSYS2); nur DLLs aus ucrt64.
+# Nie mitliefern: Mesa (opengl32.dll und seine Teile). Liegt Mesa in ucrt64, löst ldd opengl32.dll
+# dorthin auf; neben der exe hätte Mesa Vorrang vor dem Grafiktreiber (System32) und ohne
+# GALLIUM_DRIVER stürzt tvjoe beim Abspielen ab.
+$ausnehmen = '^(opengl32|libgallium_wgl|clon12compiler|libspirv_to_dxil|vulkan_.*|libLLVM-.*|libclang.*)\.dll$'
 function Msys-Pfad([string]$Pfad) { '/' + $Pfad.Substring(0, 1).ToLower() + ($Pfad.Substring(2) -replace '\\', '/') }
 $pruefen = New-Object System.Collections.Generic.Queue[string]
 Get-ChildItem $bin -Filter '*.exe' | ForEach-Object { $pruefen.Enqueue($_.FullName) }
@@ -174,6 +178,7 @@ while ($pruefen.Count -gt 0) {
     foreach ($z in $zeilen) {
         if ($z -match '=>\s+(/ucrt64/bin/[^\s]+\.dll)') {
             $name = Split-Path -Leaf $Matches[1]
+            if ($name -match $ausnehmen) { continue }
             if ($gesehen.ContainsKey($name)) { continue }
             $gesehen[$name] = $true
             $q = Join-Path $Ucrt "bin\$name"
@@ -185,6 +190,12 @@ while ($pruefen.Count -gt 0) {
 if (-not $gesehen.ContainsKey('libgtk-4-1.dll') -or -not $gesehen.ContainsKey('libmpv-2.dll')) {
     Fehler 'ldd hat GTK oder libmpv nicht gefunden; das Paket wäre unvollständig.' 'Ausgabe von ldd für bin\tvjoe-gui.exe prüfen.'
 }
+if (Get-ChildItem $bin -Filter '*.dll' | Where-Object Name -match $ausnehmen) {
+    Fehler 'Mesa-DLLs im Paket (opengl32.dll o. ä.).' 'Ausnahmeliste in build-windows.ps1 prüfen.'
+}
+# gdbus.exe: GLib startet es für den Sitzungsbus (sonst Warnung „win32 session dbus binary not found“).
+$gdbus = Join-Path $Ucrt 'bin\gdbus.exe'
+if (Test-Path $gdbus) { Copy-Item $gdbus $bin; $pruefen.Enqueue($gdbus) }
 Write-Host "$($gesehen.Count) DLLs aus ucrt64"
 
 Schritt 'Lizenzen'
