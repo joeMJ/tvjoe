@@ -15,11 +15,12 @@ pub mod satip;
 pub mod settings;
 pub mod store;
 pub mod syscheck;
+pub mod ts;
 pub mod update;
 
 pub use check::{Finding, FindingKind, Severity};
 pub use ids::normalize_id;
-pub use library::{Channel, ImportOutcome, Library, NumberTaken, Source, Stream};
+pub use library::{Channel, ImportOutcome, Library, NumberTaken, ScannedChannel, Source, Stream};
 pub use m3u::{Entry, ParseError, Playlist, Quality, SourceKind};
 pub use settings::{Fallback, Settings, Strategy};
 pub use store::StoreError;

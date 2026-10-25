@@ -138,6 +138,36 @@ pub fn white_logo_path() -> Option<PathBuf> {
     paths::cache_dir().map(|d| d.join("jellyfin-logo-weiss.png"))
 }
 
+/// Symbolname für den Reiter „Jellyfin“ in den Einstellungen: das weiße Logo als eigenes
+/// Symbol (der Reiterbalken nimmt nur Namen aus dem Symbolthema; als `.symbolic.png` färbt
+/// GTK es in der Textfarbe, passend zu hell und dunkel). Ohne Logo das Server-Symbol.
+fn prefs_icon() -> &'static str {
+    const NAME: &str = "tvjoe-jellyfin-symbolic";
+    let (Some(src), Some(dir)) = (
+        white_logo_path().filter(|p| p.exists()),
+        paths::cache_dir().map(|d| d.join("icons")),
+    ) else {
+        return "network-server-symbolic";
+    };
+    let dst = dir.join(format!("{NAME}.symbolic.png"));
+    let stale = |d: &std::path::Path| {
+        let m = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+        m(d).is_none() || m(d) < m(&src)
+    };
+    if stale(&dst) && (std::fs::create_dir_all(&dir).is_err() || std::fs::copy(&src, &dst).is_err())
+    {
+        return "network-server-symbolic";
+    }
+    let Some(display) = gtk::gdk::Display::default() else {
+        return "network-server-symbolic";
+    };
+    let theme = gtk::IconTheme::for_display(&display);
+    if !theme.search_path().contains(&dir) {
+        theme.add_search_path(&dir);
+    }
+    NAME
+}
+
 /// Position an Jellyfin melden (im Hintergrund) und im Zwischenspeicher nachführen.
 /// `stop`: Wiedergabe endet (Jellyfin wertet dann „gesehen“ aus; Umrechnung beenden).
 pub fn report_position(j: &crate::vod::JellyVod, pos: f64, dur: f64, paused: bool, stop: bool) {
@@ -239,7 +269,7 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     let page = adw::PreferencesPage::builder()
         .name("jellyfin")
         .title("Jellyfin")
-        .icon_name("network-server-symbolic")
+        .icon_name(prefs_icon())
         .build();
 
     let server_group = adw::PreferencesGroup::builder()

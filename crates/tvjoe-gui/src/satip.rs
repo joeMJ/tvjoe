@@ -1,13 +1,14 @@
 //! SAT-Quelle (SAT>IP): Reiter in den Einstellungen mit Adresse, „Prüfen“ (Gerät, Tuner,
-//! Empfang, Datenstrom) und Hilfe für die Firewall. Suchlauf und Wiedergabe folgen.
+//! Empfang, Datenstrom), Hilfe für die Firewall und Suchlauf in die SAT-Senderliste.
+//! Wiedergabe folgt.
 
 use std::rc::Rc;
 use std::time::Duration;
 
 use adw::prelude::*;
 use gtk::glib;
-use tvjoe_core::Settings;
-use tvjoe_core::satip::{self, CheckResult};
+use tvjoe_core::satip::{self, CheckResult, ScanProgress};
+use tvjoe_core::{Library, Settings, paths};
 
 use crate::app::App;
 
@@ -53,6 +54,33 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
         .build();
     page.add(&device);
     page.add(&result);
+
+    let list = adw::PreferencesGroup::builder()
+        .title("Senderliste")
+        .description("Frei empfangbare TV-Sender aller Transponder von Astra 19,2° Ost; verschlüsselte Sender und Radio werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen.")
+        .build();
+    let scan_row = adw::ActionRow::builder()
+        .title("Suchlauf")
+        .subtitle(list_summary())
+        .build();
+    let scan = gtk::Button::builder()
+        .label("Suchlauf starten")
+        .valign(gtk::Align::Center)
+        .build();
+    scan_row.add_suffix(&scan);
+    let bar = gtk::ProgressBar::builder()
+        .show_text(true)
+        .visible(false)
+        .margin_top(6)
+        .margin_bottom(6)
+        .build();
+    list.add(&scan_row);
+    list.add(&bar);
+    page.add(&list);
+    {
+        let (host, row, bar) = (host.clone(), scan_row.clone(), bar.clone());
+        scan.connect_clicked(move |b| run_scan(host.text().trim(), b, &row, &bar));
+    }
 
     let rows: Rc<std::cell::RefCell<Vec<gtk::Widget>>> = Rc::default();
     let run = Rc::new({
@@ -233,4 +261,99 @@ fn confirm_firewall(
         });
     });
     d.present(Some(parent));
+}
+
+/// Stand der gespeicherten SAT-Senderliste für die Unterzeile.
+fn list_summary() -> String {
+    let lib = paths::satip_library_path()
+        .and_then(|p| Library::load(&p).ok())
+        .unwrap_or_default();
+    match lib.channels.iter().filter(|c| !c.missing).count() {
+        0 => "Noch keine Sender gespeichert".to_string(),
+        n => format!("{n} Sender gespeichert"),
+    }
+}
+
+enum ScanMsg {
+    Step(&'static str),
+    Progress(ScanProgress),
+    Done(Result<Vec<satip::ScannedService>, String>),
+}
+
+/// Suchlauf im Hintergrund: so viele Tuner parallel, wie beim Prüfen Empfang haben; danach
+/// Abgleich mit der gespeicherten SAT-Senderliste.
+fn run_scan(host: &str, button: &gtk::Button, row: &adw::ActionRow, bar: &gtk::ProgressBar) {
+    if host.is_empty() {
+        row.set_subtitle("Bitte zuerst die Adresse des Geräts eintragen");
+        return;
+    }
+    button.set_sensitive(false);
+    bar.set_visible(true);
+    bar.set_fraction(0.0);
+    bar.set_text(Some("Prüfe Tuner …"));
+    let (tx, rx) = async_channel::unbounded();
+    let h = host.to_string();
+    std::thread::spawn(move || {
+        let workers = satip::check(&h, Duration::from_secs(1))
+            .map(|r| r.status.iter().filter(|t| t.lock).count())
+            .unwrap_or(1)
+            .max(1);
+        let _ = tx.send_blocking(ScanMsg::Step("Lese die Transponderliste …"));
+        let progress = |p: ScanProgress| {
+            let _ = tx.send_blocking(ScanMsg::Progress(p));
+        };
+        let result = satip::scan(&h, workers, &progress);
+        let _ = tx.send_blocking(ScanMsg::Done(result));
+    });
+    let (button, row, bar, host) = (button.clone(), row.clone(), bar.clone(), host.to_string());
+    glib::spawn_future_local(async move {
+        while let Ok(msg) = rx.recv().await {
+            match msg {
+                ScanMsg::Step(t) => bar.set_text(Some(t)),
+                ScanMsg::Progress(p) => {
+                    bar.set_fraction(p.done as f64 / p.total.max(1) as f64);
+                    bar.set_text(Some(&format!(
+                        "Transponder {} von {} · {} Dienste gefunden",
+                        p.done, p.total, p.services
+                    )));
+                }
+                ScanMsg::Done(result) => {
+                    button.set_sensitive(true);
+                    bar.set_visible(false);
+                    row.set_subtitle(&match result {
+                        Ok(services) => save_scan(&host, &services),
+                        Err(e) => format!("Suchlauf fehlgeschlagen: {e}"),
+                    });
+                    break;
+                }
+            }
+        }
+    });
+}
+
+/// Ergebnis in die SAT-Senderliste übernehmen und als Unterzeile zusammenfassen.
+fn save_scan(host: &str, services: &[satip::ScannedService]) -> String {
+    let Some(path) = paths::satip_library_path() else {
+        return "Kein Konfigurationsordner gefunden".to_string();
+    };
+    let mut lib = match Library::load(&path) {
+        Ok(l) => l,
+        Err(e) => return format!("SAT-Senderliste nicht lesbar: {e}"),
+    };
+    let items = satip::to_channels(host, services);
+    let out = lib.sync_scanned("SAT>IP", &format!("satip://{host}"), &items);
+    if let Err(e) = lib.save(&path) {
+        return format!("SAT-Senderliste nicht gespeichert: {e}");
+    }
+    let mut text = format!(
+        "{} frei empfangbare TV-Sender ({} neu, {} aktualisiert",
+        items.len(),
+        out.added,
+        out.updated
+    );
+    if out.missing > 0 {
+        text.push_str(&format!(", {} nicht mehr gefunden", out.missing));
+    }
+    text.push(')');
+    text
 }

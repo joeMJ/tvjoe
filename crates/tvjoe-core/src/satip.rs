@@ -4,6 +4,7 @@
 //! Die Netstream liefert nur RTP über UDP an die Absenderadresse (kein RTP über TCP) und
 //! meldet sich nicht per SSDP; die Adresse wird eingetragen.
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpStream, UdpSocket};
 use std::time::{Duration, Instant};
@@ -18,6 +19,8 @@ pub struct Transponder {
     /// 'h' oder 'v'.
     pub pol: char,
     pub dvbs2: bool,
+    /// „qpsk“, „8psk“, „16apsk“.
+    pub mtype: &'static str,
     pub sr: u32,
     /// Coderate ohne Schrägstrich („23“ = 2/3, „34“ = 3/4).
     pub fec: &'static str,
@@ -26,14 +29,10 @@ pub struct Transponder {
 impl Transponder {
     /// Teil der SAT>IP-Adresse ab `src`.
     pub fn query(&self) -> String {
-        let (msys, mtype) = if self.dvbs2 {
-            ("dvbs2", "8psk")
-        } else {
-            ("dvbs", "qpsk")
-        };
+        let msys = if self.dvbs2 { "dvbs2" } else { "dvbs" };
         format!(
-            "src=1&freq={}&pol={}&ro=0.35&msys={msys}&mtype={mtype}&plts=on&sr={}&fec={}",
-            self.freq, self.pol, self.sr, self.fec
+            "src=1&freq={}&pol={}&ro=0.35&msys={msys}&mtype={}&plts=on&sr={}&fec={}",
+            self.freq, self.pol, self.mtype, self.sr, self.fec
         )
     }
 }
@@ -45,6 +44,7 @@ pub const CHECK_TRANSPONDERS: [Transponder; 4] = [
         freq: 11494,
         pol: 'h',
         dvbs2: true,
+        mtype: "8psk",
         sr: 22000,
         fec: "23",
     },
@@ -52,6 +52,7 @@ pub const CHECK_TRANSPONDERS: [Transponder; 4] = [
         freq: 11362,
         pol: 'h',
         dvbs2: true,
+        mtype: "8psk",
         sr: 22000,
         fec: "23",
     },
@@ -59,6 +60,7 @@ pub const CHECK_TRANSPONDERS: [Transponder; 4] = [
         freq: 11053,
         pol: 'h',
         dvbs2: true,
+        mtype: "8psk",
         sr: 22000,
         fec: "23",
     },
@@ -66,6 +68,7 @@ pub const CHECK_TRANSPONDERS: [Transponder; 4] = [
         freq: 11836,
         pol: 'h',
         dvbs2: false,
+        mtype: "qpsk",
         sr: 27500,
         fec: "34",
     },
@@ -376,6 +379,283 @@ fn count_packets(sock: &UdpSocket, listen: Duration) -> usize {
     n
 }
 
+// ---------------------------------------------------------------------------------------------
+// Suchlauf
+
+/// Ein gefundener Sender.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScannedService {
+    pub name: String,
+    pub provider: String,
+    pub onid: u16,
+    pub tsid: u16,
+    pub service_id: u16,
+    pub hd: bool,
+    pub radio: bool,
+    pub scrambled: bool,
+    pub tp: Transponder,
+    /// PAT, PMT, PCR und alle abspielbaren Spuren.
+    pub pids: Vec<u16>,
+}
+
+impl ScannedService {
+    /// SAT>IP-Adresse dieses Senders am Gerät `host`.
+    pub fn url(&self, host: &str) -> String {
+        let pids: Vec<String> = self.pids.iter().map(u16::to_string).collect();
+        format!(
+            "rtsp://{host}:{PORT}/?{}&pids={}",
+            self.tp.query(),
+            pids.join(",")
+        )
+    }
+
+    /// Kennung zum Wiedererkennen bei einem neuen Suchlauf.
+    pub fn key(&self) -> String {
+        format!("satip:{}:{}:{}", self.onid, self.tsid, self.service_id)
+    }
+}
+
+/// Fortschritt des Suchlaufs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanProgress {
+    pub done: usize,
+    pub total: usize,
+    pub services: usize,
+}
+
+/// Starttransponder (ARD, sendet die Netzwerktabelle mit allen Transpondern).
+const SEED: Transponder = CHECK_TRANSPONDERS[0];
+const ORBITAL_ASTRA: u16 = 192;
+
+/// Pakete einer Sitzung empfangen und an den Sammler geben, bis `done` erfüllt oder die Zeit
+/// um ist.
+fn collect(
+    sock: &UdpSocket,
+    limit: Duration,
+    wanted: &dyn Fn(u16) -> bool,
+    done: &dyn Fn(&crate::ts::SectionCollector) -> bool,
+) -> crate::ts::SectionCollector {
+    let mut col = crate::ts::SectionCollector::default();
+    sock.set_read_timeout(Some(Duration::from_millis(200))).ok();
+    let mut buf = [0u8; 2048];
+    let t = Instant::now();
+    let mut checked = Instant::now();
+    while t.elapsed() < limit {
+        if let Ok(n) = sock.recv(&mut buf) {
+            if n > 12 {
+                for p in buf[12..n].chunks(188) {
+                    col.push_packet(p, wanted);
+                }
+            }
+        }
+        if checked.elapsed() > Duration::from_millis(250) {
+            checked = Instant::now();
+            if done(&col) {
+                break;
+            }
+        }
+    }
+    col
+}
+
+/// Transponder von Astra 19,2° Ost aus der Netzwerktabelle des Starttransponders.
+pub fn transponders(host: &str) -> Result<Vec<Transponder>, String> {
+    let sock = bind_rtp()?;
+    let port = sock.local_addr().map_err(|e| e.to_string())?.port();
+    let s = Session::setup(host, &format!("{}&pids=0,16", SEED.query()), port)?;
+    s.play()?;
+    let col = collect(&sock, Duration::from_secs(15), &|pid| pid == 16, &|c| {
+        // Alle Abschnitte der eigenen NIT da? (letzte Abschnittsnummer erreicht)
+        let mut it = c.tables(0x40).peekable();
+        let Some(first) = it.peek() else { return false };
+        let last = first[7];
+        c.tables(0x40).count() > last as usize
+    });
+    s.teardown();
+    let mut out: Vec<Transponder> = Vec::new();
+    for sec in col.tables(0x40).chain(col.tables(0x41)) {
+        for d in crate::ts::parse_nit(sec) {
+            if d.orbital != ORBITAL_ASTRA || !d.east || d.freq == 0 {
+                continue;
+            }
+            let tp = Transponder {
+                freq: d.freq,
+                pol: d.pol,
+                dvbs2: d.dvbs2,
+                mtype: d.mtype,
+                sr: d.sr,
+                fec: d.fec,
+            };
+            if !out.iter().any(|x| x.freq == tp.freq && x.pol == tp.pol) {
+                out.push(tp);
+            }
+        }
+    }
+    out.sort_by_key(|t| (t.freq, t.pol));
+    if out.is_empty() {
+        return Err("Keine Transponder in der Netzwerktabelle gefunden.".into());
+    }
+    Ok(out)
+}
+
+/// Einen Transponder durchsuchen: PAT, SDT und alle PMTs lesen. `None`, wenn kein Empfang.
+fn scan_transponder(host: &str, tp: &Transponder) -> Result<Option<Vec<ScannedService>>, String> {
+    let sock = bind_rtp()?;
+    let port = sock.local_addr().map_err(|e| e.to_string())?.port();
+    let s = Session::setup(host, &format!("{}&pids=all", tp.query()), port)?;
+    let result = (|| {
+        s.play()?;
+        let col = collect(&sock, Duration::from_millis(1500), &|pid| pid == 0, &|c| {
+            c.tables(0x00).next().is_some()
+        });
+        // Ohne PAT nach 1,5 s: Empfang prüfen.
+        let mut col = if col.tables(0x00).next().is_none() {
+            let locked = s
+                .describe()
+                .ok()
+                .and_then(|(_, st)| st)
+                .is_some_and(|st| st.lock);
+            if !locked {
+                return Ok(None);
+            }
+            col
+        } else {
+            col
+        };
+        let pat: Vec<(u16, u16)> = col.tables(0x00).flat_map(crate::ts::parse_pat).collect();
+        let pmt_pids: Vec<u16> = pat.iter().map(|(_, p)| *p).collect();
+        let more = collect(
+            &sock,
+            Duration::from_secs(6),
+            &|pid| pid == 0 || pid == 17 || pmt_pids.contains(&pid),
+            &|c| {
+                let pmts = c.tables(0x02).count();
+                c.tables(0x42).next().is_some() && pmts >= pmt_pids.len()
+            },
+        );
+        col.sections.extend(more.sections);
+        let pmts: HashMap<u16, (u16, Vec<crate::ts::EsInfo>)> = col
+            .tables(0x02)
+            .filter_map(crate::ts::parse_pmt)
+            .map(|(prog, pcr, es)| (prog, (pcr, es)))
+            .collect();
+        let pmt_of: HashMap<u16, u16> = pat.iter().copied().collect();
+        let mut out = Vec::new();
+        for svc in col.tables(0x42).flat_map(crate::ts::parse_sdt) {
+            let radio = matches!(svc.service_type, 0x02 | 0x0a);
+            let tv = matches!(svc.service_type, 0x01 | 0x11 | 0x16 | 0x19 | 0x1f);
+            if !(tv || radio) || svc.name.is_empty() {
+                continue;
+            }
+            let Some(&pmt) = pmt_of.get(&svc.service_id) else {
+                continue;
+            };
+            let (pcr, es) = pmts
+                .get(&svc.service_id)
+                .cloned()
+                .unwrap_or((0x1fff, Vec::new()));
+            let mut pids = vec![0, pmt];
+            if pcr != 0x1fff {
+                pids.push(pcr);
+            }
+            pids.extend(es.iter().filter(|e| e.playable).map(|e| e.pid));
+            pids.sort_unstable();
+            pids.dedup();
+            let hd = matches!(svc.service_type, 0x19 | 0x1f)
+                || es.iter().any(|e| matches!(e.stream_type, 0x1b | 0x24));
+            out.push(ScannedService {
+                name: svc.name,
+                provider: svc.provider,
+                onid: svc.onid,
+                tsid: svc.tsid,
+                service_id: svc.service_id,
+                hd,
+                radio,
+                scrambled: svc.scrambled,
+                tp: *tp,
+                pids,
+            });
+        }
+        Ok(Some(out))
+    })();
+    s.teardown();
+    result
+}
+
+/// Suchlauf über alle Transponder mit `workers` Tunern parallel. Transponder ohne Empfang
+/// werden am Ende einmal wiederholt (anderer Tuner).
+pub fn scan(
+    host: &str,
+    workers: usize,
+    progress: &(dyn Fn(ScanProgress) + Sync),
+) -> Result<Vec<ScannedService>, String> {
+    let list = transponders(host)?;
+    let total = list.len();
+    let queue = std::sync::Mutex::new(list.into_iter().map(|t| (t, 0u8)).collect::<Vec<_>>());
+    let found = std::sync::Mutex::new(Vec::<ScannedService>::new());
+    let done = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..workers.max(1) {
+            scope.spawn(|| {
+                loop {
+                    let next = queue.lock().ok().and_then(|mut q| q.pop());
+                    let Some((tp, tries)) = next else { break };
+                    match scan_transponder(host, &tp) {
+                        Ok(Some(svcs)) => {
+                            found.lock().unwrap().extend(svcs);
+                        }
+                        Ok(None) | Err(_) if tries == 0 => {
+                            queue.lock().unwrap().insert(0, (tp, 1));
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    let d = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    let n = found.lock().map(|f| f.len()).unwrap_or(0);
+                    progress(ScanProgress {
+                        done: d,
+                        total,
+                        services: n,
+                    });
+                }
+            });
+        }
+    });
+    let mut out = found.into_inner().unwrap_or_default();
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.dedup_by(|a, b| a.key() == b.key());
+    Ok(out)
+}
+
+/// Frei empfangbare TV-Sender eines Suchlaufs für die SAT-Senderliste (ohne Radio, ohne
+/// verschlüsselte, ohne Platzhalternamen wie „.“ und ohne Testdienste „TEST_…“).
+pub fn to_channels(host: &str, services: &[ScannedService]) -> Vec<crate::ScannedChannel> {
+    services
+        .iter()
+        .filter(|s| {
+            !s.radio
+                && !s.scrambled
+                && s.name.chars().any(char::is_alphanumeric)
+                && !s.name.starts_with("TEST_")
+        })
+        .map(|s| crate::ScannedChannel {
+            key: s.key(),
+            name: s.name.clone(),
+            group: (!s.provider.is_empty()).then(|| s.provider.clone()),
+            stream: crate::Stream {
+                quality: Some(if s.hd {
+                    crate::Quality::P720
+                } else {
+                    crate::Quality::Sd
+                }),
+                kind: Some(crate::SourceKind::SatIp),
+                url: s.url(host),
+                max_bitrate: None,
+            },
+        })
+        .collect()
+}
+
 /// Ist unter Ubuntu die Firewall ufw eingeschaltet?
 pub fn ufw_active() -> bool {
     std::fs::read_to_string("/etc/ufw/ufw.conf")
@@ -429,6 +709,79 @@ mod tests {
                 .query()
                 .contains("msys=dvbs&mtype=qpsk")
         );
+    }
+
+    /// Echter Suchlauf: `TVJOE_TEST_SATIP=<Adresse> TVJOE_TEST_SATIP_TUNER=3 cargo test
+    /// -p tvjoe-core --release -- --ignored --nocapture echter_suchlauf` (belegt die Tuner).
+    #[test]
+    #[ignore]
+    fn echter_suchlauf() {
+        let Ok(host) = std::env::var("TVJOE_TEST_SATIP") else {
+            return;
+        };
+        let workers = std::env::var("TVJOE_TEST_SATIP_TUNER")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
+        let t = Instant::now();
+        let tps = transponders(&host).unwrap();
+        println!(
+            "{} Transponder in {:.1} s",
+            tps.len(),
+            t.elapsed().as_secs_f64()
+        );
+        let t = Instant::now();
+        let all = scan(&host, workers, &|p| {
+            if p.done % 10 == 0 || p.done == p.total {
+                println!(
+                    "  {}/{} Transponder, {} Sender",
+                    p.done, p.total, p.services
+                );
+            }
+        })
+        .unwrap();
+        let tv: Vec<_> = all.iter().filter(|s| !s.radio).collect();
+        let free: Vec<_> = tv.iter().filter(|s| !s.scrambled).collect();
+        println!(
+            "Suchlauf {:.0} s: {} Dienste, {} TV, davon {} frei, {} HD frei",
+            t.elapsed().as_secs_f64(),
+            all.len(),
+            tv.len(),
+            free.len(),
+            free.iter().filter(|s| s.hd).count()
+        );
+        for s in free.iter().filter(|s| s.hd).take(15) {
+            println!("  {} | {} | {}", s.name, s.provider, s.url(&host));
+        }
+        // Abgleich mit der Senderliste: ein zweiter Abgleich ändert keine Nummer.
+        let items = to_channels(&host, &all);
+        let mut lib = crate::Library::default();
+        let first = lib.sync_scanned("SAT>IP", "satip://test", &items);
+        let numbers: Vec<_> = lib
+            .channels
+            .iter()
+            .map(|c| (c.key.clone(), c.number))
+            .collect();
+        let second = lib.sync_scanned("SAT>IP", "satip://test", &items[1..]);
+        println!(
+            "Senderliste: {} übernommen, erneut: {} aktualisiert, {} fehlt",
+            first.added, second.updated, second.missing
+        );
+        assert_eq!(first.added, items.len());
+        assert_eq!(second.missing, 1);
+        let again: Vec<_> = lib
+            .channels
+            .iter()
+            .map(|c| (c.key.clone(), c.number))
+            .collect();
+        assert_eq!(numbers, again);
+        for c in lib.channels.iter().filter(|c| {
+            !c.name
+                .chars()
+                .all(|ch| ch.is_alphanumeric() || " .-+&'!()/".contains(ch))
+        }) {
+            println!("  ungewöhnlicher Name: {:?}", c.name);
+        }
     }
 
     /// Echtes Gerät: `TVJOE_TEST_SATIP=<Adresse> cargo test -p tvjoe-core -- --ignored

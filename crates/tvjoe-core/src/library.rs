@@ -170,6 +170,15 @@ pub struct ImportOutcome {
     pub missing: usize,
 }
 
+/// Ein Sender aus einem Suchlauf (SAT>IP), zum Abgleich mit der Bibliothek.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScannedChannel {
+    pub key: String,
+    pub name: String,
+    pub group: Option<String>,
+    pub stream: Stream,
+}
+
 /// Die Nummer ist schon bei einem anderen Sender vergeben.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NumberTaken(pub u64);
@@ -299,6 +308,70 @@ impl Library {
     fn alloc_id(&mut self) -> u64 {
         self.next_id += 1;
         self.next_id
+    }
+
+    /// Ergebnis eines Suchlaufs übernehmen: bekannte Sender (gleiche Kennung) behalten Nummer,
+    /// eigenen Namen, Favorit und Aktiv-Zustand und bekommen die neue Adresse; neue Sender
+    /// kommen ans Ende; nicht mehr gefundene werden als „fehlt“ markiert.
+    pub fn sync_scanned(
+        &mut self,
+        source_name: &str,
+        location: &str,
+        items: &[ScannedChannel],
+    ) -> ImportOutcome {
+        let source = match self.sources.iter().find(|s| s.location == location) {
+            Some(s) => s.id,
+            None => self.add_source(source_name, location),
+        };
+        let mut out = ImportOutcome::default();
+        let mut next_number = self
+            .channels
+            .iter()
+            .filter_map(|c| c.number)
+            .max()
+            .unwrap_or(0);
+        for it in items {
+            if let Some(ch) = self
+                .channels
+                .iter_mut()
+                .find(|c| c.source == source && c.key == it.key)
+            {
+                ch.name = it.name.clone();
+                ch.group = it.group.clone();
+                ch.streams = vec![it.stream.clone()];
+                ch.missing = false;
+                out.updated += 1;
+                continue;
+            }
+            next_number += 1;
+            let id = self.alloc_id();
+            self.channels.push(Channel {
+                id,
+                source,
+                key: it.key.clone(),
+                name: it.name.clone(),
+                custom_name: None,
+                tvg_id: None,
+                group: it.group.clone(),
+                custom_group: None,
+                logo: None,
+                epg_id: None,
+                number: Some(next_number),
+                favorite: false,
+                active: true,
+                radio: false,
+                missing: false,
+                streams: vec![it.stream.clone()],
+            });
+            out.added += 1;
+        }
+        for ch in self.channels.iter_mut().filter(|c| c.source == source) {
+            if !ch.missing && !items.iter().any(|i| i.key == ch.key) {
+                ch.missing = true;
+                out.missing += 1;
+            }
+        }
+        out
     }
 
     pub fn add_source(&mut self, name: &str, location: &str) -> u64 {

@@ -23,6 +23,11 @@ pub fn settings_path() -> Option<PathBuf> {
     config_dir().map(|d| d.join("settings.toml"))
 }
 
+/// Senderliste der SAT-Quelle (aus dem Suchlauf).
+pub fn satip_library_path() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("satip.toml"))
+}
+
 /// Zwischenspeicher der Jellyfin-Bibliothek.
 pub fn jellyfin_db() -> Option<PathBuf> {
     cache_dir().map(|d| d.join("jellyfin.sqlite"))
