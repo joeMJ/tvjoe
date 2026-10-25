@@ -1,11 +1,10 @@
 //! Programmraster: je Sender eine Zeile, die nächsten Stunden als Zeitleiste.
 //! Laufende Sendungen sind hervorgehoben; ein Klick schaltet auf den Sender um.
+//! Erscheint als Ebene im Hauptfenster oder, wenn der Platz nicht reicht, als eigenes Fenster.
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
-use gtk::glib;
 use tvjoe_core::epg;
 
 use crate::app::{App, hm};
@@ -14,9 +13,24 @@ use crate::app::{App, hm};
 const PPM: f64 = 5.0;
 const HOURS: i64 = 6;
 const NAME_WIDTH: i32 = 210;
+/// Mindestfläche (Namensspalte und rund zwei Stunden).
+const MIN_SIZE: (i32, i32) = (850, 500);
 
-thread_local! {
-    static OPEN: RefCell<Option<glib::WeakRef<adw::Window>>> = const { RefCell::new(None) };
+struct Grid {
+    title: String,
+    body: gtk::ScrolledWindow,
+}
+
+impl crate::layer::View for Grid {
+    fn title(&self) -> String {
+        self.title.clone()
+    }
+    fn min_size(&self) -> (i32, i32) {
+        MIN_SIZE
+    }
+    fn body(&self) -> gtk::Widget {
+        self.body.clone().upcast()
+    }
 }
 
 fn px(secs: i64) -> i32 {
@@ -38,12 +52,9 @@ pub fn open(app: &Rc<App>) {
     open_window(app);
 }
 
-/// Öffnet das Raster und gibt das Fenster zurück (Selbstprobe).
-pub fn open_window(app: &Rc<App>) -> Option<adw::Window> {
-    if let Some(w) = OPEN.with(|o| o.borrow().as_ref().and_then(|w| w.upgrade())) {
-        w.present();
-        return Some(w);
-    }
+/// Öffnet das Raster (jedes Mal neu, zur aktuellen Uhrzeit) und gibt das Fenster zurück, in
+/// dem es erscheint (Selbstprobe).
+pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
     let Some(guide) = app.guide() else {
         let d = adw::AlertDialog::new(
             Some("Kein Programm geladen"),
@@ -56,6 +67,8 @@ pub fn open_window(app: &Rc<App>) -> Option<adw::Window> {
         return None;
     };
 
+    // Schwacher Verweis auf die Ansicht, gesetzt nach ihrem Aufbau.
+    let me_slot: Rc<std::cell::OnceCell<Weak<Grid>>> = Rc::new(std::cell::OnceCell::new());
     let now = epg::now();
     let from = now - now.rem_euclid(1800);
     let to = from + HOURS * 3600;
@@ -146,9 +159,14 @@ pub fn open_window(app: &Rc<App>) -> Option<adw::Window> {
             button.set_tooltip_text(Some(&tip));
             let id = ch.id;
             let weak = Rc::downgrade(app);
+            let me = me_slot.clone();
             button.connect_clicked(move |_| {
                 if let Some(app) = weak.upgrade() {
                     app.play_channel(id);
+                    if let Some(view) = me.get().and_then(Weak::upgrade) {
+                        let view: Rc<dyn crate::layer::View> = view;
+                        crate::layer::close_if_layer(&app, &view);
+                    }
                 }
             });
             line.append(&fixed(&button, width));
@@ -164,30 +182,13 @@ pub fn open_window(app: &Rc<App>) -> Option<adw::Window> {
         .vexpand(true)
         .child(&rows)
         .build();
-    let view = adw::ToolbarView::new();
-    view.add_top_bar(
-        &adw::HeaderBar::builder()
-            .title_widget(&adw::WindowTitle::new(
-                "Programm",
-                &format!("{} bis {} Uhr", hm(from), hm(to)),
-            ))
-            .build(),
-    );
-    view.set_content(Some(&scroller));
-    let win = adw::Window::builder()
-        .title("Programm – tvjoe")
-        .default_width(1400)
-        .default_height(820)
-        .transient_for(&app.window)
-        .content(&view)
-        .build();
-    OPEN.with(|o| *o.borrow_mut() = Some(win.downgrade()));
-    // Beim Schließen vergessen: das nächste Öffnen baut das Raster neu (aktuelle Uhrzeit)
-    // und holt kein zerstörtes Fenster zurück.
-    win.connect_close_request(|_| {
-        OPEN.with(|o| o.borrow_mut().take());
-        glib::Propagation::Proceed
+    let grid = Rc::new(Grid {
+        title: format!("Programm {} bis {} Uhr", hm(from), hm(to)),
+        body: scroller,
     });
-    win.present();
-    Some(win)
+    // Die Knöpfe halten die Ansicht nur schwach (zum Schließen nach dem Umschalten).
+    let _ = me_slot.set(Rc::downgrade(&grid));
+    let view: Rc<dyn crate::layer::View> = grid;
+    crate::layer::open(app, view.clone());
+    crate::layer::window_of(app, &view)
 }

@@ -23,6 +23,9 @@ use crate::osd::{
 use crate::player::{Player, PlayerEvent};
 use crate::trace;
 
+/// Mindestgröße des Bildbereichs für die Senderliste über dem Bild (sonst eigenes Fenster).
+const SIDEBAR_MIN: (i32, i32) = (600, 360);
+
 fn usable(c: &Channel) -> bool {
     c.active && !c.missing && !c.streams.is_empty()
 }
@@ -56,10 +59,19 @@ pub fn hm(ts: i64) -> String {
 pub struct App {
     pub window: adw::ApplicationWindow,
     split: adw::OverlaySplitView,
+    /// Behälter der Senderliste über dem Bild und die Liste selbst (wandert bei zu kleinem
+    /// Fenster in ein eigenes Fenster).
+    sidebar: gtk::Box,
+    list_scroller: gtk::ScrolledWindow,
+    list_window: RefCell<Option<adw::Window>>,
     content_bar: adw::ToolbarView,
     list: gtk::ListBox,
     rows: RefCell<Vec<Row>>,
     osd: Rc<Osd>,
+    /// Ebene über dem Bild (Programm, Mediathek, Verwaltung).
+    pub layer: Rc<crate::layer::Layer>,
+    /// Bildbereich (für die Mindestgröße der Ebenen).
+    video: gtk::Overlay,
     /// Ganzflächige Info (Taste I).
     info: Rc<InfoPanel>,
     /// Meldungsstreifen oben (Lautstärke, Ton, Qualität, Störungen).
@@ -132,9 +144,11 @@ impl App {
             ))),
         }
         overlay.add_overlay(&osd.root);
-        overlay.add_overlay(&msg.root);
         let info = InfoPanel::new();
         overlay.add_overlay(&info.root);
+        let layer = crate::layer::Layer::new();
+        overlay.add_overlay(&layer.root);
+        overlay.add_overlay(&msg.root);
 
         let header = adw::HeaderBar::new();
         let sidebar_button = gtk::ToggleButton::builder()
@@ -195,10 +209,15 @@ impl App {
         let app = Rc::new(Self {
             window,
             split,
+            sidebar: sidebar.clone(),
+            list_scroller: scroller.clone(),
+            list_window: RefCell::new(None),
             content_bar,
             list,
             rows: RefCell::new(Vec::new()),
             osd,
+            layer,
+            video: overlay.clone(),
             info,
             msg,
             player,
@@ -241,6 +260,33 @@ impl App {
                 crate::grid::open(&app);
             }
         });
+        crate::layer::connect(&app);
+        // Senderliste: passt sie nicht mehr sinnvoll über das Bild, als eigenes Fenster.
+        let weak = Rc::downgrade(&app);
+        app.split.connect_show_sidebar_notify(move |split| {
+            let Some(app) = weak.upgrade() else { return };
+            if split.shows_sidebar() && !app.sidebar_fits() {
+                split.set_show_sidebar(false);
+                app.open_list_window();
+            }
+        });
+        // Verkleinert: eine offene Ebene, die nicht mehr passt, wandert in ein Fenster.
+        let check = {
+            let weak = Rc::downgrade(&app);
+            move || {
+                let weak = weak.clone();
+                glib::idle_add_local_once(move || {
+                    if let Some(app) = weak.upgrade() {
+                        crate::layer::check_size(&app);
+                    }
+                });
+            }
+        };
+        let c = check.clone();
+        app.window.connect_default_width_notify(move |_| c());
+        let c = check.clone();
+        app.window.connect_default_height_notify(move |_| c());
+        app.window.connect_maximized_notify(move |_| check());
         let weak = Rc::downgrade(&app);
         info_button.connect_clicked(move |_| {
             if let Some(app) = weak.upgrade() {
@@ -267,6 +313,24 @@ impl App {
             let _ = &keep;
         });
         app
+    }
+
+    /// Größe des Bildbereichs (logische Pixel).
+    pub fn video_area_size(&self) -> (i32, i32) {
+        (self.video.width(), self.video.height())
+    }
+
+    /// Ebene offen: Bild nicht zeichnen (schwarz, Ton läuft weiter), Einblendungen und
+    /// Senderliste weg. Geschlossen: Bild wieder zeichnen.
+    pub fn set_layer_active(&self, on: bool) {
+        if let Some(p) = &self.player {
+            p.set_drawing(!on);
+        }
+        if on {
+            self.osd.hide();
+            self.info.hide();
+            self.split.set_show_sidebar(false);
+        }
     }
 
     pub fn guide(&self) -> Option<Rc<Guide>> {
@@ -623,23 +687,30 @@ impl App {
         let click = gtk::GestureClick::new();
         let w = self.window.clone();
         let weak = Rc::downgrade(self);
-        click.connect_pressed(move |_, n, _, _| match n {
-            1 => {
-                if let Some(app) = weak.upgrade() {
-                    app.show_info();
-                }
+        click.connect_pressed(move |_, n, _, _| {
+            let Some(app) = weak.upgrade() else { return };
+            // Klicks in einer offenen Ebene gehören ihr.
+            if app.layer.is_open() {
+                return;
             }
-            2 => w.set_fullscreened(!w.is_fullscreen()),
-            _ => {}
+            match n {
+                1 => app.show_info(),
+                2 => w.set_fullscreened(!w.is_fullscreen()),
+                _ => {}
+            }
         });
         overlay.add_controller(click);
 
         let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
         let weak = Rc::downgrade(self);
         scroll.connect_scroll(move |_, _, dy| {
-            if let Some(app) = weak.upgrade() {
-                app.change_volume(if dy < 0.0 { 5 } else { -5 });
+            let Some(app) = weak.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            if app.layer.is_open() {
+                return glib::Propagation::Proceed;
             }
+            app.change_volume(if dy < 0.0 { 5 } else { -5 });
             glib::Propagation::Stop
         });
         overlay.add_controller(scroll);
@@ -1226,6 +1297,42 @@ impl App {
         }
     }
 
+    /// Reicht der Bildbereich für die Senderliste über dem Bild? (Vor dem ersten Anzeigen ja.)
+    fn sidebar_fits(&self) -> bool {
+        let (w, h) = self.video_area_size();
+        (w == 0 && h == 0) || (w >= SIDEBAR_MIN.0 && h >= SIDEBAR_MIN.1)
+    }
+
+    /// Senderliste als eigenes Fenster (Hauptfenster zu klein); beim Schließen zurück.
+    fn open_list_window(self: &Rc<Self>) {
+        if let Some(w) = self.list_window.borrow().as_ref() {
+            w.present();
+            return;
+        }
+        self.sidebar.remove(&self.list_scroller);
+        let tv = adw::ToolbarView::new();
+        tv.add_top_bar(&adw::HeaderBar::new());
+        tv.set_content(Some(&self.list_scroller));
+        tv.add_css_class("tvjoe-sidebar");
+        let win = adw::Window::builder()
+            .title("Sender – tvjoe")
+            .default_width(360)
+            .default_height(640)
+            .content(&tv)
+            .build();
+        let weak = Rc::downgrade(self);
+        win.connect_close_request(move |_| {
+            if let Some(app) = weak.upgrade() {
+                tv.set_content(None::<&gtk::Widget>);
+                app.sidebar.append(&app.list_scroller);
+                app.list_window.borrow_mut().take();
+            }
+            glib::Propagation::Proceed
+        });
+        *self.list_window.borrow_mut() = Some(win.clone());
+        win.present();
+    }
+
     pub fn toggle_sidebar(&self) {
         self.split.set_show_sidebar(!self.split.shows_sidebar());
     }
@@ -1322,6 +1429,16 @@ impl App {
     fn on_key(self: &Rc<Self>, key: gdk::Key, state: gdk::ModifierType) -> glib::Propagation {
         use gdk::Key;
         let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
+        // Offene Ebene: Tasten gehören ihr (Pfeile, Enter, Suche); Esc führt zurück/schließt.
+        if self.layer.is_open() {
+            if key == Key::Escape {
+                crate::layer::back_or_close(self);
+                return glib::Propagation::Stop;
+            }
+            if !(ctrl && key.to_lower() == Key::q) {
+                return glib::Propagation::Proceed;
+            }
+        }
         if let Some(d) = key.to_unicode().and_then(|c| c.to_digit(10)) {
             if !ctrl {
                 self.digit(d);

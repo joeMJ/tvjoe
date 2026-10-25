@@ -45,24 +45,28 @@ pub fn from_file(mgr: &Rc<Manager>) {
         .default_filter(&filter)
         .build();
     let m = mgr.clone();
-    dialog.open(Some(&mgr.win), gio::Cancellable::NONE, move |res| {
-        let Ok(file) = res else { return };
-        let Some(path) = file.path() else { return };
-        match std::fs::read(&path) {
-            Ok(bytes) => {
-                let location = std::fs::canonicalize(&path)
-                    .unwrap_or(path.clone())
-                    .to_string_lossy()
-                    .into_owned();
-                let name = path
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| location.clone());
-                preview(&m, &bytes, location, name);
+    dialog.open(
+        mgr.parent_window().as_ref(),
+        gio::Cancellable::NONE,
+        move |res| {
+            let Ok(file) = res else { return };
+            let Some(path) = file.path() else { return };
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    let location = std::fs::canonicalize(&path)
+                        .unwrap_or(path.clone())
+                        .to_string_lossy()
+                        .into_owned();
+                    let name = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| location.clone());
+                    preview(&m, &bytes, location, name);
+                }
+                Err(e) => m.toast(&format!("{}: {e}", path.display())),
             }
-            Err(e) => m.toast(&format!("{}: {e}", path.display())),
-        }
-    });
+        },
+    );
 }
 
 pub fn from_url(mgr: &Rc<Manager>) {
@@ -109,12 +113,16 @@ pub fn from_url(mgr: &Rc<Manager>) {
             }
         });
     });
-    d.present(Some(&mgr.win));
+    d.present(Some(&mgr.body));
 }
 
 pub struct Preview {
     mgr: Rc<Manager>,
-    pub win: adw::Window,
+    title: String,
+    /// Inhalt (Ebene oder Fenster, siehe `layer`).
+    pub body: gtk::Widget,
+    header_start: gtk::Widget,
+    header_end: gtk::Widget,
     playlist: Playlist,
     location: String,
     source_name: gtk::Entry,
@@ -136,7 +144,7 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
         Err(e) => {
             let d = adw::AlertDialog::new(Some("Liste nicht übernehmbar"), Some(&e.to_string()));
             d.add_response("ok", "OK");
-            d.present(Some(&mgr.win));
+            d.present(Some(&mgr.body));
             return None;
         }
     };
@@ -148,19 +156,10 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
         .find(|s| s.location == location)
         .map(|s| s.name.clone());
 
-    let win = adw::Window::builder()
-        .title(format!("Importieren – {name}"))
-        .default_width(1180)
-        .default_height(780)
-        .modal(true)
-        .transient_for(&mgr.win)
-        .build();
-    let header = adw::HeaderBar::new();
+    let title = format!("Importieren – {name}");
     let cancel_button = gtk::Button::with_label("Abbrechen");
     let import_button = gtk::Button::with_label("Übernehmen");
     import_button.add_css_class("suggested-action");
-    header.pack_start(&cancel_button);
-    header.pack_end(&import_button);
 
     let errors = playlist
         .findings
@@ -315,14 +314,12 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
     let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
     body.append(&top);
     body.append(&scroller);
-    let view = adw::ToolbarView::new();
-    view.add_top_bar(&header);
-    view.set_content(Some(&body));
-    win.set_content(Some(&view));
-
     let p = Rc::new(Preview {
         mgr: mgr.clone(),
-        win,
+        title,
+        body: body.upcast(),
+        header_start: cancel_button.clone().upcast(),
+        header_end: import_button.clone().upcast(),
         playlist,
         location,
         source_name,
@@ -376,7 +373,7 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
     let w = Rc::downgrade(&p);
     cancel_button.connect_clicked(move |_| {
         if let Some(p) = w.upgrade() {
-            p.win.close();
+            crate::layer::close_body(&p.mgr.app, &p.body);
         }
     });
     let w = Rc::downgrade(&p);
@@ -385,18 +382,9 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
             p.apply();
         }
     });
-    let c = p.cancel.clone();
-    p.win.connect_close_request(move |_| {
-        c.store(true, Ordering::Relaxed);
-        glib::Propagation::Proceed
-    });
-    // Die Signale halten nur schwache Referenzen; das Fenster hält die Vorschau bis zum Schließen.
-    let keep = p.clone();
-    p.win.connect_destroy(move |_| {
-        let _ = &keep;
-    });
+    // Die Signale halten nur schwache Referenzen; Ebene bzw. Fenster halten die Vorschau.
     p.start_probes(stop);
-    p.win.present();
+    crate::layer::open(&mgr.app, p.clone());
     Some(p)
 }
 
@@ -568,6 +556,29 @@ impl Preview {
                 }
             ));
         }
-        self.win.close();
+        crate::layer::close_body(&self.mgr.app, &self.body);
+    }
+}
+
+impl crate::layer::View for Preview {
+    fn title(&self) -> String {
+        self.title.clone()
+    }
+    fn min_size(&self) -> (i32, i32) {
+        (1000, 560)
+    }
+    fn body(&self) -> gtk::Widget {
+        self.body.clone()
+    }
+    fn header_start(&self) -> Option<gtk::Widget> {
+        Some(self.header_start.clone())
+    }
+    fn header_end(&self) -> Option<gtk::Widget> {
+        Some(self.header_end.clone())
+    }
+    /// Abbrechen oder Übernommen: Prüfungen beenden, zurück zur Verwaltung.
+    fn closed(&self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        crate::manage::open(&self.mgr.app);
     }
 }

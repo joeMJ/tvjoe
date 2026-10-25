@@ -126,6 +126,18 @@
   font-feature-settings: "tnum";
 }
 
+/* Ebene über dem Bild (Programm, Mediathek, Verwaltung): schwarzer Grund, das Bild wird
+   darunter nicht gezeichnet. */
+.tvjoe-layer {
+  background-color: #000000;
+}
+
+.tvjoe-layer-header {
+  background-color: #1e1e1e;
+  padding: 6px 10px;
+  min-height: 46px;
+}
+
 /* Programmraster */
 .tvjoe-prog {
   background-color: #2b2b2b;

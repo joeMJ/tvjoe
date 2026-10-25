@@ -9,10 +9,22 @@ use tvjoe_core::{Fallback, Quality, Strategy, VERSION, epg, paths, update};
 use crate::app::App;
 
 pub fn open(app: &Rc<App>) {
+    open_at(app, None, &app.window);
+}
+
+/// Ein Einstellungsfenster mit Reitern; `page` wählt den Reiter (z. B. „mediathek“ vom Zahnrad
+/// der Mediathek), `parent` ist das Fenster, über dem es erscheint.
+pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>) {
     let s = app.settings().clone();
     let dialog = adw::PreferencesDialog::new();
     dialog.set_title("Einstellungen");
-    let page = adw::PreferencesPage::new();
+    let new_page = |name: &str, title: &str, icon: &str| {
+        adw::PreferencesPage::builder()
+            .name(name)
+            .title(title)
+            .icon_name(icon)
+            .build()
+    };
 
     let control = adw::PreferencesGroup::builder().title("Bedienung").build();
     let pause = adw::SpinRow::with_range(300.0, 5000.0, 100.0);
@@ -147,11 +159,17 @@ pub fn open(app: &Rc<App>) {
     updates.add(&check);
     updates.add(&now_row);
 
-    page.add(&control);
-    page.add(&osd);
-    page.add(&quality);
-    page.add(&guide);
-    page.add(&updates);
+    let p_control = new_page("bedienung", "Bedienung", "input-keyboard-symbolic");
+    p_control.add(&control);
+    let p_osd = new_page("anzeige", "Senderanzeige", "video-display-symbolic");
+    p_osd.add(&osd);
+    let p_quality = new_page("qualitaet", "Qualität", "emblem-photos-symbolic");
+    p_quality.add(&quality);
+    let p_guide = new_page("programm", "Programm", "x-office-calendar-symbolic");
+    p_guide.add(&guide);
+    let (p_media, apply_media) = crate::mediathek::prefs_page(app);
+    let p_updates = new_page("updates", "Updates", "software-update-available-symbolic");
+    p_updates.add(&updates);
 
     // Am Ende: Über tvjoe (Version, Lizenzen, Verweis auf das README bei GitHub).
     let about = adw::PreferencesGroup::new();
@@ -162,10 +180,17 @@ pub fn open(app: &Rc<App>) {
         .build();
     about_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
     about.add(&about_row);
-    page.add(&about);
-    dialog.add(&page);
-    let parent = dialog.clone();
-    about_row.connect_activated(move |_| about_dialog().present(Some(&parent)));
+    p_updates.add(&about);
+    for p in [
+        &p_control, &p_osd, &p_quality, &p_guide, &p_media, &p_updates,
+    ] {
+        dialog.add(p);
+    }
+    if let Some(name) = page {
+        dialog.set_visible_page_name(name);
+    }
+    let about_parent = dialog.clone();
+    about_row.connect_activated(move |_| about_dialog().present(Some(&about_parent)));
 
     let weak = Rc::downgrade(app);
     now_button.connect_clicked(move |_| {
@@ -205,12 +230,14 @@ pub fn open(app: &Rc<App>) {
             s.osd_epg = osd_epg.is_active();
             s.osd_description = osd_description.is_active();
             s.update_check = check.is_active();
+            apply_media(&mut s);
         }
         app.save_settings();
         app.reapply_quality();
         app.update_inhibit();
+        crate::mediathek::settings_changed();
     });
-    dialog.present(Some(&app.window));
+    dialog.present(Some(parent));
 }
 
 const README_URL: &str = "https://github.com/joeMJ/tvjoe#readme";

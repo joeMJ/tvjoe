@@ -200,6 +200,96 @@ pub fn resume_position(film: &Film) -> Option<f64> {
         .map(|(p, _)| p)
 }
 
+/// Reiter „Mediathek“ im Einstellungsfenster: Filmliste, Audiodeskription, Sender einzeln.
+/// Gibt die Seite und eine Funktion zurück, die die Werte beim Schließen übernimmt.
+pub fn prefs_page(
+    app: &App,
+) -> (
+    adw::PreferencesPage,
+    impl Fn(&mut tvjoe_core::Settings) + 'static,
+) {
+    let s = app.settings().clone();
+    let page = adw::PreferencesPage::builder()
+        .name("mediathek")
+        .title("Mediathek")
+        .icon_name("folder-videos-symbolic")
+        .build();
+
+    let list = adw::PreferencesGroup::builder()
+        .title("Filmliste")
+        .description(
+            "Von MediathekView, im Hintergrund geladen, sobald die Mediathek einmal geöffnet wurde",
+        )
+        .build();
+    let hours = adw::SpinRow::with_range(f64::from(MIN_REFRESH_HOURS), 168.0, 1.0);
+    hours.set_title("Neu laden nach");
+    hours.set_subtitle("Stunden; höchstens einmal täglich");
+    hours.set_value(f64::from(s.mediathek_refresh_hours.max(MIN_REFRESH_HOURS)));
+    let days = adw::SpinRow::with_range(1.0, 90.0, 1.0);
+    days.set_title("Beiträge behalten");
+    days.set_subtitle("Tage; gilt ab der nächsten Aktualisierung");
+    days.set_value(f64::from(s.mediathek_days.max(1)));
+    list.add(&hours);
+    list.add(&days);
+
+    let view = adw::PreferencesGroup::builder().title("Anzeige").build();
+    let hide_ad = adw::SwitchRow::builder()
+        .title("Fassungen mit Audiodeskription ausblenden")
+        .active(s.mediathek_hide_ad)
+        .build();
+    view.add(&hide_ad);
+
+    let senders = adw::PreferencesGroup::builder()
+        .title("Sender")
+        .description(
+            "Ausgeschaltete Sender erscheinen weder in der Senderleiste noch in Listen und Suche",
+        )
+        .build();
+    let mut names: Vec<String> =
+        with_progress_db(|db| Some(db.senders().into_iter().map(|(n, _)| n).collect()))
+            .unwrap_or_default();
+    // Ausgeblendete, die gerade nicht in der Filmliste stehen, trotzdem anbieten.
+    for h in &s.mediathek_hidden {
+        if !names.contains(h) {
+            names.push(h.clone());
+        }
+    }
+    names.sort_by_key(|n| n.to_lowercase());
+    let rows: Vec<(String, adw::SwitchRow)> = names
+        .into_iter()
+        .map(|n| {
+            let row = adw::SwitchRow::builder()
+                .title(&n)
+                .active(!s.mediathek_hidden.contains(&n))
+                .build();
+            senders.add(&row);
+            (n, row)
+        })
+        .collect();
+
+    page.add(&list);
+    page.add(&view);
+    page.add(&senders);
+    let apply = move |s: &mut tvjoe_core::Settings| {
+        s.mediathek_refresh_hours = hours.value() as u32;
+        s.mediathek_days = days.value() as u32;
+        s.mediathek_hide_ad = hide_ad.is_active();
+        s.mediathek_hidden = rows
+            .iter()
+            .filter(|(_, r)| !r.is_active())
+            .map(|(n, _)| n.clone())
+            .collect();
+    };
+    (page, apply)
+}
+
+/// Nach geänderten Einstellungen: eine offene Mediathek neu aufbauen.
+pub fn settings_changed() {
+    if let Some(w) = current() {
+        w.rebuild();
+    }
+}
+
 fn current() -> Option<Rc<MtWindow>> {
     WINDOW.with(|w| w.borrow().clone())
 }
@@ -332,7 +422,11 @@ pub fn sender_logo(app: &App, sender: &str) -> Option<PathBuf> {
 
 struct MtWindow {
     app: std::rc::Weak<App>,
-    win: adw::Window,
+    /// Inhalt und Kopfzeile (Ebene oder Fenster, siehe `layer`).
+    body: gtk::Widget,
+    header_start: gtk::Box,
+    header_center: gtk::Widget,
+    header_end: gtk::Box,
     tabs: [gtk::ToggleButton; 3],
     search: gtk::SearchEntry,
     search_bar: gtk::Box,
@@ -341,7 +435,8 @@ struct MtWindow {
     stack: gtk::Stack,
     empty: adw::StatusPage,
     flow: gtk::FlowBox,
-    back: gtk::Button,
+    /// Filminfo bzw. Serienseite offen (Knopf links oben führt zurück).
+    detail_open: Cell<bool>,
     /// Sortierung der Serien („Neueste“ / „A–Z“), nur im Reiter „Episoden“.
     sort_box: gtk::Box,
     mode: Cell<Mode>,
@@ -355,13 +450,13 @@ struct MtWindow {
 
 pub fn open(app: &Rc<App>) {
     if let Some(w) = current() {
-        w.win.present();
+        crate::layer::open(app, w);
         return;
     }
     let w = MtWindow::new(app);
     WINDOW.with(|slot| *slot.borrow_mut() = Some(w.clone()));
     w.rebuild();
-    w.win.present();
+    crate::layer::open(app, w.clone());
     start_background(app);
     // Leere Datenbank: erstes Laden (mit denselben Grenzen wie im Hintergrund).
     if w.db.borrow().as_ref().is_none_or(|db| db.count() == 0) {
@@ -372,7 +467,8 @@ pub fn open(app: &Rc<App>) {
 /// Selbstprobe: Fenster öffnen und zurückgeben.
 pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
     open(app);
-    current().map(|w| w.win.clone().upcast())
+    let w: Rc<dyn crate::layer::View> = current()?;
+    crate::layer::window_of(app, &w)
 }
 
 /// Selbstprobe: Reiter wählen (0 Episoden, 1 Filme, 2 Suche), optional Suchtext.
@@ -383,15 +479,18 @@ pub fn probe_tab(index: usize, search: Option<&str>) -> Option<gtk::Window> {
         w.search.set_text(text);
         w.reload();
     }
-    Some(w.win.clone().upcast())
+    let app = w.app.upgrade()?;
+    let v: Rc<dyn crate::layer::View> = w;
+    crate::layer::window_of(&app, &v)
 }
 
 /// Selbstprobe: erste Kachel abspielen.
 pub fn probe_play_first(app: &Rc<App>) {
-    let film = current().and_then(|w| w.films.borrow().first().map(|g| g.main().clone()));
+    let Some(w) = current() else { return };
+    let film = w.films.borrow().first().map(|g| g.main().clone());
     if let Some(film) = film {
         app.play_film(&film, None);
-        app.window.present();
+        w.after_play(app);
     }
 }
 
@@ -410,6 +509,41 @@ fn minutes(secs: i64) -> String {
     format!("{} Min.", (secs + 30) / 60)
 }
 
+impl crate::layer::View for MtWindow {
+    fn title(&self) -> String {
+        "Mediathek".to_string()
+    }
+    fn min_size(&self) -> (i32, i32) {
+        MIN_SIZE
+    }
+    fn body(&self) -> gtk::Widget {
+        self.body.clone()
+    }
+    fn header_start(&self) -> Option<gtk::Widget> {
+        Some(self.header_start.clone().upcast())
+    }
+    fn header_center(&self) -> Option<gtk::Widget> {
+        Some(self.header_center.clone())
+    }
+    fn header_end(&self) -> Option<gtk::Widget> {
+        Some(self.header_end.clone().upcast())
+    }
+    fn back(&self) -> bool {
+        if self.detail_open.get() {
+            self.close_detail();
+            true
+        } else {
+            false
+        }
+    }
+    fn can_go_back(&self) -> bool {
+        self.detail_open.get()
+    }
+}
+
+/// Mindestfläche (zwei Kachelspalten, Kopfzeile mit Reitern und Sortierung).
+const MIN_SIZE: (i32, i32) = (900, 600);
+
 impl MtWindow {
     fn new(app: &Rc<App>) -> Rc<Self> {
         let tab = |label: &str| gtk::ToggleButton::builder().label(label).build();
@@ -422,19 +556,13 @@ impl MtWindow {
             tab_box.append(t);
         }
         let stand = gtk::Label::builder().css_classes(["tvjoe-sub"]).build();
-        let header = adw::HeaderBar::builder().title_widget(&tab_box).build();
-        let back = gtk::Button::builder()
-            .icon_name("go-previous-symbolic")
-            .tooltip_text("Zurück zur Übersicht (Esc)")
-            .visible(false)
-            .build();
-        header.pack_start(&back);
-        header.pack_start(&stand);
+        let header_start = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        header_start.append(&stand);
+        let header_end = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
             .tooltip_text("Einstellungen der Mediathek")
             .build();
-        header.pack_end(&prefs_button);
 
         let search = gtk::SearchEntry::builder()
             .placeholder_text("Titel, Thema oder Beschreibung")
@@ -507,21 +635,11 @@ impl MtWindow {
             .build();
         sort_box.append(&newest);
         sort_box.append(&az);
-        header.pack_end(&sort_box);
+        header_end.append(&sort_box);
+        header_end.append(&prefs_button);
         body.append(&sender_scroller);
         body.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         body.append(&stack);
-
-        let view = adw::ToolbarView::new();
-        view.add_top_bar(&header);
-        view.set_content(Some(&body));
-        let win = adw::Window::builder()
-            .title("Mediathek – tvjoe")
-            .default_width(1400)
-            .default_height(860)
-            .hide_on_close(true)
-            .content(&view)
-            .build();
 
         let thumbs = paths::thumb_cache_dir().map(Thumbs::spawn);
         let (thumbs, results) = match thumbs {
@@ -536,7 +654,10 @@ impl MtWindow {
 
         let w = Rc::new(Self {
             app: Rc::downgrade(app),
-            win,
+            body: body.upcast(),
+            header_start,
+            header_center: tab_box.upcast(),
+            header_end,
             tabs,
             search,
             search_bar,
@@ -545,7 +666,7 @@ impl MtWindow {
             stack,
             empty,
             flow,
-            back,
+            detail_open: Cell::new(false),
             sort_box,
             mode: Cell::new(Mode::Episodes),
             sender: RefCell::new(None),
@@ -609,25 +730,6 @@ impl MtWindow {
                 None => {}
             }
         });
-        let weak = Rc::downgrade(&w);
-        w.back.connect_clicked(move |_| {
-            if let Some(w) = weak.upgrade() {
-                w.close_detail();
-            }
-        });
-        let keys = gtk::EventControllerKey::new();
-        let weak = Rc::downgrade(&w);
-        keys.connect_key_pressed(move |_, key, _, _| {
-            let Some(w) = weak.upgrade() else {
-                return glib::Propagation::Proceed;
-            };
-            if key == gtk::gdk::Key::Escape && w.back.is_visible() {
-                w.close_detail();
-                return glib::Propagation::Stop;
-            }
-            glib::Propagation::Proceed
-        });
-        w.win.add_controller(keys);
         let weak = Rc::downgrade(&w);
         az.connect_toggled(move |b| {
             let Some(w) = weak.upgrade() else { return };
@@ -828,7 +930,7 @@ impl MtWindow {
                     resume_position(film)
                 };
                 app.play_film(film, start);
-                app.window.present();
+                w.after_play(&app);
             });
         }
         let desc = text(main.description.trim(), "tvjoe-mt-detail-desc");
@@ -852,7 +954,7 @@ impl MtWindow {
             .build();
         self.stack.add_named(&scroller, Some("detail"));
         self.stack.set_visible_child_name("detail");
-        self.back.set_visible(true);
+        self.set_detail(true);
         if resume.is_visible() {
             resume.grab_focus();
         } else {
@@ -1092,7 +1194,7 @@ impl MtWindow {
                     })
                     .collect();
                 app.play_series(&first, start, rest);
-                app.window.present();
+                w.after_play(&app);
             }
         };
         let play_from = Rc::new(play_from);
@@ -1113,104 +1215,43 @@ impl MtWindow {
             .build();
         self.stack.add_named(&scroller, Some("detail"));
         self.stack.set_visible_child_name("detail");
-        self.back.set_visible(true);
+        self.set_detail(true);
         resume.grab_focus();
     }
 
     /// Zurück zur Übersicht (an dieselbe Stelle).
     fn close_detail(&self) {
-        self.back.set_visible(false);
+        self.set_detail(false);
         self.stack.set_visible_child_name("grid");
         if let Some(old) = self.stack.child_by_name("detail") {
             self.stack.remove(&old);
         }
     }
 
-    /// Einstellungen der Mediathek (Zahnrad): Filmliste, Audiodeskription, Sender einzeln.
-    fn open_prefs(self: &Rc<Self>) {
-        let Some(app) = self.app.upgrade() else {
-            return;
-        };
-        let s = app.settings().clone();
-        let dialog = adw::PreferencesDialog::new();
-        dialog.set_title("Mediathek");
-        let page = adw::PreferencesPage::new();
-
-        let list = adw::PreferencesGroup::builder()
-            .title("Filmliste")
-            .description("Von MediathekView, im Hintergrund geladen, sobald die Mediathek einmal geöffnet wurde")
-            .build();
-        let hours = adw::SpinRow::with_range(f64::from(MIN_REFRESH_HOURS), 168.0, 1.0);
-        hours.set_title("Neu laden nach");
-        hours.set_subtitle("Stunden; höchstens einmal täglich");
-        hours.set_value(f64::from(s.mediathek_refresh_hours.max(MIN_REFRESH_HOURS)));
-        let days = adw::SpinRow::with_range(1.0, 90.0, 1.0);
-        days.set_title("Beiträge behalten");
-        days.set_subtitle("Tage; gilt ab der nächsten Aktualisierung");
-        days.set_value(f64::from(s.mediathek_days.max(1)));
-        list.add(&hours);
-        list.add(&days);
-
-        let view = adw::PreferencesGroup::builder().title("Anzeige").build();
-        let hide_ad = adw::SwitchRow::builder()
-            .title("Fassungen mit Audiodeskription ausblenden")
-            .active(s.mediathek_hide_ad)
-            .build();
-        view.add(&hide_ad);
-
-        let senders = adw::PreferencesGroup::builder()
-            .title("Sender")
-            .description("Ausgeschaltete Sender erscheinen weder in der Senderleiste noch in Listen und Suche")
-            .build();
-        let mut names: Vec<String> = self
-            .db
-            .borrow()
-            .as_ref()
-            .map(|db| db.senders().into_iter().map(|(n, _)| n).collect())
-            .unwrap_or_default();
-        // Ausgeblendete, die gerade nicht in der Filmliste stehen, trotzdem anbieten.
-        for h in &s.mediathek_hidden {
-            if !names.contains(h) {
-                names.push(h.clone());
-            }
+    fn set_detail(&self, open: bool) {
+        self.detail_open.set(open);
+        if let Some(app) = self.app.upgrade() {
+            crate::layer::update_header(&app);
         }
-        names.sort_by_key(|n| n.to_lowercase());
-        let rows: Vec<(String, adw::SwitchRow)> = names
-            .into_iter()
-            .map(|n| {
-                let row = adw::SwitchRow::builder()
-                    .title(&n)
-                    .active(!s.mediathek_hidden.contains(&n))
-                    .build();
-                senders.add(&row);
-                (n, row)
-            })
-            .collect();
+    }
 
-        page.add(&list);
-        page.add(&view);
-        page.add(&senders);
-        dialog.add(&page);
+    /// Nach dem Abspielen: als Ebene schließen, als eigenes Fenster das Hauptfenster nach vorn.
+    fn after_play(self: &Rc<Self>, app: &Rc<App>) {
+        let view: Rc<dyn crate::layer::View> = self.clone();
+        if crate::layer::window_of(app, &view)
+            .is_some_and(|w| w == *app.window.upcast_ref::<gtk::Window>())
+        {
+            crate::layer::close_if_layer(app, &view);
+        } else {
+            app.window.present();
+        }
+    }
 
-        let weak = Rc::downgrade(self);
-        dialog.connect_closed(move |_| {
-            let Some(w) = weak.upgrade() else { return };
-            let Some(app) = w.app.upgrade() else { return };
-            {
-                let mut s = app.settings_mut();
-                s.mediathek_refresh_hours = hours.value() as u32;
-                s.mediathek_days = days.value() as u32;
-                s.mediathek_hide_ad = hide_ad.is_active();
-                s.mediathek_hidden = rows
-                    .iter()
-                    .filter(|(_, r)| !r.is_active())
-                    .map(|(n, _)| n.clone())
-                    .collect();
-            }
-            app.save_settings();
-            w.rebuild();
-        });
-        dialog.present(Some(&self.win));
+    /// Zahnrad: gemeinsames Einstellungsfenster, Reiter „Mediathek“.
+    fn open_prefs(self: &Rc<Self>) {
+        if let Some(app) = self.app.upgrade() {
+            crate::prefs::open_at(&app, Some("mediathek"), &self.body);
+        }
     }
 
     /// Senderleiste, Stand und Kacheln neu aufbauen (nach Aktualisierung oder Einstellungen).
@@ -1402,7 +1443,7 @@ impl MtWindow {
             });
         }
         films.truncate(if series { LIMIT_SERIES } else { LIMIT });
-        self.back.set_visible(false);
+        self.set_detail(false);
         while let Some(c) = self.flow.first_child() {
             self.flow.remove(&c);
         }

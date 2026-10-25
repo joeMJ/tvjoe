@@ -14,7 +14,10 @@ use crate::app::App;
 
 pub struct Manager {
     pub app: Rc<App>,
-    pub win: adw::Window,
+    /// Inhalt (Ebene oder Fenster, siehe `layer`).
+    pub body: gtk::Widget,
+    header_start: gtk::Box,
+    header_end: gtk::Box,
     list: gtk::ListBox,
     toasts: adw::ToastOverlay,
     count: gtk::Label,
@@ -31,7 +34,7 @@ thread_local! {
 /// Aktualisiert die Tabelle, falls das Fenster gerade sichtbar ist.
 pub fn refresh_if_open() {
     if let Some(m) = OPEN.with(|o| o.borrow().clone()) {
-        if m.win.is_visible() {
+        if m.body.is_mapped() {
             m.refill();
         }
     }
@@ -44,14 +47,18 @@ pub fn open(app: &Rc<App>) {
 
 /// Wie [`open`], gibt aber den Verwalter zurück (Selbstprobe).
 pub fn open_manager(app: &Rc<App>) -> Option<Rc<Manager>> {
-    if let Some(m) = OPEN.with(|o| o.borrow().clone()) {
-        m.refill();
-        m.win.present();
-        return Some(m);
-    }
-    let mgr = Manager::new(app.clone());
-    OPEN.with(|o| *o.borrow_mut() = Some(mgr.clone()));
-    mgr.win.present();
+    let mgr = match OPEN.with(|o| o.borrow().clone()) {
+        Some(m) => {
+            m.refill();
+            m
+        }
+        None => {
+            let m = Manager::new(app.clone());
+            OPEN.with(|o| *o.borrow_mut() = Some(m.clone()));
+            m
+        }
+    };
+    crate::layer::open(app, mgr.clone());
     Some(mgr)
 }
 
@@ -65,17 +72,36 @@ fn cell(text: &str, width: i32, class: &str) -> gtk::Label {
         .build()
 }
 
-impl Manager {
-    fn new(app: Rc<App>) -> Rc<Self> {
-        let win = adw::Window::builder()
-            .title("Sender verwalten – tvjoe")
-            .default_width(1180)
-            .default_height(760)
-            .transient_for(&app.window)
-            .hide_on_close(true)
-            .build();
+impl crate::layer::View for Manager {
+    fn title(&self) -> String {
+        "Sender verwalten".to_string()
+    }
+    fn min_size(&self) -> (i32, i32) {
+        MIN_SIZE
+    }
+    fn body(&self) -> gtk::Widget {
+        self.body.clone()
+    }
+    fn header_start(&self) -> Option<gtk::Widget> {
+        Some(self.header_start.clone().upcast())
+    }
+    fn header_end(&self) -> Option<gtk::Widget> {
+        Some(self.header_end.clone().upcast())
+    }
+}
 
-        let header = adw::HeaderBar::new();
+/// Mindestfläche (die Tabelle läuft darunter waagerecht).
+const MIN_SIZE: (i32, i32) = (1000, 560);
+
+impl Manager {
+    /// Fenster, in dem die Verwaltung gerade lebt (für Dateidialoge).
+    pub fn parent_window(&self) -> Option<gtk::Window> {
+        self.body.root().and_downcast()
+    }
+
+    fn new(app: Rc<App>) -> Rc<Self> {
+        let header_start = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        let header_end = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         let import_file = gtk::Button::builder()
             .label("Datei importieren…")
             .tooltip_text("M3U-Datei ganz oder teilweise übernehmen")
@@ -89,14 +115,14 @@ impl Manager {
             .label("Exportieren…")
             .tooltip_text("Alle Sender als M3U8 speichern")
             .build();
-        header.pack_start(&import_file);
-        header.pack_start(&import_url);
-        header.pack_end(&export);
+        header_start.append(&import_file);
+        header_start.append(&import_url);
         let epg_sources = gtk::Button::builder()
             .label("EPG-Quellen…")
             .tooltip_text("XMLTV-Quellen eintragen und neu laden")
             .build();
-        header.pack_end(&epg_sources);
+        header_end.append(&epg_sources);
+        header_end.append(&export);
 
         let titles = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         titles.set_margin_start(22);
@@ -143,22 +169,27 @@ impl Manager {
             .margin_start(22)
             .margin_top(4)
             .build();
+        // Überschriften laufen waagerecht mit der Tabelle mit (gemeinsame Bildlaufleiste), damit
+        // die Verwaltung auch in einer schmalen Ebene nicht abgeschnitten wird.
+        let titles_scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::External)
+            .vscrollbar_policy(gtk::PolicyType::Never)
+            .hadjustment(&scroller.hadjustment())
+            .child(&titles)
+            .build();
         let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
         body.append(&hint);
-        body.append(&titles);
+        body.append(&titles_scroller);
         body.append(&scroller);
         body.append(&count);
 
         let toasts = adw::ToastOverlay::new();
         toasts.set_child(Some(&body));
-        let view = adw::ToolbarView::new();
-        view.add_top_bar(&header);
-        view.set_content(Some(&toasts));
-        win.set_content(Some(&view));
-
         let mgr = Rc::new(Self {
             app,
-            win,
+            body: toasts.clone().upcast(),
+            header_start,
+            header_end,
             list,
             toasts,
             count,
@@ -479,7 +510,7 @@ impl Manager {
             }),
             entry("delete", |m, id| m.delete(id)),
         ]);
-        self.win.insert_action_group("mgr", Some(&group));
+        self.body.insert_action_group("mgr", Some(&group));
     }
 
     fn ask(
@@ -535,7 +566,7 @@ impl Manager {
             });
             m.refill();
         });
-        d.present(Some(&self.win));
+        d.present(Some(&self.body));
     }
 
     fn change_number(self: &Rc<Self>, id: u64) {
@@ -581,7 +612,7 @@ impl Manager {
                 }
             }
         });
-        d.present(Some(&self.win));
+        d.present(Some(&self.body));
     }
 
     fn assign_epg(self: &Rc<Self>, id: u64) {
@@ -632,7 +663,7 @@ impl Manager {
             m.set_flag(&[id], |c| c.epg_id = epg_id.clone());
             m.refill();
         });
-        d.present(Some(&self.win));
+        d.present(Some(&self.body));
     }
 
     fn edit_epg_sources(self: &Rc<Self>) {
@@ -668,7 +699,7 @@ impl Manager {
             m.app.load_epg(true);
             m.toast("EPG wird neu geladen …");
         });
-        d.present(Some(&self.win));
+        d.present(Some(&self.body));
     }
 
     /// Verschiebt die Auswahl um eine Position (Reihenfolge, nicht Nummer).
@@ -727,7 +758,7 @@ impl Manager {
             m.refill();
             m.toast("Gelöscht.");
         });
-        d.present(Some(&self.win));
+        d.present(Some(&self.body));
     }
 
     fn export(self: &Rc<Self>, ids: Option<Vec<u64>>) {
@@ -737,14 +768,18 @@ impl Manager {
             .modal(true)
             .build();
         let m = self.clone();
-        dialog.save(Some(&self.win), gio::Cancellable::NONE, move |res| {
-            let Ok(file) = res else { return };
-            let Some(path) = file.path() else { return };
-            let text = m.app.library().export_m3u(ids.as_deref());
-            match std::fs::write(&path, text) {
-                Ok(()) => m.toast(&format!("Gespeichert: {}", path.display())),
-                Err(e) => m.toast(&format!("Speichern fehlgeschlagen: {e}")),
-            }
-        });
+        dialog.save(
+            self.parent_window().as_ref(),
+            gio::Cancellable::NONE,
+            move |res| {
+                let Ok(file) = res else { return };
+                let Some(path) = file.path() else { return };
+                let text = m.app.library().export_m3u(ids.as_deref());
+                match std::fs::write(&path, text) {
+                    Ok(()) => m.toast(&format!("Gespeichert: {}", path.display())),
+                    Err(e) => m.toast(&format!("Speichern fehlgeschlagen: {e}")),
+                }
+            },
+        );
     }
 }

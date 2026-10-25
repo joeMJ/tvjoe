@@ -5,6 +5,7 @@ mod dnd;
 mod gl;
 mod grid;
 mod import;
+mod layer;
 mod logos;
 mod manage;
 mod mediathek;

@@ -101,11 +101,7 @@ const STEPS: &[Step] = &[
         },
         1500,
     ),
-    (
-        "11-programm",
-        |p| crate::grid::open_window(&p.app).map(|w| w.upcast()),
-        2000,
-    ),
+    ("11-programm", |p| crate::grid::open_window(&p.app), 2000),
     (
         "12-hauptfenster-epg",
         |p| {
@@ -121,6 +117,135 @@ const STEPS: &[Step] = &[
             main_window(p)
         },
         1500,
+    ),
+];
+
+/// Ebene (`TVJOE_SELFTEST_EBENE=1`, nur diese Schritte): Bild, Programm als Ebene (Bild nicht
+/// gezeichnet, Ton läuft), Ebene wieder zu. Für Lastmessung von außen je 15 s.
+const EBENE_STEPS: &[Step] = &[
+    ("40-ebene-vorher", main_window, 15000),
+    (
+        "41-programm-ebene",
+        |p| crate::grid::open_window(&p.app),
+        15000,
+    ),
+    (
+        "42-ebene-zu",
+        |p| {
+            crate::layer::close_layer(&p.app);
+            main_window(p)
+        },
+        15000,
+    ),
+];
+
+/// Bildbereich auf etwa `w`×`h` bringen (Kopfleiste des Hauptfensters kommt dazu).
+fn resize(p: &Probe, w: i32, h: i32) {
+    p.app.window.set_default_size(w, h + 47);
+    let (min_w, _, _, _) = p.app.window.measure(gtk::Orientation::Horizontal, -1);
+    let (min_h, _, _, _) = p.app.window.measure(gtk::Orientation::Vertical, -1);
+    trace(&format!(
+        "Größe {w}×{h} angefordert; Mindestgröße Hauptfenster {min_w}×{min_h}"
+    ));
+}
+
+fn report_size(p: &Probe) -> Option<gtk::Window> {
+    let (w, h) = p.app.video_area_size();
+    trace(&format!("Bildbereich jetzt {w}×{h}"));
+    main_window(p)
+}
+
+fn close_all(p: &Probe) {
+    crate::layer::close_layer(&p.app);
+    for w in gtk::Window::list_toplevels() {
+        if let Ok(w) = w.downcast::<gtk::Window>() {
+            if w != *p.app.window.upcast_ref::<gtk::Window>() {
+                w.close();
+            }
+        }
+    }
+}
+
+/// Mindestgrößen (`TVJOE_SELFTEST_GROESSE=1`, nur diese Schritte): jede Ansicht knapp über
+/// ihrer Mindestgröße als Ebene, die Mediathek knapp darunter als Fenster, die Senderliste
+/// bei sehr kleinem Fenster als eigenes Fenster.
+const GROESSE_STEPS: &[Step] = &[
+    (
+        "50-start-920x600",
+        |p| {
+            resize(p, 920, 600);
+            main_window(p)
+        },
+        6000,
+    ),
+    (
+        "51-mediathek-ebene-920x600",
+        |p| crate::mediathek::open_window(&p.app),
+        5000,
+    ),
+    (
+        "52-programm-ebene-920x600",
+        |p| {
+            close_all(p);
+            crate::grid::open_window(&p.app)
+        },
+        3000,
+    ),
+    (
+        "53-groesse-1020x580",
+        |p| {
+            close_all(p);
+            resize(p, 1020, 580);
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "54-verwaltung-ebene-1020x580",
+        |p| {
+            report_size(p);
+            let m = crate::manage::open_manager(&p.app)?;
+            crate::layer::window_of(&p.app, &(m as Rc<dyn crate::layer::View>))
+        },
+        4000,
+    ),
+    (
+        "55-groesse-820x520",
+        |p| {
+            close_all(p);
+            resize(p, 820, 520);
+            main_window(p)
+        },
+        3000,
+    ),
+    (
+        "56-mediathek-als-fenster-820x520",
+        |p| {
+            report_size(p);
+            crate::mediathek::open_window(&p.app)
+        },
+        5000,
+    ),
+    (
+        "57-groesse-560x340",
+        |p| {
+            close_all(p);
+            resize(p, 560, 340);
+            main_window(p)
+        },
+        3000,
+    ),
+    (
+        "58-senderliste-als-fenster-560x340",
+        |p| {
+            report_size(p);
+            p.app.toggle_sidebar();
+            gtk::Window::list_toplevels()
+                .into_iter()
+                .filter_map(|w| w.downcast::<gtk::Window>().ok())
+                .find(|w| w.title().is_some_and(|t| t.starts_with("Sender –")))
+        },
+        3000,
     ),
 ];
 
@@ -161,7 +286,7 @@ const IMPORT_STEPS: &[Step] = &[
         "20-verwaltung",
         |p| {
             let m = crate::manage::open_manager(&p.app)?;
-            let w = m.win.clone().upcast();
+            let w = crate::layer::window_of(&p.app, &(m.clone() as Rc<dyn crate::layer::View>))?;
             *p.mgr.borrow_mut() = Some(m);
             Some(w)
         },
@@ -172,7 +297,7 @@ const IMPORT_STEPS: &[Step] = &[
         |p| {
             let m = p.mgr.borrow().clone()?;
             let pr = crate::import::preview_path(&m, p.list.as_deref()?)?;
-            let w = pr.win.clone().upcast();
+            let w = crate::layer::window_of(&p.app, &(pr.clone() as Rc<dyn crate::layer::View>))?;
             *p.preview.borrow_mut() = Some(pr);
             Some(w)
         },
@@ -187,7 +312,7 @@ const IMPORT_STEPS: &[Step] = &[
                 |e| crate::import::groups_of(e).any(|g| g == "Vollprogramm" || g == "Regional"),
                 true,
             );
-            Some(pr.win.clone().upcast())
+            crate::layer::window_of(&p.app, &(pr as Rc<dyn crate::layer::View>))
         },
         1000,
     ),
@@ -196,7 +321,8 @@ const IMPORT_STEPS: &[Step] = &[
         |p| {
             let pr = p.preview.borrow_mut().take()?;
             pr.apply();
-            Some(p.mgr.borrow().as_ref()?.win.clone().upcast())
+            let m = p.mgr.borrow().clone()?;
+            crate::layer::window_of(&p.app, &(m as Rc<dyn crate::layer::View>))
         },
         3000,
     ),
@@ -204,7 +330,7 @@ const IMPORT_STEPS: &[Step] = &[
         "24-hauptfenster-nach-import",
         |p| {
             if let Some(m) = p.mgr.borrow_mut().take() {
-                m.win.close();
+                crate::layer::close_body(&p.app, &m.body);
             }
             main_window(p)
         },
@@ -218,7 +344,13 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         return;
     }
     let list = std::env::var_os("TVJOE_SELFTEST_IMPORT").map(PathBuf::from);
-    let mut steps: Vec<Step> = STEPS.to_vec();
+    let mut steps: Vec<Step> = if std::env::var_os("TVJOE_SELFTEST_EBENE").is_some() {
+        EBENE_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_GROESSE").is_some() {
+        GROESSE_STEPS.to_vec()
+    } else {
+        STEPS.to_vec()
+    };
     if list.is_some() {
         steps.extend_from_slice(IMPORT_STEPS);
     }

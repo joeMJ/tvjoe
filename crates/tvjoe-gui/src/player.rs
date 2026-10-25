@@ -196,6 +196,14 @@ impl Player {
         }
     }
 
+    /// Bild zeichnen ein/aus (Ebene offen: schwarz, Ton läuft weiter, Dekodieren geht weiter).
+    pub fn set_drawing(&self, on: bool) {
+        self.area.set_visible(on);
+        if on {
+            self.area.queue_render();
+        }
+    }
+
     /// Springt um `secs` Sekunden (negativ = zurück).
     pub fn seek_relative(&self, secs: f64) {
         let _ = self.mpv.command("seek", &[&format!("{secs}"), "relative"]);
