@@ -129,6 +129,7 @@ fn activate(application: &adw::Application, opts: &Options) {
     let player = match player::Player::new(opts.mute, settings.volume) {
         Ok(p) => {
             p.set_deinterlace(settings.deinterlace);
+            p.set_subtitles(settings.subtitles);
             Some(p)
         }
         Err(e) => {

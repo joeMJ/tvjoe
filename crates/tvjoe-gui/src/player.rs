@@ -31,6 +31,8 @@ pub struct Player {
     pub mpv: &'static Mpv,
     render: RefCell<Option<RenderContext<'static>>>,
     first_frame: Cell<bool>,
+    /// Untertitel beim Laden eines Streams (Einstellung); `U` wählt nur für den laufenden.
+    subtitles: Cell<bool>,
     pub area: gtk::GLArea,
 }
 
@@ -103,6 +105,7 @@ impl Player {
             mpv,
             render: RefCell::new(None),
             first_frame: Cell::new(false),
+            subtitles: Cell::new(false),
             area: area.clone(),
         });
 
@@ -236,6 +239,9 @@ impl Player {
         if let Err(e) = self.mpv.set_property("hls-bitrate", limit.as_str()) {
             eprintln!("tvjoe: hls-bitrate={limit}: {e:?}");
         }
+        // Eine mit U gewählte Untertitelspur gilt nicht für den nächsten Stream.
+        let sid = if self.subtitles.get() { "auto" } else { "no" };
+        let _ = self.mpv.set_property("sid", sid);
         // Eine Pause aus einem Mediathek-Video gilt nicht für den nächsten Stream.
         let _ = self.mpv.set_property("pause", false);
         if let Err(e) = self.mpv.command("loadfile", &[url]) {
@@ -249,6 +255,16 @@ impl Player {
         let v = if on { "auto" } else { "no" };
         if let Err(e) = self.mpv.set_property("deinterlace", v) {
             eprintln!("tvjoe: deinterlace={v}: {e:?}");
+        }
+    }
+
+    /// Untertitel ein (mpv wählt die Spur, `sid=auto`) oder aus; gilt sofort und für jeden
+    /// weiteren Stream.
+    pub fn set_subtitles(&self, on: bool) {
+        self.subtitles.set(on);
+        let v = if on { "auto" } else { "no" };
+        if let Err(e) = self.mpv.set_property("sid", v) {
+            eprintln!("tvjoe: sid={v}: {e:?}");
         }
     }
 
@@ -282,14 +298,14 @@ impl Player {
         self.mpv.get_property::<bool>("pause").ok()
     }
 
-    /// Nächste Tonspur wählen; gibt (Nummer, Anzahl, Bezeichnung) zurück.
-    pub fn cycle_audio(&self) -> Option<(usize, usize, String)> {
-        let count = self.mpv.get_property::<i64>("track-list/count").ok()?;
-        let tracks: Vec<(i64, String)> = (0..count)
+    /// Spuren einer Art (`audio`, `sub`) als (ID, Bezeichnung).
+    fn tracks(&self, kind: &str) -> Vec<(i64, String)> {
+        let count = self.mpv.get_property::<i64>("track-list/count").unwrap_or(0);
+        (0..count)
             .filter(|i| {
                 self.mpv
                     .get_property::<String>(&format!("track-list/{i}/type"))
-                    .is_ok_and(|t| t == "audio")
+                    .is_ok_and(|t| t == kind)
             })
             .map(|i| {
                 let get = |k: &str| {
@@ -310,7 +326,12 @@ impl Player {
                 };
                 (id, label)
             })
-            .collect();
+            .collect()
+    }
+
+    /// Nächste Tonspur wählen; gibt (Nummer, Anzahl, Bezeichnung) zurück.
+    pub fn cycle_audio(&self) -> Option<(usize, usize, String)> {
+        let tracks = self.tracks("audio");
         if tracks.is_empty() {
             return None;
         }
@@ -325,6 +346,31 @@ impl Player {
             self.mpv.set_property("aid", tracks[pos].0).ok()?;
         }
         Some((pos + 1, tracks.len(), tracks[pos].1.clone()))
+    }
+
+    /// Nächste Untertitelspur wählen, nach der letzten wieder aus. `None`: Stream hat keine;
+    /// sonst (Nummer, Anzahl, Bezeichnung) oder `Some(None)` für „aus“.
+    pub fn cycle_subtitles(&self) -> Option<Option<(usize, usize, String)>> {
+        let tracks = self.tracks("sub");
+        if tracks.is_empty() {
+            return None;
+        }
+        let current = self.mpv.get_property::<i64>("sid").ok();
+        let next = match tracks.iter().position(|(id, _)| Some(*id) == current) {
+            None => Some(0),
+            Some(p) if p + 1 < tracks.len() => Some(p + 1),
+            Some(_) => None,
+        };
+        match next {
+            Some(pos) => {
+                self.mpv.set_property("sid", tracks[pos].0).ok()?;
+                Some(Some((pos + 1, tracks.len(), tracks[pos].1.clone())))
+            }
+            None => {
+                self.mpv.set_property("sid", "no").ok()?;
+                Some(None)
+            }
+        }
     }
 
     /// Position, Dauer (Sekunden) und Pause des laufenden Videos.

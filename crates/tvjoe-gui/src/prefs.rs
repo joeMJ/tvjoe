@@ -112,7 +112,13 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         .build();
     quality.add(&level);
     quality.add(&cap);
+    let subtitles = adw::SwitchRow::builder()
+        .title("Untertitel")
+        .subtitle("Sofern der Sender welche mitschickt; Taste U wählt die Spur für die laufende Sendung")
+        .active(s.subtitles)
+        .build();
     quality.add(&deinterlace);
+    quality.add(&subtitles);
     let strategy = adw::ComboRow::builder()
         .title("Beim Senderwechsel")
         .model(&gtk::StringList::new(&[
@@ -266,6 +272,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             s.quality = levels.get(level.selected() as usize).copied().flatten();
             s.quality_cap = cap.is_active();
             s.deinterlace = deinterlace.is_active();
+            s.subtitles = subtitles.is_active();
             s.osd_number = osd_number.is_active();
             s.osd_origin = osd_origin.is_active();
             s.osd_logo = osd_logo.is_active();
@@ -282,6 +289,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         app.save_settings();
         if let Some(p) = &app.player {
             p.set_deinterlace(app.settings().deinterlace);
+            p.set_subtitles(app.settings().subtitles);
         }
         app.reapply_quality();
         app.update_inhibit();

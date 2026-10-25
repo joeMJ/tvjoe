@@ -1852,6 +1852,16 @@ impl App {
         self.msg.show(&text, self.overlay_secs());
     }
 
+    fn cycle_subtitles(&self) {
+        let Some(player) = &self.player else { return };
+        let text = match player.cycle_subtitles() {
+            Some(Some((n, count, label))) => format!("Untertitel: {label} ({n}/{count})"),
+            Some(None) => "Untertitel aus".to_string(),
+            None => "Keine Untertitel".to_string(),
+        };
+        self.msg.show(&text, self.overlay_secs());
+    }
+
     fn toggle_mute(&self) {
         if let Some(muted) = self.player.as_ref().and_then(|p| p.toggle_mute()) {
             self.msg.show(if muted { "Ton aus" } else { "Ton an" }, 2);
@@ -2041,6 +2051,7 @@ impl App {
             Key::Escape => self.window.set_fullscreened(false),
             Key::m => self.toggle_mute(),
             Key::a => self.cycle_audio(),
+            Key::u => self.cycle_subtitles(),
             Key::l => self.toggle_sidebar(),
             Key::i => self.toggle_info(),
             Key::g => crate::grid::open(self),

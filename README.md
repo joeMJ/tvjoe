@@ -137,6 +137,7 @@ SAT>IP-Empfänger.
 | L | Senderliste ein/aus |
 | I, Esc | Info über das ganze Bild ein / aus |
 | A | Tonspur wechseln |
+| U | Untertitel wechseln (Spur 1 … letzte, dann aus) |
 | G | Programmraster |
 | Strg+E | Sender verwalten |
 | Strg+, | Einstellungen |

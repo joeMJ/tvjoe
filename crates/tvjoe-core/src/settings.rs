@@ -47,6 +47,8 @@ pub struct Settings {
     /// Zeilensprung entfernen (mpv `deinterlace=auto`: nur als Zeilensprung gekennzeichnete
     /// Bilder, z. B. 576i/1080i über SAT).
     pub deinterlace: bool,
+    /// Untertitel des Streams anzeigen (mpv `sid=auto`); standardmäßig aus.
+    pub subtitles: bool,
     /// XMLTV-Quellen (Dateien oder URLs).
     pub epg_sources: Vec<String>,
     /// EPG aus dem Netz neu laden, wenn der Cache älter ist (Stunden; 0 = nur per Knopf).
@@ -115,6 +117,7 @@ impl Default for Settings {
             last_channel: None,
             volume: 100,
             deinterlace: true,
+            subtitles: false,
             epg_sources: Vec::new(),
             epg_refresh_hours: 24,
             update_last_check: None,
