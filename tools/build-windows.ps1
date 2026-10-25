@@ -100,8 +100,12 @@ if (-not $NoSign) {
 
 if (-not $NoMsi) {
     if (-not $WixDir) {
-        if ($env:WIX -and (Test-Path (Join-Path $env:WIX 'bin\candle.exe'))) { $WixDir = Join-Path $env:WIX 'bin' }
-        else { $WixDir = 'C:\Program Files (x86)\WiX Toolset v3.14\bin' }
+        # Umgebungsvariable WIX, sonst die Ablage von remotejoe, sonst der Installationsordner von WiX.
+        $kandidaten = @()
+        if ($env:WIX) { $kandidaten += @((Join-Path $env:WIX 'bin'), $env:WIX) }
+        $kandidaten += @('C:\Program Files (x86)\WiX Toolset v3.14\bin')
+        $WixDir = $kandidaten | Where-Object { Test-Path (Join-Path $_ 'candle.exe') } | Select-Object -First 1
+        if (-not $WixDir) { $WixDir = $kandidaten[-1] }
     }
     $candle = Join-Path $WixDir 'candle.exe'
     $light = Join-Path $WixDir 'light.exe'
@@ -111,8 +115,10 @@ if (-not $NoMsi) {
 }
 
 Schritt 'Programme bauen'
-# Nur für diesen Lauf: ucrt64 vorn im PATH (gcc, windres, pkg-config, DLLs).
+# Nur für diesen Lauf: ucrt64 vorn im PATH (gcc, windres, pkg-config, DLLs). Die MSYS2-Shell
+# (ldd, pacman) braucht MSYSTEM=UCRT64, sonst setzt ihr Login-Profil einen PATH ohne /ucrt64/bin.
 $env:PATH = "$Ucrt\bin;$env:PATH"
+$env:MSYSTEM = 'UCRT64'
 $env:PKG_CONFIG = Join-Path $Ucrt 'bin\pkg-config.exe'
 Push-Location $Root
 try {
