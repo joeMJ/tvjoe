@@ -100,7 +100,7 @@ if (-not $NoSign) {
 
 if (-not $NoMsi) {
     if (-not $WixDir) {
-        # Umgebungsvariable WIX, sonst die Ablage von remotejoe, sonst der Installationsordner von WiX.
+        # Umgebungsvariable WIX (Ordner mit candle.exe bzw. dessen bin), sonst der Installationsordner von WiX.
         $kandidaten = @()
         if ($env:WIX) { $kandidaten += @((Join-Path $env:WIX 'bin'), $env:WIX) }
         $kandidaten += @('C:\Program Files (x86)\WiX Toolset v3.14\bin')
