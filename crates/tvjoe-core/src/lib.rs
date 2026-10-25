@@ -7,6 +7,7 @@ pub mod ids;
 pub mod jellyfin;
 pub mod jellyfin_lib;
 pub mod library;
+pub mod logomatch;
 pub mod m3u;
 pub mod mediathek;
 pub mod net;

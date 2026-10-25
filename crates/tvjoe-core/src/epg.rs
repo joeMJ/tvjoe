@@ -34,6 +34,8 @@ pub struct Guide {
     pub channels: Vec<(String, Vec<String>)>,
     /// Sendungen je Kanal-ID, nach Beginn sortiert.
     pub programmes: HashMap<String, Vec<Programme>>,
+    /// Senderlogo je Kanal-ID (`<icon src>` im `<channel>`).
+    pub icons: HashMap<String, String>,
     by_id: HashMap<String, String>,
     by_name: HashMap<String, String>,
     /// Kurze Kürzel (2–3 Zeichen) der Kanal-IDs für die unscharfe Zuordnung, z. B. „swr“, „sr“.
@@ -230,6 +232,9 @@ impl Guide {
                 self.channels.push((id, names));
             }
         }
+        for (id, icon) in other.icons {
+            self.icons.entry(id).or_insert(icon);
+        }
         for (id, mut list) in other.programmes {
             let entry = self.programmes.entry(id).or_default();
             entry.append(&mut list);
@@ -350,6 +355,18 @@ pub fn parse_xmltv(bytes: &[u8]) -> Result<Guide, String> {
                     _ => field = None,
                 }
                 text.clear();
+            }
+            // Senderlogo: <icon src="…"/> innerhalb von <channel>.
+            Event::Empty(e) if e.local_name().as_ref() == b"icon" => {
+                if let (Some((id, _)), Some(src)) = (
+                    channel.as_ref(),
+                    e.try_get_attribute(b"src")
+                        .ok()
+                        .flatten()
+                        .and_then(|a| a.unescape_value().ok().map(|v| v.into_owned())),
+                ) {
+                    guide.icons.entry(id.clone()).or_insert(src);
+                }
             }
             Event::Text(t) if field.is_some() => {
                 text.push_str(&t.decode().map_err(|e| e.to_string())?);

@@ -163,6 +163,7 @@ impl App {
             .css_classes(["tvjoe-sidebar"])
             .build();
         sidebar.append(&scroller);
+        crate::dnd::autoscroll(&scroller);
 
         let osd = Osd::new();
         let msg = MessageBar::new();
@@ -473,6 +474,57 @@ impl App {
         } else {
             *self.other_lib.borrow_mut() = lib;
         }
+        self.assign_sat_logos();
+    }
+
+    /// SAT-Sender ohne Logo: Logo des gleichen Programmkanals der TV-Liste, aus dem Programm
+    /// oder aus der Kodinerds-Sammlung (deren Verzeichnis im Hintergrund, höchstens wöchentlich).
+    fn assign_sat_logos(self: &Rc<Self>) {
+        let Some(cache) = paths::cache_dir() else {
+            return;
+        };
+        let sat_empty = if self.sat.get() {
+            self.lib.borrow().channels.is_empty()
+        } else {
+            self.other_lib.borrow().channels.is_empty()
+        };
+        if sat_empty {
+            return;
+        }
+        let (tx, rx) = async_channel::bounded(1);
+        std::thread::spawn(move || {
+            let _ = tx.send_blocking(tvjoe_core::logomatch::load_kodinerds(&cache));
+        });
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let Ok(kodinerds) = rx.recv().await else {
+                return;
+            };
+            let Some(app) = weak.upgrade() else { return };
+            let guide = app.guide();
+            let n = {
+                let (mut sat, tv) = if app.sat.get() {
+                    (app.lib.borrow_mut(), app.other_lib.borrow())
+                } else {
+                    (app.other_lib.borrow_mut(), app.lib.borrow())
+                };
+                let n = tvjoe_core::logomatch::assign(&mut sat, &tv, guide.as_deref(), &kodinerds);
+                if n > 0 {
+                    if let Some(p) = paths::satip_library_path() {
+                        if let Err(e) = sat.save(&p) {
+                            eprintln!("tvjoe: {e}");
+                        }
+                    }
+                }
+                n
+            };
+            trace(&format!("SAT-Logos zugeordnet: {n}"));
+            if n > 0 && app.sat.get() {
+                if let Some(dir) = paths::logo_cache_dir() {
+                    app.load_logos(dir);
+                }
+            }
+        });
     }
 
     /// Weiße Linie unter der laufenden Quelle (TV, SAT, Mediathek, Jellyfin).
@@ -587,6 +639,7 @@ impl App {
     fn set_guide(self: &Rc<Self>, guide: Guide) {
         *self.guide.borrow_mut() = Some(Rc::new(guide));
         self.refresh_epg();
+        self.assign_sat_logos();
         if !self.epg_timer.replace(true) {
             let weak = Rc::downgrade(self);
             glib::timeout_add_seconds_local(60, move || match weak.upgrade() {

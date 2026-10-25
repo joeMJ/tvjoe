@@ -19,6 +19,7 @@ pub struct Manager {
     header_start: gtk::Box,
     header_end: gtk::Box,
     list: gtk::ListBox,
+    scroller: gtk::ScrolledWindow,
     toasts: adw::ToastOverlay,
     count: gtk::Label,
     rows: RefCell<Vec<(u64, gtk::ListBoxRow)>>,
@@ -163,7 +164,7 @@ impl Manager {
             .margin_bottom(8)
             .build();
         let hint = gtk::Label::builder()
-            .label("Rechte Maustaste: Aktionen für die Auswahl · Strg/Umschalt-Klick: mehrere Sender wählen")
+            .label("Rechte Maustaste: Aktionen für die Auswahl · Strg/Umschalt-Klick: mehrere Sender wählen · Klick auf einen markierten Sender: abwählen · Esc: Auswahl aufheben")
             .css_classes(["tvjoe-sub"])
             .xalign(0.0)
             .margin_start(22)
@@ -181,6 +182,31 @@ impl Manager {
         body.append(&hint);
         body.append(&titles_scroller);
         body.append(&scroller);
+        crate::dnd::autoscroll(&scroller);
+        // Auswahl aufheben: Esc oder Klick unterhalb der Zeilen.
+        let keys = gtk::EventControllerKey::new();
+        let l = list.clone();
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if key == gdk::Key::Escape && !l.selected_rows().is_empty() {
+                l.unselect_all();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+        body.add_controller(keys);
+        let free = gtk::GestureClick::new();
+        let (l, sc) = (list.clone(), scroller.clone());
+        free.connect_released(move |_, _, x, y| {
+            let p = gtk::graphene::Point::new(x as f32, y as f32);
+            let Some(p) = sc.compute_point(&l, &p) else {
+                return;
+            };
+            if l.row_at_y(p.y() as i32).is_none() {
+                l.unselect_all();
+            }
+        });
+        scroller.add_controller(free);
         body.append(&count);
 
         let toasts = adw::ToastOverlay::new();
@@ -194,6 +220,7 @@ impl Manager {
             toasts,
             count,
             rows: RefCell::new(Vec::new()),
+            scroller: scroller.clone(),
         });
         mgr.install_actions();
         mgr.refill();
@@ -215,6 +242,10 @@ impl Manager {
 
     /// Baut die Tabelle aus der Bibliothek neu auf.
     pub fn refill(self: &Rc<Self>) {
+        // Bildlaufposition halten: die Ansicht bleibt, wo sie war (auch beim Verschieben).
+        let adj = self.scroller.vadjustment();
+        let pos = adj.value();
+        glib::idle_add_local_once(move || adj.set_value(pos));
         self.list.unselect_all();
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
@@ -357,6 +388,29 @@ impl Manager {
                 m.refill();
             }
         });
+        // Erneuter Klick (auch mit Strg) auf einen markierten Sender: nur dessen Auswahl
+        // aufheben. Erst beim Loslassen, damit markierte Sender weiter gezogen werden können
+        // (dann endet die Geste ohne Loslassen); die Liste wählt erst beim Loslassen aus.
+        let toggle = gtk::GestureClick::builder()
+            .button(gdk::BUTTON_PRIMARY)
+            .propagation_phase(gtk::PropagationPhase::Capture)
+            .build();
+        let m = Rc::downgrade(self);
+        let r = row.clone();
+        toggle.connect_released(move |g, _, x, y| {
+            // Klicks auf die Häkchen (Aktiv, Favorit) schalten nur das Häkchen.
+            let on_check = r.pick(x, y, gtk::PickFlags::DEFAULT).is_some_and(|w| {
+                w.is::<gtk::CheckButton>() || w.ancestor(gtk::CheckButton::static_type()).is_some()
+            });
+            if on_check {
+                return;
+            }
+            if let (true, Some(m)) = (r.is_selected(), m.upgrade()) {
+                m.list.unselect_row(&r);
+                g.set_state(gtk::EventSequenceState::Claimed);
+            }
+        });
+        row.add_controller(toggle);
         let click = gtk::GestureClick::builder()
             .button(gdk::BUTTON_SECONDARY)
             .build();
@@ -371,7 +425,6 @@ impl Manager {
         row
     }
 
-    /// Ändert Felder ohne Neuaufbau der Tabelle (Häkchen), speichert und aktualisiert das Hauptfenster.
     /// Aktiv/inaktiv setzen; die Nummern folgen (inaktive Sender zählen nicht mit).
     fn set_active(&self, ids: &[u64], on: bool) {
         {
@@ -386,6 +439,7 @@ impl Manager {
         self.app.library_changed();
     }
 
+    /// Ändert Felder ohne Neuaufbau der Tabelle (Häkchen), speichert und aktualisiert das Hauptfenster.
     fn set_flag(&self, ids: &[u64], f: impl Fn(&mut Channel)) {
         {
             let mut lib = self.app.library_mut();
