@@ -130,6 +130,7 @@ fn activate(application: &adw::Application, opts: &Options) {
         Ok(p) => {
             p.set_deinterlace(settings.deinterlace);
             p.set_subtitles(settings.subtitles);
+            p.set_loudness(settings.loudness);
             Some(p)
         }
         Err(e) => {

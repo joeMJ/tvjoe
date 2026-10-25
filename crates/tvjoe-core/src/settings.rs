@@ -49,6 +49,9 @@ pub struct Settings {
     pub deinterlace: bool,
     /// Untertitel des Streams anzeigen (mpv `sid=auto`); standardmäßig aus.
     pub subtitles: bool,
+    /// Ton um 7 dB anheben (Rundfunknorm −23 LUFS → etwa −16 LUFS), Begrenzer gegen
+    /// Übersteuern; unter Linux standardmäßig an, unter Windows aus.
+    pub loudness: bool,
     /// XMLTV-Quellen (Dateien oder URLs).
     pub epg_sources: Vec<String>,
     /// EPG aus dem Netz neu laden, wenn der Cache älter ist (Stunden; 0 = nur per Knopf).
@@ -118,6 +121,7 @@ impl Default for Settings {
             volume: 100,
             deinterlace: true,
             subtitles: false,
+            loudness: !cfg!(windows),
             epg_sources: Vec::new(),
             epg_refresh_hours: 24,
             update_last_check: None,

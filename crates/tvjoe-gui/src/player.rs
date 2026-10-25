@@ -268,6 +268,19 @@ impl Player {
         }
     }
 
+    /// Lautstärke angleichen: +7 dB vor einem Begrenzer bei −1 dBFS (ohne automatische
+    /// Pegelanpassung, ohne Vorlauf wie bei `loudnorm`); aus = kein Filter.
+    pub fn set_loudness(&self, on: bool) {
+        let v = if on {
+            "lavfi=[alimiter=level_in=2.239:limit=0.891:level=0]"
+        } else {
+            ""
+        };
+        if let Err(e) = self.mpv.set_property("af", v) {
+            eprintln!("tvjoe: af={v}: {e:?}");
+        }
+    }
+
     /// Wiedergabe beenden (kein Stream).
     pub fn stop(&self) {
         let _ = self.mpv.command("stop", &[]);

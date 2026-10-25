@@ -118,7 +118,13 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         .active(s.subtitles)
         .build();
     quality.add(&deinterlace);
+    let loudness = adw::SwitchRow::builder()
+        .title("Lautstärke angleichen")
+        .subtitle("Hebt den Ton um 7 dB an (Fernsehnorm −23 LUFS auf etwa −16 LUFS wie bei Musik und Videoportalen); ein Begrenzer verhindert Übersteuern")
+        .active(s.loudness)
+        .build();
     quality.add(&subtitles);
+    quality.add(&loudness);
     let strategy = adw::ComboRow::builder()
         .title("Beim Senderwechsel")
         .model(&gtk::StringList::new(&[
@@ -273,6 +279,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             s.quality_cap = cap.is_active();
             s.deinterlace = deinterlace.is_active();
             s.subtitles = subtitles.is_active();
+            s.loudness = loudness.is_active();
             s.osd_number = osd_number.is_active();
             s.osd_origin = osd_origin.is_active();
             s.osd_logo = osd_logo.is_active();
@@ -290,6 +297,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         if let Some(p) = &app.player {
             p.set_deinterlace(app.settings().deinterlace);
             p.set_subtitles(app.settings().subtitles);
+            p.set_loudness(app.settings().loudness);
         }
         app.reapply_quality();
         app.update_inhibit();
