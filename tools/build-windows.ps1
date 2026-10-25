@@ -211,8 +211,7 @@ foreach ($l in @('LICENSE', 'THIRD_PARTY.md', 'THIRD_PARTY_LICENSES.txt')) {
 }
 # Herkunft aller mitgelieferten Dateien aus ucrt64 (pacman -Qo): DLLs und gdbus.exe in bin\, die
 # Bildlader und die Daten (Symbole, Texte). Je Paket Lizenztexte in licenses\ und ein Eintrag in der
-# Quellenliste; die Quellpakete selbst stellt das Release daneben bereit (GPL/LGPL: Quelltext am
-# selben Ort wie die Programme).
+# Quellenliste QUELLEN.txt (Paket, Version, Lizenz, Quellpaket bei MSYS2).
 $pakete = @{}
 function Besitzer([string]$MsysPfad) {
     $o = & $Bash -lc "pacman -Qoq '$MsysPfad'" 2>$null
@@ -249,10 +248,8 @@ $quellenText = @(
     "  https://github.com/joeMJ/tvjoe/tree/v$Version",
     '',
     'Alle übrigen Dateien (DLLs, gdbus.exe, Bildlader, Symbole, Texte) stammen unverändert aus den folgenden',
-    'MSYS2-Paketen (Umgebung ucrt64). Ihre Lizenztexte liegen im Ordner licenses\. Den vollständigen Quelltext',
-    'genau dieser Fassungen stellt die Release-Seite neben der MSI bereit:',
-    "  https://github.com/joeMJ/tvjoe/releases/tag/v$Version  →  tvjoe-$Version-windows-quellen.tar",
-    'Die Quellpakete sind außerdem bei MSYS2 unter der jeweils genannten Adresse zu finden.',
+    'MSYS2-Paketen (Umgebung ucrt64). Ihre Lizenztexte liegen im Ordner licenses\. Die Quellpakete genau',
+    'dieser Fassungen sind bei MSYS2 unter der jeweils genannten Adresse zu finden.',
     '',
     'Paket | Version | Lizenz | Quellpaket'
 ) + ($zeilen | ForEach-Object { "$($_.Paket) | $($_.Version) | $($_.Lizenz) | https://repo.msys2.org/mingw/sources/$($_.Basis)-$($_.Version).src.tar.zst" })

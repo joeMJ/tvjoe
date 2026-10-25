@@ -181,10 +181,8 @@ Dateien stammen unverändert aus den Paketen von [MSYS2](https://www.msys2.org/)
 
 - **Liste:** `QUELLEN.txt` im Installationsordner nennt jedes Paket mit Version, Lizenz und Quellpaket.
 - **Lizenztexte:** im Installationsordner unter `licenses\` (je Paket).
-- **Quelltext:** Die Release-Seite stellt neben der MSI das Archiv `tvjoe-<Version>-windows-quellen.tar` bereit. Es
-  enthält die MSYS2-Quellpakete genau dieser Fassungen unverändert (PKGBUILD, Patches und Quellen). Damit liegt der
-  Quelltext der GPL- und LGPL-Teile am selben Ort wie die Programme. Die Quellpakete sind außerdem bei MSYS2 unter
-  `https://repo.msys2.org/mingw/sources/` zu finden.
+- **Quellen:** Die Quellpakete genau dieser Fassungen sind bei MSYS2 unter `https://repo.msys2.org/mingw/sources/`
+  zu finden; `QUELLEN.txt` nennt für jedes Paket die Adresse.
 - **libmpv** wird von MSYS2 mit GPL-Bestandteilen gebaut. Für die Windows-Fassung gelten deshalb ebenfalls die
   Bedingungen der GPL zusätzlich; der Quelltext von tvjoe steht unter Apache-2.0, die mit GPL-3 verträglich ist.
 - Die DLLs werden dynamisch geladen und lassen sich durch andere Fassungen ersetzen (LGPL).
