@@ -1,5 +1,7 @@
 //! Starter `tvjoe`: prüft die Systembibliotheken (ohne GTK zu laden), bietet die Installation an
 //! und startet dann die Oberfläche `tvjoe-gui`. Außerdem Kommandozeilen-Import einer M3U.
+//! Unter Windows ein Fensterprogramm ohne eigenes Konsolenfenster (siehe `tvjoe_core::console`).
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, IsTerminal, Write};
@@ -11,6 +13,7 @@ use tvjoe_core::epg::{self, MatchKind};
 use tvjoe_core::{Library, Playlist, Settings, Severity, VERSION, paths, syscheck};
 
 fn main() -> ExitCode {
+    tvjoe_core::console::attach_parent();
     let t0 = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())

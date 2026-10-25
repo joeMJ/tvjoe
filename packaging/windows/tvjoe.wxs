@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  tvjoe als MSI (WiX 3.14), nach dem Vorbild von remotejoe. Gebaut von tools/build-windows.ps1; die
+  Dateiliste (Komponentengruppe „AppFiles“) erzeugt das Skript aus dem Bereitstellungsordner.
+
+  - Installation pro Benutzer ohne Administratorrechte nach %LOCALAPPDATA%\Programs\tvjoe
+    (Programme und DLLs in bin\, GTK-Daten in share\ und lib\).
+  - Startmenü-Verknüpfung, Eintrag in „Apps und Features“; die Deinstallation entfernt nur den
+    Programmordner. Einstellungen (%APPDATA%\tvjoe) und Zwischenspeicher (%LOCALAPPDATA%\tvjoe)
+    bleiben unberührt.
+  - Der UpgradeCode ist fest und darf sich nie ändern: Jede neue MSI ersetzt die alte (MajorUpgrade).
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <Product Id="*" Name="tvjoe" Language="1031" Codepage="1252" Version="$(var.Version)" Manufacturer="John Lose (joeMJ)"
+           UpgradeCode="49A90E7B-F133-402D-9DC7-A3DFFF719EA9">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" InstallPrivileges="limited" Platform="x64"
+             Languages="1031" SummaryCodepage="1252" Description="tvjoe $(var.Version)"
+             Comments="Streaming-Client für Live-TV" />
+
+    <!-- Gleiche Version erneut installieren ersetzt sie ebenfalls (neu gebaute MSI). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="Eine neuere Version von tvjoe ist bereits installiert." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="TvjoeIcon" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="TvjoeIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/joeMJ/tvjoe" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/joeMJ/tvjoe" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLDIR]" After="CostFinalize" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="ProgramsDir" Name="Programs">
+          <Directory Id="INSTALLDIR" Name="tvjoe" />
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+    </Directory>
+
+    <DirectoryRef Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="29E99B7D-1E76-48EE-8E58-94C78B9C229A">
+        <!-- Symbol aus tvjoe.exe (fester Ort), nicht aus dem Symbol-Zwischenspeicher der MSI (wechselt mit
+             jedem Update; angeheftete Taskleisten-Einträge zeigten sonst ein leeres Symbol). -->
+        <Shortcut Id="AppShortcut" Name="tvjoe" Description="Streaming-Client für Live-TV"
+                  Target="[INSTALLDIR]bin\tvjoe.exe" WorkingDirectory="INSTALLDIR" />
+        <!-- Ordner „Programs“ nur entfernen, wenn er danach leer ist (Windows Installer prüft das). -->
+        <RemoveFolder Id="RemoveProgramsDir" Directory="ProgramsDir" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\tvjoe\Installer" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- Laufendes tvjoe vor dem Ersetzen der Dateien beenden lassen (sonst wartet Windows Installer auf die
+         Dateien): erst freundlich bitten, läuft es danach noch, fragt eine Meldung (Wiederholen/Abbrechen). -->
+    <util:CloseApplication Id="CloseTvjoeGui" Target="tvjoe-gui.exe" Sequence="1" CloseMessage="yes" PromptToContinue="yes" RebootPrompt="no"
+                           Description="tvjoe läuft noch und muss für die Installation beendet werden. Bitte tvjoe schließen und dann „Wiederholen“ wählen." />
+    <util:CloseApplication Id="CloseTvjoe" Target="tvjoe.exe" Sequence="2" TerminateProcess="0" RebootPrompt="no" />
+
+    <Feature Id="Main" Title="tvjoe" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Product>
+</Wix>

@@ -1,4 +1,6 @@
-//! Oberfläche von tvjoe (wird vom Starter `tvjoe` aufgerufen).
+//! Oberfläche von tvjoe (wird vom Starter `tvjoe` aufgerufen). Unter Windows ein Fensterprogramm
+//! ohne eigenes Konsolenfenster (siehe `tvjoe_core::console`).
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
 mod backup;
@@ -171,6 +173,7 @@ fn activate(application: &adw::Application, opts: &Options) {
 }
 
 fn main() -> glib::ExitCode {
+    tvjoe_core::console::attach_parent();
     init_trace();
     trace("Oberfläche gestartet");
     let opts = parse_options();

@@ -847,9 +847,65 @@ pub fn ufw_rule_command(host: &str) -> Vec<String> {
     ]
 }
 
+/// Kann tvjoe eine Firewall-Freigabe für das Gerät anbieten? Ubuntu: wenn ufw aktiv ist;
+/// Windows: immer (Windows-Firewall, Eintrag über die Benutzerkontensteuerung).
+pub fn firewall_fix_available() -> bool {
+    cfg!(windows) || ufw_active()
+}
+
+/// Nur Adressen und Namen aus Ziffern, Buchstaben, Punkt, Bindestrich und Doppelpunkt (die
+/// Adresse landet in einem Befehl).
+fn plain_host(host: &str) -> bool {
+    !host.is_empty()
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':'))
+}
+
+/// Die Freigabe in lesbarer Form (für die Rückfrage): nur UDP vom SAT>IP-Gerät.
+pub fn firewall_rule_text(host: &str) -> String {
+    if cfg!(windows) {
+        format!(
+            "New-NetFirewallRule -DisplayName \"tvjoe SAT>IP {host}\" -Direction Inbound -Protocol UDP -RemoteAddress {host} -Action Allow"
+        )
+    } else {
+        ufw_rule_command(host)[1..].join(" ")
+    }
+}
+
+/// Befehl für die Freigabe (Ubuntu: pkexec ufw, fragt nach dem Passwort; Windows: PowerShell mit
+/// erhöhten Rechten, fragt über die Benutzerkontensteuerung). `None` bei ungewöhnlicher Adresse.
+pub fn firewall_rule_command(host: &str) -> Option<Vec<String>> {
+    if !plain_host(host) {
+        return None;
+    }
+    if !cfg!(windows) {
+        return Some(ufw_rule_command(host));
+    }
+    let rule = firewall_rule_text(host).replace('"', "''");
+    let inner = format!(
+        "$p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','{}'; exit $p.ExitCode",
+        rule.replace('\'', "''")
+    );
+    Some(vec![
+        "powershell.exe".into(),
+        "-NoProfile".into(),
+        "-Command".into(),
+        inner,
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn freigabe_nur_fuer_schlichte_adressen() {
+        assert!(firewall_rule_command("192.0.2.10").is_some());
+        assert!(firewall_rule_command("netstream.local").is_some());
+        assert!(firewall_rule_command("x; rm -rf /").is_none());
+        assert!(firewall_rule_command("").is_none());
+    }
 
     #[test]
     fn beschreibung_auswerten() {

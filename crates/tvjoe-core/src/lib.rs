@@ -3,6 +3,7 @@
 
 pub mod backup;
 pub mod check;
+pub mod console;
 pub mod epg;
 pub mod ids;
 pub mod jellyfin;

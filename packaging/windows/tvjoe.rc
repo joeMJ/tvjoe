@@ -1,0 +1,2 @@
+// Programmsymbol für tvjoe.exe und tvjoe-gui.exe (von build.rs mit windres übersetzt).
+1 ICON "tvjoe.ico"

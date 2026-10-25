@@ -191,16 +191,18 @@ fn show_result(
             .upcast());
         return;
     }
-    // Kein Datenstrom: unter Ubuntu meist die Firewall (ufw verwirft das eingehende UDP).
+    // Kein Datenstrom: meist die Firewall (ufw bzw. Windows-Firewall verwirft das eingehende UDP).
     let row = adw::ActionRow::builder()
         .title("Kein Datenstrom angekommen")
-        .subtitle(if satip::ufw_active() {
+        .subtitle(if cfg!(windows) {
+            "Die Windows-Firewall verwirft vermutlich die UDP-Pakete des Geräts."
+        } else if satip::ufw_active() {
             "Die Firewall (ufw) ist aktiv und verwirft vermutlich die UDP-Pakete des Geräts."
         } else {
             "Eine Firewall oder das Netz verhindert vermutlich die UDP-Pakete des Geräts."
         })
         .build();
-    if satip::ufw_active() {
+    if satip::firewall_fix_available() {
         let fix = gtk::Button::builder()
             .label("Freigabe eintragen…")
             .valign(gtk::Align::Center)
@@ -225,12 +227,19 @@ fn confirm_firewall(
     rows: &Rc<std::cell::RefCell<Vec<gtk::Widget>>>,
     button: &gtk::Button,
 ) {
-    let cmd = satip::ufw_rule_command(host);
+    let Some(cmd) = satip::firewall_rule_command(host) else {
+        return;
+    };
+    let ask = if cfg!(windows) {
+        "Windows fragt über die Benutzerkontensteuerung nach der Bestätigung."
+    } else {
+        "Das System fragt nach dem Passwort."
+    };
     let d = adw::AlertDialog::new(
         Some("Firewall-Freigabe"),
         Some(&format!(
-            "Erlaubt wird nur UDP vom SAT>IP-Gerät {host}, sonst nichts:\n\n{}\n\nDas System fragt nach dem Passwort.",
-            cmd[1..].join(" ")
+            "Erlaubt wird nur UDP vom SAT>IP-Gerät {host}, sonst nichts:\n\n{}\n\n{ask}",
+            satip::firewall_rule_text(host)
         )),
     );
     d.add_response("cancel", "Abbrechen");
@@ -247,10 +256,12 @@ fn confirm_firewall(
         let cmd = cmd.clone();
         let (tx, rx) = async_channel::bounded(1);
         std::thread::spawn(move || {
-            let ok = std::process::Command::new(&cmd[0])
-                .args(&cmd[1..])
-                .status()
-                .is_ok_and(|s| s.success());
+            let mut c = std::process::Command::new(&cmd[0]);
+            c.args(&cmd[1..]);
+            // Windows: die PowerShell im Hintergrund ohne eigenes Konsolenfenster (CREATE_NO_WINDOW).
+            #[cfg(windows)]
+            std::os::windows::process::CommandExt::creation_flags(&mut c, 0x0800_0000);
+            let ok = c.status().is_ok_and(|s| s.success());
             let _ = tx.send_blocking(ok);
         });
         let (host, group, rows, button) =

@@ -51,6 +51,16 @@ struct Row {
 }
 
 /// Uhrzeit in Ortszeit, z. B. „18:10“.
+/// Meldung, wenn GTK kein OpenGL für das Videobild bekommt.
+fn gl_error_text(detail: &str) -> String {
+    let hint = if cfg!(windows) {
+        "In einer Remotedesktop-Sitzung, in einer VM ohne 3D-Beschleunigung oder ohne Grafiktreiber stellt Windows kein taugliches OpenGL bereit; tvjoe bitte direkt am Rechner starten."
+    } else {
+        "Grafiktreiber bzw. Mesa prüfen (tvjoe --check)."
+    };
+    format!("Kein Videobild: OpenGL ist nicht verfügbar ({detail}). {hint}")
+}
+
 /// Empfang eines SAT>IP-Tuners für Bauchbinde und Info.
 fn reception_text(t: &tvjoe_core::satip::TunerStatus) -> String {
     if t.lock {
@@ -326,6 +336,17 @@ impl App {
         }
         app.build_rows();
         app.connect_signals(&fullscreen_button, &overlay);
+        // Kein taugliches OpenGL (z. B. Remotedesktop, VM ohne 3D, fehlender Grafiktreiber): klare
+        // Meldung statt der knappen Fehlerzeile von GTK im Bildfeld.
+        if let Some(p) = &app.player {
+            let weak = Rc::downgrade(&app);
+            p.area.connect_realize(move |area| {
+                let (Some(app), Some(e)) = (weak.upgrade(), area.error()) else {
+                    return;
+                };
+                app.msg.show(&gl_error_text(&e.to_string()), 0);
+            });
+        }
         let weak = Rc::downgrade(&app);
         prefs_button.connect_clicked(move |_| {
             if let Some(app) = weak.upgrade() {
