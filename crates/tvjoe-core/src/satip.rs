@@ -154,7 +154,11 @@ pub fn request(
     url: &str,
     headers: &[(&str, &str)],
 ) -> Result<Response, String> {
-    let mut s = TcpStream::connect((host, PORT)).map_err(|e| e.to_string())?;
+    let addr = std::net::ToSocketAddrs::to_socket_addrs(&(host, PORT))
+        .map_err(|e| e.to_string())?
+        .next()
+        .ok_or("Adresse nicht auflösbar")?;
+    let mut s = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(|e| e.to_string())?;
     s.set_read_timeout(Some(TIMEOUT)).ok();
     s.set_write_timeout(Some(TIMEOUT)).ok();
     let mut req = format!("{method} {url} RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: tvjoe\r\n");
@@ -377,6 +381,158 @@ fn count_packets(sock: &UdpSocket, listen: Duration) -> usize {
         }
     }
     n
+}
+
+// ---------------------------------------------------------------------------------------------
+// Wiedergabe
+
+/// Gerät und Abstimmteil (ab `src=`) einer gespeicherten SAT>IP-Adresse
+/// (`rtsp://gerät:554/?src=1&freq=…`), sonst `None`.
+pub fn split_url(url: &str) -> Option<(String, String)> {
+    let rest = url.strip_prefix("rtsp://")?;
+    let (hostport, query) = rest.split_once("/?")?;
+    let host = hostport.split(':').next()?;
+    (query.contains("src=") && query.contains("freq="))
+        .then(|| (host.to_string(), query.to_string()))
+}
+
+/// Nutzdaten (Transportstrom) eines RTP-Pakets.
+fn rtp_payload(p: &[u8]) -> Option<&[u8]> {
+    if p.len() < 12 || p[0] >> 6 != 2 {
+        return None;
+    }
+    let mut start = 12 + 4 * (p[0] & 0x0f) as usize;
+    if p[0] & 0x10 != 0 {
+        let ext = p.get(start + 2..start + 4)?;
+        start += 4 + 4 * u16::from_be_bytes([ext[0], ext[1]]) as usize;
+    }
+    p.get(start..)
+}
+
+/// Laufende Wiedergabe eines SAT-Senders: tvjoe stimmt den Tuner selbst ab (SETUP/PLAY,
+/// libmpv kann SAT>IP nicht), empfängt RTP über UDP und gibt den Transportstrom unter
+/// `local_url` (nur 127.0.0.1) an den Player weiter. Status alle 5 s (hält zugleich die
+/// Sitzung offen). Beim Freigeben (Drop, ohne zu warten) oder wenn der Player trennt:
+/// TEARDOWN, der Tuner ist wieder frei. Beim Beenden des Programms [`Relay::close`].
+pub struct Relay {
+    pub local_url: String,
+    status: std::sync::Arc<std::sync::Mutex<Option<TunerStatus>>>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Relay {
+    pub fn start(url: &str) -> Result<Self, String> {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+        let (host, query) = split_url(url).ok_or("keine SAT>IP-Adresse")?;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+        listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+        let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+        let status = Arc::new(Mutex::new(None));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (st, sp) = (status.clone(), stop.clone());
+        let thread = std::thread::spawn(move || {
+            let stopped = || sp.load(Ordering::Relaxed);
+            let Ok(sock) = bind_rtp() else { return };
+            let Ok(port) = sock.local_addr().map(|a| a.port()) else {
+                return;
+            };
+            let session = match Session::setup(&host, &query, port) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("tvjoe: SAT>IP {e}");
+                    return;
+                }
+            };
+            if let Err(e) = session.play() {
+                eprintln!("tvjoe: SAT>IP {e}");
+                session.teardown();
+                return;
+            }
+            sock.set_read_timeout(Some(Duration::from_millis(200))).ok();
+            let mut next_status = Instant::now() + Duration::from_secs(2);
+            let mut buf = [0u8; 2048];
+            // Erste Verbindung des Players abwarten; trennt er (z. B. erneutes Öffnen beim
+            // Erkennen des Formats), kurz auf eine neue warten.
+            let mut wait = Duration::from_secs(15);
+            'clients: while !stopped() {
+                let t = Instant::now();
+                let mut client = loop {
+                    if stopped() || t.elapsed() > wait {
+                        break 'clients;
+                    }
+                    match listener.accept() {
+                        Ok((c, _)) => break c,
+                        Err(_) => {
+                            // Daten verwerfen, solange niemand liest.
+                            let _ = sock.recv(&mut buf);
+                        }
+                    }
+                };
+                wait = Duration::from_secs(3);
+                client.set_nonblocking(false).ok();
+                client.set_read_timeout(Some(Duration::from_secs(2))).ok();
+                client.set_write_timeout(Some(Duration::from_secs(5))).ok();
+                let mut req = Vec::new();
+                let mut b = [0u8; 1024];
+                while find(&req, b"\r\n\r\n").is_none() && req.len() < 8192 {
+                    match client.read(&mut b) {
+                        Ok(n) if n > 0 => req.extend_from_slice(&b[..n]),
+                        _ => continue 'clients,
+                    }
+                }
+                let head =
+                    "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nConnection: close\r\n\r\n";
+                if client.write_all(head.as_bytes()).is_err() {
+                    continue;
+                }
+                while !stopped() {
+                    if let Ok(n) = sock.recv(&mut buf) {
+                        if let Some(ts) = rtp_payload(&buf[..n]) {
+                            if client.write_all(ts).is_err() {
+                                continue 'clients;
+                            }
+                        }
+                    }
+                    if Instant::now() >= next_status {
+                        next_status = Instant::now() + Duration::from_secs(5);
+                        if let Ok((_, s)) = session.describe() {
+                            *st.lock().unwrap_or_else(|e| e.into_inner()) = s;
+                        }
+                    }
+                }
+            }
+            session.teardown();
+        });
+        Ok(Self {
+            local_url: format!("http://127.0.0.1:{port}/satip.ts"),
+            status,
+            stop,
+            thread: Some(thread),
+        })
+    }
+
+    /// Letzter gemeldeter Empfang des Tuners (nach etwa 2 s verfügbar).
+    pub fn status(&self) -> Option<TunerStatus> {
+        *self.status.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+impl Relay {
+    /// Beenden und auf die Freigabe des Tuners warten.
+    pub fn close(mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+impl Drop for Relay {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -787,6 +943,62 @@ mod tests {
 
     /// Echtes Gerät: `TVJOE_TEST_SATIP=<Adresse> cargo test -p tvjoe-core -- --ignored
     /// --nocapture echtes_geraet` (belegt kurz die Tuner).
+    #[test]
+    fn adresse_zerlegen() {
+        let (h, q) = split_url("rtsp://192.0.2.5:554/?src=1&freq=11347&pol=v&pids=0,100").unwrap();
+        assert_eq!(h, "192.0.2.5");
+        assert_eq!(q, "src=1&freq=11347&pol=v&pids=0,100");
+        assert!(split_url("rtsp://example.org/live").is_none());
+        assert!(split_url("http://example.org/?src=1&freq=1").is_none());
+    }
+
+    #[test]
+    fn rtp_nutzdaten() {
+        let mut p = vec![0x80, 33, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0];
+        p.extend_from_slice(&[0x47; 188]);
+        assert_eq!(rtp_payload(&p).unwrap().len(), 188);
+        // Mit Erweiterung (1 Wort) und einer CSRC.
+        let mut q = vec![
+            0x91, 33, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 0, 0, 0, 1, 9, 9, 9, 9,
+        ];
+        q.extend_from_slice(&[0x47; 188]);
+        assert_eq!(rtp_payload(&q).unwrap()[0], 0x47);
+        assert!(rtp_payload(&[0u8; 20]).is_none());
+    }
+
+    /// Echtes Gerät: Weitergabe eines Senders an 127.0.0.1 (belegt kurz einen Tuner).
+    #[test]
+    #[ignore]
+    fn echte_weitergabe() {
+        let Ok(url) = std::env::var("TVJOE_TEST_SATIP_URL") else {
+            return;
+        };
+        let relay = Relay::start(&url).unwrap();
+        let mut c = TcpStream::connect(
+            relay
+                .local_url
+                .trim_start_matches("http://")
+                .split('/')
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        c.write_all(b"GET /satip.ts HTTP/1.1\r\n\r\n").unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut total = 0;
+        let mut buf = [0u8; 65536];
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(4) {
+            total += c.read(&mut buf).unwrap_or(0);
+        }
+        println!("{} kB in 4 s, Status {:?}", total / 1024, relay.status());
+        assert!(total > 100_000);
+        drop(c);
+        let t = Instant::now();
+        relay.close();
+        println!("freigegeben in {} ms", t.elapsed().as_millis());
+    }
+
     #[test]
     #[ignore]
     fn echtes_geraet() {

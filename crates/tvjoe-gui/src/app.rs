@@ -51,6 +51,19 @@ struct Row {
 }
 
 /// Uhrzeit in Ortszeit, z. B. „18:10“.
+/// Empfang eines SAT>IP-Tuners für Bauchbinde und Info.
+fn reception_text(t: &tvjoe_core::satip::TunerStatus) -> String {
+    if t.lock {
+        format!(
+            "Empfang {} % · Qualität {}/15",
+            t.level_percent(),
+            t.quality
+        )
+    } else {
+        "Kein Empfang".to_string()
+    }
+}
+
 pub fn hm(ts: i64) -> String {
     glib::DateTime::from_unix_local(ts)
         .ok()
@@ -75,6 +88,7 @@ pub struct App {
     mediathek_button: gtk::Button,
     jellyfin_button: gtk::Button,
     jellyfin_logo: gtk::Image,
+    sat_button: gtk::Button,
     /// Ebene über dem Bild (Programm, Mediathek, Verwaltung).
     pub layer: Rc<crate::layer::Layer>,
     /// Bildbereich (für die Mindestgröße der Ebenen).
@@ -85,6 +99,12 @@ pub struct App {
     msg: Rc<MessageBar>,
     pub player: Option<Rc<Player>>,
     lib: RefCell<Library>,
+    /// Die gerade nicht gezeigte Senderliste (TV bzw. SAT); beim Umschalten getauscht.
+    other_lib: RefCell<Library>,
+    /// Die Senderliste in `lib` ist die der SAT-Quelle.
+    sat: Cell<bool>,
+    /// Laufende SAT>IP-Sitzung (Weitergabe an den Player).
+    relay: RefCell<Option<tvjoe_core::satip::Relay>>,
     settings: RefCell<Settings>,
     settings_path: Option<PathBuf>,
     current: Cell<Option<u64>>,
@@ -118,6 +138,10 @@ impl App {
         settings_path: Option<PathBuf>,
         player: Option<Rc<Player>>,
     ) -> Rc<Self> {
+        crate::icons::install();
+        let sat_lib = paths::satip_library_path()
+            .and_then(|p| Library::load(&p).map_err(|e| eprintln!("tvjoe: {e}")).ok())
+            .unwrap_or_default();
         let window = adw::ApplicationWindow::builder()
             .application(application)
             .default_width(1280)
@@ -195,6 +219,11 @@ impl App {
             .tooltip_text("Fernsehen")
             .css_classes(["tvjoe-source"])
             .build();
+        let sat_button = gtk::Button::builder()
+            .icon_name(crate::icons::SATELLITE)
+            .tooltip_text("Satellit (SAT>IP)")
+            .css_classes(["tvjoe-source"])
+            .build();
         let mediathek_button = gtk::Button::builder()
             .icon_name("folder-videos-symbolic")
             .tooltip_text("ÖR-Mediathek")
@@ -215,6 +244,7 @@ impl App {
             .margin_end(18)
             .build();
         sources.append(&tv_button);
+        sources.append(&sat_button);
         sources.append(&mediathek_button);
         sources.append(&jellyfin_button);
         header.pack_end(&sources);
@@ -252,12 +282,16 @@ impl App {
             mediathek_button: mediathek_button.clone(),
             jellyfin_button: jellyfin_button.clone(),
             jellyfin_logo,
+            sat_button: sat_button.clone(),
             layer,
             video: overlay.clone(),
             info,
             msg,
             player,
             lib: RefCell::new(lib),
+            other_lib: RefCell::new(sat_lib),
+            sat: Cell::new(false),
+            relay: RefCell::new(None),
             settings: RefCell::new(settings),
             settings_path,
             current: Cell::new(None),
@@ -282,6 +316,13 @@ impl App {
             }
         });
 
+        let sat_on_start = {
+            let s = app.settings.borrow();
+            s.satip_enabled && s.satip_active
+        };
+        if sat_on_start {
+            app.swap_lists();
+        }
         app.build_rows();
         app.connect_signals(&fullscreen_button, &overlay);
         let weak = Rc::downgrade(&app);
@@ -300,7 +341,13 @@ impl App {
         let weak = Rc::downgrade(&app);
         tv_button.connect_clicked(move |_| {
             if let Some(app) = weak.upgrade() {
-                app.back_to_tv();
+                app.switch_live(false);
+            }
+        });
+        let weak = Rc::downgrade(&app);
+        sat_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                app.switch_live(true);
             }
         });
         // Senderliste: passt sie nicht mehr sinnvoll über das Bild, als eigenes Fenster.
@@ -362,22 +409,34 @@ impl App {
         // Knöpfe und Tasten blieben stumm.
         let keep = app.clone();
         app.window.connect_destroy(move |_| {
-            let _ = &keep;
+            if let Some(r) = keep.relay.take() {
+                r.close();
+            }
         });
         app
     }
 
-    /// Quellenumschalter „TV“: offene Ebene schließen; läuft ein Video, zurück zum zuletzt
-    /// gesehenen Sender. Läuft schon Fernsehen, nichts weiter.
-    pub fn back_to_tv(self: &Rc<Self>) {
+    /// Quellenumschalter „TV“ bzw. „SAT“: offene Ebene schließen, ggf. die Senderliste
+    /// tauschen und den zuletzt gesehenen Sender dieser Quelle zeigen. Läuft sie schon,
+    /// nichts weiter.
+    pub fn switch_live(self: &Rc<Self>, sat: bool) {
         crate::layer::close_layer(self);
-        if self.vod.borrow().is_none() && self.current.get().is_some() {
+        if sat != self.sat.get() {
+            self.relay.replace(None);
+            self.current.set(None);
+            self.swap_lists();
+            self.settings.borrow_mut().satip_active = sat;
+            self.rebuild_list();
+            if self.current.get().is_some() {
+                return;
+            }
+        } else if self.vod.borrow().is_none() && self.current.get().is_some() {
             return;
         }
         let id = self
             .current
             .get()
-            .or(self.settings.borrow().last_channel)
+            .or(self.last_channel())
             .filter(|id| self.lib.borrow().channel(*id).is_some_and(usable));
         match id {
             Some(id) => self.play_channel(id),
@@ -385,15 +444,48 @@ impl App {
         }
     }
 
-    /// Weiße Linie unter der laufenden Quelle (TV, Mediathek, Jellyfin).
+    fn swap_lists(&self) {
+        std::mem::swap(
+            &mut *self.lib.borrow_mut(),
+            &mut *self.other_lib.borrow_mut(),
+        );
+        self.sat.set(!self.sat.get());
+    }
+
+    /// Zuletzt gesehener Sender der laufenden Fernsehquelle.
+    fn last_channel(&self) -> Option<u64> {
+        let s = self.settings.borrow();
+        if self.sat.get() {
+            s.satip_last_channel
+        } else {
+            s.last_channel
+        }
+    }
+
+    /// Nach einem Suchlauf: SAT-Senderliste neu einlesen.
+    pub fn reload_sat_list(self: &Rc<Self>) {
+        let lib = paths::satip_library_path()
+            .and_then(|p| Library::load(&p).ok())
+            .unwrap_or_default();
+        if self.sat.get() {
+            *self.lib.borrow_mut() = lib;
+            self.rebuild_list();
+        } else {
+            *self.other_lib.borrow_mut() = lib;
+        }
+    }
+
+    /// Weiße Linie unter der laufenden Quelle (TV, SAT, Mediathek, Jellyfin).
     fn update_source_indicator(&self) {
-        let (tv, oer, jelly) = match self.vod.borrow().as_ref() {
-            Some(Vod::Oer(_)) => (false, true, false),
-            Some(Vod::Jelly(_)) => (false, false, true),
-            None => (self.current.get().is_some(), false, false),
+        let live = self.vod.borrow().is_none() && self.current.get().is_some();
+        let (oer, jelly) = match self.vod.borrow().as_ref() {
+            Some(Vod::Oer(_)) => (true, false),
+            Some(Vod::Jelly(_)) => (false, true),
+            None => (false, false),
         };
         for (b, on) in [
-            (&self.tv_button, tv),
+            (&self.tv_button, live && !self.sat.get()),
+            (&self.sat_button, live && self.sat.get()),
             (&self.mediathek_button, oer),
             (&self.jellyfin_button, jelly),
         ] {
@@ -407,10 +499,14 @@ impl App {
 
     /// Knöpfe der Mediatheken nach den Einstellungen ein-/ausblenden; Jellyfin-Logo laden.
     pub fn update_media_buttons(self: &Rc<Self>) {
-        let (oer, jelly) = {
+        let (oer, jelly, sat) = {
             let s = self.settings.borrow();
-            (s.mediathek_oer, s.jellyfin_enabled)
+            (s.mediathek_oer, s.jellyfin_enabled, s.satip_enabled)
         };
+        self.sat_button.set_visible(sat);
+        if !sat && self.sat.get() {
+            self.switch_live(false);
+        }
         self.mediathek_button.set_visible(oer);
         self.jellyfin_button.set_visible(jelly);
         if jelly {
@@ -561,6 +657,9 @@ impl App {
         if st.osd_quality {
             meta.push(quality_label(stream.and_then(|s| s.quality)).to_string());
         }
+        if let Some(t) = self.relay.borrow().as_ref().and_then(|r| r.status()) {
+            meta.push(reception_text(&t));
+        }
         let origin = stream.map(|s| match s.kind {
             Some(SourceKind::SatIp) => Origin::Satellite,
             _ => Origin::Internet,
@@ -656,11 +755,21 @@ impl App {
 
     /// Nach Änderungen an der Bibliothek: speichern und die Senderliste neu aufbauen.
     pub fn library_changed(self: &Rc<Self>) {
-        if let Some(p) = tvjoe_core::paths::library_path() {
+        let path = if self.sat.get() {
+            paths::satip_library_path()
+        } else {
+            paths::library_path()
+        };
+        if let Some(p) = path {
             if let Err(e) = self.lib.borrow().save(&p) {
                 eprintln!("tvjoe: {e}");
             }
         }
+        self.rebuild_list();
+    }
+
+    /// Senderliste neu aufbauen (Logos, Programm), ggf. ersten Sender starten.
+    fn rebuild_list(self: &Rc<Self>) {
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
         }
@@ -905,7 +1014,7 @@ impl App {
                 .and_then(|n| lib.by_number(n))
                 .or_else(|| {
                     s.resume_last
-                        .then_some(s.last_channel)
+                        .then_some(self.last_channel())
                         .flatten()
                         .and_then(|id| lib.channel(id))
                 })
@@ -915,6 +1024,19 @@ impl App {
         };
         match id {
             Some(id) => self.play_channel(id),
+            None if self.sat.get() => {
+                if let Some(p) = &self.player {
+                    p.stop();
+                }
+                self.window.set_title(Some("tvjoe"));
+                self.update_source_indicator();
+                self.osd.show(
+                    "",
+                    "Keine SAT-Sender",
+                    "Suchlauf unter Einstellungen → SAT>IP",
+                    0,
+                );
+            }
             None => {
                 self.osd.show(
                     "",
@@ -930,6 +1052,8 @@ impl App {
         let Some(player) = self.player.clone() else {
             return;
         };
+        // Alte SAT>IP-Sitzung zuerst freigeben (Tuner, Empfangsanzeige des neuen Senders).
+        self.relay.replace(None);
         let wanted = self.wanted_for_switch();
         let picked = {
             let lib = self.lib.borrow();
@@ -953,13 +1077,20 @@ impl App {
         };
         self.finish_vod();
         self.info.hide();
-        player.load(&url, bitrate);
+        self.load_live(&player, &url, bitrate);
         trace(&format!("lade {name} ({url}, hls-bitrate {bitrate:?})"));
         self.tried.replace(vec![url.clone()]);
         self.current_stream.replace(Some((url, bitrate)));
         self.current.set(Some(id));
         self.wanted.set(wanted);
-        self.settings.borrow_mut().last_channel = Some(id);
+        {
+            let mut s = self.settings.borrow_mut();
+            if self.sat.get() {
+                s.satip_last_channel = Some(id);
+            } else {
+                s.last_channel = Some(id);
+            }
+        }
         self.window.set_title(Some(&format!("{name} – tvjoe")));
         if let Some(r) = self.rows.borrow().iter().find(|r| r.id == id) {
             self.list.select_row(Some(&r.row));
@@ -967,6 +1098,38 @@ impl App {
         self.osd.show_channel(&info, self.overlay_secs());
         self.update_inhibit();
         self.update_source_indicator();
+    }
+
+    /// Sender laden; SAT>IP-Adressen über die eigene Sitzung (libmpv kann kein SAT>IP).
+    /// Nach 3 s den Empfang in der Senderanzeige nachtragen.
+    fn load_live(self: &Rc<Self>, player: &Player, url: &str, bitrate: Option<u64>) {
+        self.relay.replace(None);
+        if tvjoe_core::satip::split_url(url).is_none() {
+            player.load(url, bitrate);
+            return;
+        }
+        match tvjoe_core::satip::Relay::start(url) {
+            Ok(r) => {
+                player.load_ts(&r.local_url);
+                self.relay.replace(Some(r));
+            }
+            Err(e) => {
+                self.msg.show(&format!("SAT>IP: {e}"), self.overlay_secs());
+                return;
+            }
+        }
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local_once(Duration::from_secs(3), move || {
+            let Some(app) = weak.upgrade() else { return };
+            if !app.osd.is_shown() || app.vod.borrow().is_some() {
+                return;
+            }
+            let Some(id) = app.current.get() else { return };
+            let lib = app.lib.borrow();
+            let Some(ch) = lib.channel(id) else { return };
+            let info = app.channel_info(ch, app.current_stream_of(ch), None);
+            app.osd.set_meta(&info.meta);
+        });
     }
 
     /// Spielt einen Mediathek-Beitrag (Stufe nach der Qualitätseinstellung). Zurück zum
@@ -1000,6 +1163,7 @@ impl App {
             return;
         };
         self.finish_vod();
+        self.relay.replace(None);
         match &vod {
             Vod::Oer(film) => {
                 let url = film.url_for(self.wanted_for_switch()).to_string();
@@ -1305,7 +1469,7 @@ impl App {
         };
         match next {
             Some((url, bitrate, _)) => {
-                player.load(&url, bitrate);
+                self.load_live(&player, &url, bitrate);
                 self.tried.borrow_mut().push(url.clone());
                 self.current_stream.replace(Some((url, bitrate)));
                 self.osd.show_channel(&info, self.overlay_secs());
@@ -1551,7 +1715,7 @@ impl App {
             self.info.hide();
             return;
         }
-        let content = match self.vod.borrow().clone() {
+        let mut content = match self.vod.borrow().clone() {
             Some(vod) => InfoContent {
                 logo: vod.logo(self),
                 title: vod.title(),
@@ -1609,6 +1773,16 @@ impl App {
                 }
             }
         };
+        if self.vod.borrow().is_none() {
+            if let Some(t) = self.relay.borrow().as_ref().and_then(|r| r.status()) {
+                content.meta.push(format!(
+                    "{} · Tuner {} · {} MHz",
+                    reception_text(&t),
+                    t.tuner,
+                    t.freq
+                ));
+            }
+        }
         self.osd.hide();
         self.info.show(&content);
     }

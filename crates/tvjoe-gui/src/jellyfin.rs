@@ -145,27 +145,49 @@ fn prefs_icon() -> &'static str {
     const NAME: &str = "tvjoe-jellyfin-symbolic";
     let (Some(src), Some(dir)) = (
         white_logo_path().filter(|p| p.exists()),
-        paths::cache_dir().map(|d| d.join("icons")),
+        crate::icons::dir(),
     ) else {
         return "network-server-symbolic";
     };
     let dst = dir.join(format!("{NAME}.symbolic.png"));
-    let stale = |d: &std::path::Path| {
-        let m = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        m(d).is_none() || m(d) < m(&src)
-    };
-    if stale(&dst) && (std::fs::create_dir_all(&dir).is_err() || std::fs::copy(&src, &dst).is_err())
-    {
+    let modified = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    if (modified(&dst).is_none() || modified(&dst) < modified(&src)) && !save_symbolic(&src, &dst) {
         return "network-server-symbolic";
-    }
-    let Some(display) = gtk::gdk::Display::default() else {
-        return "network-server-symbolic";
-    };
-    let theme = gtk::IconTheme::for_display(&display);
-    if !theme.search_path().contains(&dir) {
-        theme.add_search_path(&dir);
     }
     NAME
+}
+
+/// Symbolische PNG ablegen: GTK liest die Farbkanäle als Rollen (schwarz = Textfarbe,
+/// weiß würde zur Fehlerfarbe rot); daher die Form schwarz mit der Transparenz des Logos.
+fn save_symbolic(src: &std::path::Path, dst: &std::path::Path) -> bool {
+    let Ok(pb) = gtk::gdk_pixbuf::Pixbuf::from_file(src) else {
+        return false;
+    };
+    let Some(pb) = pb.add_alpha(false, 0, 0, 0).ok() else {
+        return false;
+    };
+    let (w, h, rs) = (
+        pb.width() as usize,
+        pb.height() as usize,
+        pb.rowstride() as usize,
+    );
+    let mut px = pb.read_pixel_bytes().to_vec();
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * rs + x * 4;
+            px[i..i + 3].fill(0);
+        }
+    }
+    let out = gtk::gdk_pixbuf::Pixbuf::from_bytes(
+        &gtk::glib::Bytes::from_owned(px),
+        gtk::gdk_pixbuf::Colorspace::Rgb,
+        true,
+        8,
+        w as i32,
+        h as i32,
+        rs as i32,
+    );
+    out.savev(dst, "png", &[]).is_ok()
 }
 
 /// Position an Jellyfin melden (im Hintergrund) und im Zwischenspeicher nachführen.

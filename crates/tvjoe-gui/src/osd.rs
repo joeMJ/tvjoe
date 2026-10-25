@@ -342,6 +342,11 @@ impl Osd {
         l.set_visible(text.is_some());
     }
 
+    /// Zeile unter dem Sendernamen nachführen, ohne die Anzeigedauer zu ändern (Empfang).
+    pub fn set_meta(&self, text: &str) {
+        Self::set_text(&self.meta, Some(text));
+    }
+
     /// Senderanzeige für `secs` Sekunden (0 = bis zur nächsten Anzeige).
     pub fn show_channel(self: &Rc<Self>, info: &ChannelInfo, secs: u32) {
         let has_number = !info.number.is_empty();
@@ -351,7 +356,7 @@ impl Osd {
             Some(o) => {
                 self.origin.set_icon_name(Some(match o {
                     Origin::Internet => "web-browser-symbolic",
-                    Origin::Satellite => "network-transmit-receive-symbolic",
+                    Origin::Satellite => crate::icons::SATELLITE,
                 }));
                 self.origin.set_tooltip_text(Some(match o {
                     Origin::Internet => "Internet",

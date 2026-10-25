@@ -4,6 +4,7 @@ mod app;
 mod dnd;
 mod gl;
 mod grid;
+mod icons;
 mod import;
 mod jellyfin;
 mod jfview;

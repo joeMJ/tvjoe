@@ -79,7 +79,8 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     page.add(&list);
     {
         let (host, row, bar) = (host.clone(), scan_row.clone(), bar.clone());
-        scan.connect_clicked(move |b| run_scan(host.text().trim(), b, &row, &bar));
+        let weak = Rc::downgrade(app);
+        scan.connect_clicked(move |b| run_scan(&weak, host.text().trim(), b, &row, &bar));
     }
 
     let rows: Rc<std::cell::RefCell<Vec<gtk::Widget>>> = Rc::default();
@@ -282,7 +283,13 @@ enum ScanMsg {
 
 /// Suchlauf im Hintergrund: so viele Tuner parallel, wie beim Prüfen Empfang haben; danach
 /// Abgleich mit der gespeicherten SAT-Senderliste.
-fn run_scan(host: &str, button: &gtk::Button, row: &adw::ActionRow, bar: &gtk::ProgressBar) {
+fn run_scan(
+    app: &std::rc::Weak<App>,
+    host: &str,
+    button: &gtk::Button,
+    row: &adw::ActionRow,
+    bar: &gtk::ProgressBar,
+) {
     if host.is_empty() {
         row.set_subtitle("Bitte zuerst die Adresse des Geräts eintragen");
         return;
@@ -305,7 +312,13 @@ fn run_scan(host: &str, button: &gtk::Button, row: &adw::ActionRow, bar: &gtk::P
         let result = satip::scan(&h, workers, &progress);
         let _ = tx.send_blocking(ScanMsg::Done(result));
     });
-    let (button, row, bar, host) = (button.clone(), row.clone(), bar.clone(), host.to_string());
+    let (app, button, row, bar, host) = (
+        app.clone(),
+        button.clone(),
+        row.clone(),
+        bar.clone(),
+        host.to_string(),
+    );
     glib::spawn_future_local(async move {
         while let Ok(msg) = rx.recv().await {
             match msg {
@@ -321,7 +334,13 @@ fn run_scan(host: &str, button: &gtk::Button, row: &adw::ActionRow, bar: &gtk::P
                     button.set_sensitive(true);
                     bar.set_visible(false);
                     row.set_subtitle(&match result {
-                        Ok(services) => save_scan(&host, &services),
+                        Ok(services) => {
+                            let text = save_scan(&host, &services);
+                            if let Some(app) = app.upgrade() {
+                                app.reload_sat_list();
+                            }
+                            text
+                        }
                         Err(e) => format!("Suchlauf fehlgeschlagen: {e}"),
                     });
                     break;

@@ -90,6 +90,10 @@ pub struct Settings {
     pub satip_enabled: bool,
     /// Adresse des SAT>IP-Geräts.
     pub satip_host: String,
+    /// Zuletzt lief die SAT-Quelle (beim Start wieder).
+    pub satip_active: bool,
+    /// Zuletzt gesehener Sender der SAT-Quelle.
+    pub satip_last_channel: Option<u64>,
 }
 
 impl Default for Settings {
@@ -132,6 +136,8 @@ impl Default for Settings {
             jellyfin_az: false,
             satip_enabled: false,
             satip_host: String::new(),
+            satip_active: false,
+            satip_last_channel: None,
             jellyfin_hidden: crate::jellyfin_lib::HIDDEN_DEFAULT
                 .iter()
                 .map(|s| s.to_string())

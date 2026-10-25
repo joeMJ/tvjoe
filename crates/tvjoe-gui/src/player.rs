@@ -194,6 +194,28 @@ impl Player {
         start: Option<f64>,
         header: Option<&str>,
     ) {
+        self.load_full(url, max_bitrate, start, header, false);
+    }
+
+    /// Transportstrom eines SAT-Senders (Weitergabe von SAT>IP): Format vorgeben und kürzer
+    /// erkennen (1 s statt der Vorgabe), das Bild kommt nach etwa 2 statt 4 s.
+    pub fn load_ts(&self, url: &str) {
+        self.load_full(url, None, None, None, true);
+    }
+
+    fn load_full(
+        &self,
+        url: &str,
+        max_bitrate: Option<u64>,
+        start: Option<f64>,
+        header: Option<&str>,
+        ts: bool,
+    ) {
+        let (format, analyze) = if ts { ("mpegts", "1") } else { ("", "0") };
+        let _ = self.mpv.set_property("demuxer-lavf-format", format);
+        let _ = self
+            .mpv
+            .set_property("demuxer-lavf-analyzeduration", analyze);
         let _ = self
             .mpv
             .command("change-list", &["http-header-fields", "clr", ""]);
@@ -218,6 +240,11 @@ impl Player {
         if let Err(e) = self.mpv.command("loadfile", &[url]) {
             eprintln!("tvjoe: Laden fehlgeschlagen: {e:?}");
         }
+    }
+
+    /// Wiedergabe beenden (kein Stream).
+    pub fn stop(&self) {
+        let _ = self.mpv.command("stop", &[]);
     }
 
     /// Bild zeichnen ein/aus (Ebene offen: schwarz, Ton läuft weiter, Dekodieren geht weiter).
