@@ -3,7 +3,8 @@
 > **Privates Hobbyprojekt – nicht gepflegt / unmaintained.**
 
 Streaming-Client für Live-TV unter Linux (Rust, GTK4/libadwaita, libmpv). Die Sender kommen aus
-eigenen M3U-Listen; tvjoe liefert keine Senderlisten mit. Ziele: schneller Start, geringe
+eigenen M3U-Listen oder von einem SAT>IP-Empfänger im Heimnetz; tvjoe liefert keine
+Senderlisten mit. Ziele: schneller Start, geringe
 CPU-Last durch Hardware-Decoding.
 
 ## Funktionen
@@ -11,7 +12,16 @@ CPU-Last durch Hardware-Decoding.
 - Senderliste mit Nummern, Logos und laufender Sendung, Bild mit Einblendung (Nummer, Name, Jetzt/Danach)
 - Umschalten per Ziffernblock, Pfeiltasten oder Klick; Qualitätsstufen SD/720p/1080p/UHD mit Ausweichen
 - Import von M3U aus Datei oder URL mit Vorschau, Prüfung und Erreichbarkeitstest; Teilimport
-- Senderverwaltung: Umbenennen, Nummern, Reihenfolge, Aktiv/Favorit, Export als M3U8
+- Senderverwaltung: Umbenennen, Nummern, Reihenfolge (auch an den Anfang/ans Ende, Ziehen mit
+  Mitlaufen am Rand), Aktiv/Favorit, Export als M3U8; inaktive Sender zählen bei den Nummern
+  nicht mit, neue Sender aus Import oder Suchlauf kommen inaktiv ans Ende
+- SAT-Quelle über einen SAT>IP-Empfänger (z. B. EyeTV Netstream 4Sat, Astra 19,2° Ost):
+  Prüfen von Gerät und Empfang, Suchlauf in eine eigene SAT-Senderliste (frei empfangbare
+  TV-Sender), Empfangsanzeige in der Einblendung, Programm über die vorhandene XMLTV-Quelle,
+  Logos aus TV-Liste, XMLTV und der Kodinerds-Sammlung
+- Zeilensprung entfernen (gegen Kammstreifen bei 576i/1080i, abschaltbar)
+- Sicherung: Einstellungen und Senderlisten in eine Datei exportieren und wieder importieren
+  (ohne Jellyfin-Anmeldung)
 - Programmführer aus XMLTV (auch `.xml.gz`), Programmraster
 - Mediathek der öffentlich-rechtlichen Sender (Filmliste von MediathekView): Episoden als Serien
   mit Staffeln, Filme, Suche; Fassungen (Untertitel, Original, Audiodeskription) zusammengefasst;
@@ -20,7 +30,7 @@ CPU-Last durch Hardware-Decoding.
   tvjoe): Filme, Sammlungen, Serien, Suche; Gesehen-Stand mit Jellyfin abgeglichen;
   Wiedergabe der Originaldatei per Hardware-Decoding oder, mit Bandbreitengrenze, vom Server
   umgerechnet
-- Quellenumschalter TV | Mediathek | Jellyfin in der Kopfleiste; Programm, Mediathek und
+- Quellenumschalter TV | SAT | Mediathek | Jellyfin in der Kopfleiste; Programm, Mediathek und
   Verwaltung als Ebene über dem Bild (Ton läuft weiter) oder bei kleinem Fenster als eigenes Fenster
 - Info über das ganze Bild (Taste I) für Mediathek und laufende Sendung
 - Optionale Updateprüfung über GitHub-Releases (standardmäßig aus)
@@ -97,6 +107,25 @@ Ist Jellyfin eingeschaltet, spricht tvjoe nur mit dem eingetragenen Server: Abgl
 Bibliothek (30 s nach dem Start, dann alle 30 Minuten), Plakate, Wiedergabe und Meldung des
 Gesehen-Stands. Der Zugangsschlüssel liegt in `~/.config/tvjoe/jellyfin.toml` (nur für den
 Nutzer lesbar) und geht nur an diesen Server.
+
+Ist die SAT-Quelle eingeschaltet, spricht tvjoe per RTSP mit dem eingetragenen SAT>IP-Gerät im
+Heimnetz und empfängt den Datenstrom per RTP über UDP. Für die Logos der SAT-Sender lädt tvjoe
+höchstens einmal pro Woche das Verzeichnis der Kodinerds-Logosammlung über die GitHub-API und
+die Logos von `raw.githubusercontent.com` (dabei wird die IP-Adresse übermittelt). Den
+Datenstrom gibt tvjoe intern nur über `127.0.0.1` an den Player weiter.
+
+## SAT>IP und Firewall
+
+Der SAT>IP-Empfänger schickt den Datenstrom per UDP an tvjoe. Eine aktive Firewall muss UDP
+vom Gerät zulassen, sonst kommt kein Bild. Unter Ubuntu mit ufw erkennt der Reiter „SAT>IP“
+beim Prüfen den Fall und bietet an, genau diese Regel einzutragen (nach Rückfrage, das System
+fragt nach dem Passwort):
+
+```
+sudo ufw allow from <Adresse des Geräts> proto udp comment 'SAT>IP'
+```
+
+Erlaubt wird nur UDP von diesem einen Gerät.
 
 ## Mediathek und MediathekView
 
