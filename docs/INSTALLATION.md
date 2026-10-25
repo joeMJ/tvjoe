@@ -40,8 +40,30 @@ oben.
 
 ## Installation (Windows)
 
-In Vorbereitung. Die Windows-Fassung wird mit demselben selbst ausgestellten Zertifikat signiert wie
-remotejoe. Wer es schon für remotejoe eingetragen hat, muss nichts weiter tun.
+**Voraussetzungen:** Windows 10 oder 11 (64 Bit), keine Administratorrechte nötig. Für das Videobild
+braucht tvjoe OpenGL vom Grafiktreiber: direkt am Rechner starten. In einer Remotedesktop-Sitzung
+oder in einer VM ohne 3D-Beschleunigung gibt es kein taugliches OpenGL; tvjoe meldet das dann.
+
+**Installieren:** die Datei `tvjoe-<Version>-windows-x86_64.msi` von der
+[Release-Seite](https://github.com/joeMJ/tvjoe/releases/latest) laden, die Prüfsumme mit der
+Datei `….msi.sha256` daneben vergleichen und die MSI doppelklicken. Sie installiert nur für das
+eigene Benutzerkonto nach `%LOCALAPPDATA%\Programs\tvjoe`, legt eine Verknüpfung im Startmenü an und
+erscheint unter „Apps und Features“. Alle benötigten Bibliotheken (GTK, libadwaita, libmpv) sind
+enthalten.
+
+Die MSI und die Programme sind mit demselben selbst ausgestellten Zertifikat signiert wie remotejoe.
+Wer es schon für remotejoe eingetragen hat, muss nichts weiter tun.
+
+**SAT>IP:** Die Windows-Firewall verwirft den Datenstrom des SAT>IP-Geräts zunächst stillschweigend.
+Unter **Einstellungen → SAT>IP → Prüfen** bietet tvjoe dann **Freigabe eintragen …** an, siehe
+[SAT-IP.md](SAT-IP.md#firewall).
+
+**Aktualisieren:** Die Updateprüfung (Einstellungen → Updates) meldet eine neue Version und öffnet die
+Release-Seite; die neue MSI einfach über die alte installieren.
+
+**Deinstallieren:** unter „Apps und Features“ (bzw. „Installierte Apps“) bei **tvjoe**. Einstellungen
+und Senderlisten (`%APPDATA%\tvjoe`) sowie der Zwischenspeicher (`%LOCALAPPDATA%\tvjoe`) bleiben
+erhalten.
 
 > [!IMPORTANT]
 > **Vor der ersten Installation: das Zertifikat des Herausgebers eintragen.**

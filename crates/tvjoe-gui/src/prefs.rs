@@ -437,6 +437,18 @@ fn offer(app: &Rc<App>, release: update::Release) {
         &format!("Installiert ist {VERSION}.\n\n{notes}"),
     );
     d.add_response("close", "Später");
+    // Windows: keine .deb-Pakete; die neue MSI lädt man von der Release-Seite und installiert sie
+    // über die alte.
+    if cfg!(windows) {
+        d.add_response("open", "Zur Release-Seite");
+        d.set_response_appearance("open", adw::ResponseAppearance::Suggested);
+        let url = release.html_url.clone();
+        let parent = app.window.clone();
+        d.connect_response(Some("open"), move |_, _| {
+            gtk::UriLauncher::new(&url).launch(Some(&parent), gtk::gio::Cancellable::NONE, |_| {});
+        });
+        return;
+    }
     d.add_response("download", "Herunterladen…");
     d.set_response_appearance("download", adw::ResponseAppearance::Suggested);
     let weak = Rc::downgrade(app);

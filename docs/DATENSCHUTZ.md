@@ -31,6 +31,9 @@ GitHub im Browser; tvjoe selbst überträgt dabei nichts.
 
 ## Gespeicherte Daten
 
+Unter Windows liegen die Einstellungen in `%APPDATA%\tvjoe`, der Zwischenspeicher in `%LOCALAPPDATA%\tvjoe`;
+unter Linux:
+
 - `~/.config/tvjoe/`: Einstellungen (`settings.toml`), TV-Senderliste (`library.toml`),
   SAT-Senderliste (`satip.toml`), Jellyfin-Anmeldung (`jellyfin.toml`).
 - `~/.cache/tvjoe/`: Logos, Programm, Filmliste der Mediathek mit Weiterseh-Positionen,

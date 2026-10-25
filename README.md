@@ -4,7 +4,7 @@
 
 # tvjoe
 
-> **Schlanker Streaming-Client für Live-TV unter Linux.**
+> **Schlanker Streaming-Client für Live-TV unter Linux und Windows.**
 > Fernsehen aus eigenen M3U-Listen, Satellit über einen SAT>IP-Empfänger im Heimnetz, die Mediathek
 > der öffentlich-rechtlichen Sender und der eigene Jellyfin-Server – in einem Fenster.
 
@@ -12,7 +12,7 @@
   <a href="https://www.johnlose.de/unterstutzung-fur-john-joe-lose/"><img src="docs/knoepfe/danke.svg" alt="Danke sagen an John" width="300"></a>
 </p>
 <p align="center">
-  <a href="docs/INSTALLATION.md#installation-windows"><img src="docs/knoepfe/windows.svg" alt="Auf Windows installieren (in Vorbereitung)" width="260"></a>
+  <a href="docs/INSTALLATION.md#installation-windows"><img src="docs/knoepfe/windows.svg" alt="Auf Windows installieren" width="260"></a>
   &nbsp;
   <a href="docs/INSTALLATION.md#installation-ubuntu"><img src="docs/knoepfe/ubuntu.svg" alt="Auf Ubuntu installieren" width="260"></a>
 </p>
@@ -29,7 +29,7 @@ SAT>IP-Empfänger.
 
 ## Dokumentation
 
-- [`docs/INSTALLATION.md`](docs/INSTALLATION.md) – Installation unter Ubuntu (Windows in Vorbereitung)
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md) – Installation unter Ubuntu und Windows
 - [`docs/ERSTE-SCHRITTE.md`](docs/ERSTE-SCHRITTE.md) – Senderliste übernehmen, Programm eintragen, sortieren, sichern
 - [`docs/SAT-IP.md`](docs/SAT-IP.md) – SAT>IP-Empfänger einrichten, Suchlauf, Firewall, unterwegs per WireGuard
 - [`docs/MEDIATHEK.md`](docs/MEDIATHEK.md) – Mediathek der öffentlich-rechtlichen Sender und Jellyfin
@@ -43,7 +43,7 @@ SAT>IP-Empfänger.
 >
 > * **Keine Unterstützung zugesagt:** Pull Requests werden nicht bearbeitet, Feature-Wünsche nicht zugesagt. Fehler und Wünsche können gemeldet werden (siehe [Fehler melden und Wünsche](#fehler-melden-und-wünsche)) – es kann aber dauern, bis sie bearbeitet werden.
 > * **Keine Garantie, Haftung:** Das Programm wird unentgeltlich als Privatprojekt „wie besehen“ bereitgestellt. Es besteht kein Anspruch auf Verfügbarkeit, Fehlerfreiheit, Aktualisierungen oder Support. Für Schäden aus der Nutzung hafte ich nur bei Vorsatz, grober Fahrlässigkeit sowie bei Verletzung von Leben, Körper oder Gesundheit; im Übrigen nur nach den gesetzlichen Vorschriften.
-> * **Eigene Umgebung:** Entwickelt und getestet nur auf meinen eigenen Ubuntu-Rechnern (24.04 und 26.04). Auf anderen Systemen kann es fehlschlagen.
+> * **Eigene Umgebung:** Entwickelt und getestet nur auf meinen eigenen Rechnern (Ubuntu 24.04 und 26.04, Windows 10). Die Windows-Fassung ist neu. Auf anderen Systemen kann es fehlschlagen.
 > * **Netzwerk:** Das Programm läuft mit den Rechten deines Benutzerkontos und verbindet sich mit den Quellen, die du einträgst. Welche Zugriffe es sonst gibt, steht in [`docs/DATENSCHUTZ.md`](docs/DATENSCHUTZ.md). **Lies den Code, bevor du ihn installierst.**
 > * **Keine Updates zugesichert:** Es kann jederzeit ohne Ankündigung Änderungen, Brüche oder die Löschung des Repos geben.
 >
@@ -74,7 +74,7 @@ SAT>IP-Empfänger.
 | Plattform | Status | Hinweis |
 | :--- | :--- | :--- |
 | **Linux (Ubuntu 24.04 / 26.04)** | Aktiv | Paket je Ubuntu-Version, Installation per Skript ([Installation](docs/INSTALLATION.md#installation-ubuntu)) |
-| **Windows 10/11** | In Vorbereitung | – |
+| **Windows 10/11** | Neu | MSI pro Benutzer ohne Administratorrechte ([Installation](docs/INSTALLATION.md#installation-windows)); OpenGL vom Grafiktreiber nötig |
 
 ## Installation
 
@@ -84,7 +84,13 @@ SAT>IP-Empfänger.
   curl -fsSL https://raw.githubusercontent.com/joeMJ/tvjoe/main/install.sh | bash
   ```
 
-- **Windows 10/11:** in Vorbereitung.
+- **Windows 10/11:** MSI von der [Release-Seite](https://github.com/joeMJ/tvjoe/releases/latest) –
+  [Installation (Windows)](docs/INSTALLATION.md#installation-windows).
+
+> [!IMPORTANT]
+> **Windows: vor der ersten Installation das Zertifikat des Herausgebers eintragen.** Die MSI ist mit einem selbst
+> ausgestellten Zertifikat signiert; ohne eingetragenes Zertifikat meldet Windows einen „unbekannten Herausgeber“.
+> Befehl, Fingerabdruck und Erklärung: [Zertifikat des Herausgebers](docs/INSTALLATION.md#zertifikat-des-herausgebers).
 
 ---
 
