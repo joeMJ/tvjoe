@@ -16,8 +16,8 @@ const PAGE: usize = 500;
 const FIELDS: &str = "Overview,SortName,PremiereDate,ProductionYear,DateCreated,ParentId,Genres";
 const TYPES: &str = "Movie,Series,Season,Episode,BoxSet,Video";
 
-/// Bibliotheken, die standardmäßig ausgeblendet sind (Nutzer, 2026-10-25).
-pub const HIDDEN_DEFAULT: &[&str] = &["Versteckt"];
+/// Bibliotheken, die standardmäßig ausgeblendet sind (keine; Auswahl in den Einstellungen).
+pub const HIDDEN_DEFAULT: &[&str] = &[];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibraryInfo {
