@@ -5,6 +5,7 @@
 //! nur das GLArea neu gezeichnet.
 
 use std::cell::{Cell, RefCell};
+#[cfg(target_os = "linux")]
 use std::ffi::c_void;
 use std::rc::Rc;
 

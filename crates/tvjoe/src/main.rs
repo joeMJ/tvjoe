@@ -58,6 +58,23 @@ fn interactive() -> bool {
 
 /// Zeigt den Installationsbefehl und führt ihn nach Bestätigung aus. Gibt zurück, ob installiert wurde.
 fn offer_install(packages: &[&str]) -> bool {
+    if cfg!(windows) {
+        // Unter Windows liegen die DLLs dem Programm bei; beim Bauen kommen sie aus MSYS2.
+        println!(
+            "Fehlt: {}. Zum Bauen in MSYS2 installieren: pacman -S {}",
+            packages.join(", "),
+            packages
+                .iter()
+                .map(|p| if p.starts_with("mingw-") {
+                    p.to_string()
+                } else {
+                    format!("mingw-w64-ucrt-x86_64-{p}")
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        return false;
+    }
     let cmd = syscheck::install_command(packages);
     println!("Installation: {}", cmd.join(" "));
     if !interactive() {
@@ -102,12 +119,13 @@ fn check(dev: bool) -> ExitCode {
         let dev_missing = syscheck::missing_dev_packages();
         for p in syscheck::DEV_PACKAGES {
             println!(
-                "{} {p} (Entwicklung)",
+                "{} {p} (Entwicklung{})",
                 if dev_missing.contains(p) {
                     "✖"
                 } else {
                     "✔"
-                }
+                },
+                if cfg!(windows) { ", pkg-config" } else { "" }
             );
         }
         packages.extend(dev_missing);
