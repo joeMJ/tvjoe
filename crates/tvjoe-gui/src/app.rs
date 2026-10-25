@@ -380,7 +380,9 @@ impl App {
                 split.set_show_sidebar(false);
                 app.open_list_window();
             }
+            app.place_message_bar();
         });
+        app.place_message_bar();
         // Verkleinert: eine offene Ebene, die nicht mehr passt, wandert in ein Fenster.
         let check = {
             let weak = Rc::downgrade(&app);
@@ -898,6 +900,17 @@ impl App {
             }
         }
         self.rebuild_list();
+    }
+
+    /// Meldungsleiste neben der Senderliste beginnen lassen, wenn diese über dem Bild liegt (sonst
+    /// verdeckt sie den Anfang der Meldung).
+    fn place_message_bar(&self) {
+        let start = if self.split.shows_sidebar() {
+            self.split.max_sidebar_width() as i32 + 16
+        } else {
+            16
+        };
+        self.msg.root.set_margin_start(start);
     }
 
     /// Senderlogos für die laufende Fernsehquelle zeigen (getrennt für Internet und SAT).

@@ -480,6 +480,10 @@ pub struct MessageBar {
 impl MessageBar {
     pub fn new() -> Rc<Self> {
         let text = label("tvjoe-osd-name");
+        // Lange Meldungen (z. B. fehlendes OpenGL) umbrechen statt kürzen, höchstens drei Zeilen.
+        text.set_wrap(true);
+        text.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        text.set_lines(3);
         let root = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .css_classes(["tvjoe-osd"])
@@ -502,6 +506,15 @@ impl MessageBar {
     /// Zeigt die Meldung für `secs` Sekunden (0 = bis zur nächsten Meldung).
     pub fn show(self: &Rc<Self>, text: &str, secs: u32) {
         self.text.set_label(text);
+        // Kurze Meldungen groß (Lautstärke, Ton …), lange in der Schrift der Beschreibung.
+        let long = text.chars().count() > 60;
+        for (class, on) in [("tvjoe-osd-name", !long), ("tvjoe-osd-now", long)] {
+            if on {
+                self.text.add_css_class(class);
+            } else {
+                self.text.remove_css_class(class);
+            }
+        }
         self.root.set_visible(true);
         if let Some(id) = self.timer.take() {
             id.remove();
