@@ -30,6 +30,7 @@ const IMAGE_THREADS: usize = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Movies,
+    Collections,
     Series,
     Search,
 }
@@ -188,7 +189,7 @@ struct JfView {
     header_start: gtk::Box,
     header_center: gtk::Widget,
     header_end: gtk::Box,
-    tabs: [gtk::ToggleButton; 3],
+    tabs: [gtk::ToggleButton; 4],
     search: gtk::SearchEntry,
     search_bar: gtk::Box,
     libbar: gtk::Box,
@@ -287,9 +288,10 @@ impl crate::layer::View for JfView {
 impl JfView {
     fn new(app: &Rc<App>) -> Rc<Self> {
         let tab = |l: &str| gtk::ToggleButton::builder().label(l).build();
-        let tabs = [tab("Filme"), tab("Serien"), tab("Suche")];
-        tabs[1].set_group(Some(&tabs[0]));
-        tabs[2].set_group(Some(&tabs[0]));
+        let tabs = [tab("Filme"), tab("Sammlungen"), tab("Serien"), tab("Suche")];
+        for t in &tabs[1..] {
+            t.set_group(Some(&tabs[0]));
+        }
         tabs[0].set_active(true);
         let tab_box = gtk::Box::builder().css_classes(["linked"]).build();
         for t in &tabs {
@@ -418,7 +420,7 @@ impl JfView {
                 }
             });
         }
-        for (i, t) in [Tab::Movies, Tab::Series, Tab::Search]
+        for (i, t) in [Tab::Movies, Tab::Collections, Tab::Series, Tab::Search]
             .into_iter()
             .enumerate()
         {
@@ -573,7 +575,8 @@ impl JfView {
         self.show_status(&db);
         let hidden = self.hidden();
         let items = match self.tab.get() {
-            Tab::Movies => db.movies(&hidden, self.library.borrow().as_deref(), self.az()),
+            Tab::Movies => db.single_movies(&hidden, self.library.borrow().as_deref(), self.az()),
+            Tab::Collections => db.collections(&hidden, self.az()),
             Tab::Series => db.series(&hidden, self.az()),
             Tab::Search => {
                 let text = self.search.text();

@@ -473,9 +473,48 @@ impl JellyfinLibrary {
         )
     }
 
+    /// Einzelne Filme ohne Sammlung (Teile einer Sammlung stehen nur dort), neueste zuerst
+    /// bzw. A–Z. `library`: nur diese Bibliothek (Name).
+    pub fn single_movies(&self, hidden: &[String], library: Option<&str>, az: bool) -> Vec<Item> {
+        self.movie_query(hidden, library, az, false)
+    }
+
+    /// Nur Sammlungen; „neueste“ nach dem zuletzt hinzugefügten Teil.
+    pub fn collections(&self, hidden: &[String], az: bool) -> Vec<Item> {
+        let order = if az {
+            "i.sort_name COLLATE NOCASE".to_string()
+        } else {
+            "(SELECT max(m.date_created) FROM collection_items c JOIN items m ON m.id = c.item_id
+               WHERE c.collection_id = i.id) DESC"
+                .to_string()
+        };
+        let cols: Vec<String> = COLUMNS
+            .split(", ")
+            .map(|c| format!("i.{}", c.trim()))
+            .collect();
+        self.query(
+            &format!(
+                "SELECT {} FROM items i WHERE i.kind = 'BoxSet'{} ORDER BY {order}",
+                cols.join(", "),
+                Self::visible(hidden)
+            ),
+            &[],
+        )
+    }
+
     /// Filme und Sammlungen (eine Sammlung ersetzt ihre Teile), neueste zuerst bzw. A–Z.
     /// `library`: nur diese Bibliothek (Name).
     pub fn movies(&self, hidden: &[String], library: Option<&str>, az: bool) -> Vec<Item> {
+        self.movie_query(hidden, library, az, true)
+    }
+
+    fn movie_query(
+        &self,
+        hidden: &[String],
+        library: Option<&str>,
+        az: bool,
+        with_sets: bool,
+    ) -> Vec<Item> {
         let order = if az {
             "i.sort_name COLLATE NOCASE"
         } else {
@@ -499,12 +538,12 @@ impl JellyfinLibrary {
                 "SELECT {} FROM items i
                  WHERE ((i.kind IN ('Movie', 'Video')
                          AND NOT EXISTS (SELECT 1 FROM collection_items c WHERE c.item_id = i.id))
-                        OR i.kind = 'BoxSet'){}{lib}
+                        OR (?1 AND i.kind = 'BoxSet')){}{lib}
                  ORDER BY {order}",
                 cols.join(", "),
                 Self::visible(hidden)
             ),
-            &[],
+            &[&with_sets],
         )
     }
 
@@ -778,6 +817,13 @@ mod tests {
             .collect();
         assert_eq!(names, ["96 Hours Filmreihe", "Einzelfilm"]);
         assert_eq!(lib.movies(&[], None, true).len(), 3);
+        let singles: Vec<String> = lib
+            .single_movies(&hidden, None, true)
+            .into_iter()
+            .map(|i| i.name)
+            .collect();
+        assert_eq!(singles, ["Einzelfilm"]);
+        assert_eq!(lib.collections(&hidden, false).len(), 1);
         let parts: Vec<String> = lib.collection("c").into_iter().map(|i| i.name).collect();
         assert_eq!(parts, ["96 Hours", "96 Hours - Taken 2"]);
         assert_eq!(lib.search("taken", &hidden, 10).len(), 1);

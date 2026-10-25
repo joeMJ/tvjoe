@@ -267,7 +267,7 @@ const JELLYFIN_STEPS: &[Step] = &[
         "63-jellyfin-serien",
         |p| {
             crate::layer::close_layer(&p.app);
-            crate::jfview::probe_open(&p.app, 1)
+            crate::jfview::probe_open(&p.app, 2)
         },
         6000,
     ),
