@@ -417,6 +417,8 @@ fn rtp_payload(p: &[u8]) -> Option<&[u8]> {
 pub struct Relay {
     pub local_url: String,
     status: std::sync::Arc<std::sync::Mutex<Option<TunerStatus>>>,
+    /// Empfangene RTP-Pakete (0 nach einigen Sekunden: Firewall oder Tunnel).
+    packets: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -431,7 +433,8 @@ impl Relay {
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let status = Arc::new(Mutex::new(None));
         let stop = Arc::new(AtomicBool::new(false));
-        let (st, sp) = (status.clone(), stop.clone());
+        let packets = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (st, sp, pk) = (status.clone(), stop.clone(), packets.clone());
         let thread = std::thread::spawn(move || {
             let stopped = || sp.load(Ordering::Relaxed);
             let Ok(sock) = bind_rtp() else { return };
@@ -466,7 +469,9 @@ impl Relay {
                         Ok((c, _)) => break c,
                         Err(_) => {
                             // Daten verwerfen, solange niemand liest.
-                            let _ = sock.recv(&mut buf);
+                            if sock.recv(&mut buf).is_ok() {
+                                pk.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
                     }
                 };
@@ -489,6 +494,7 @@ impl Relay {
                 }
                 while !stopped() {
                     if let Ok(n) = sock.recv(&mut buf) {
+                        pk.fetch_add(1, Ordering::Relaxed);
                         if let Some(ts) = rtp_payload(&buf[..n]) {
                             if client.write_all(ts).is_err() {
                                 continue 'clients;
@@ -508,9 +514,15 @@ impl Relay {
         Ok(Self {
             local_url: format!("http://127.0.0.1:{port}/satip.ts"),
             status,
+            packets,
             stop,
             thread: Some(thread),
         })
+    }
+
+    /// Bisher vom Gerät empfangene RTP-Pakete.
+    pub fn packets(&self) -> usize {
+        self.packets.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Letzter gemeldeter Empfang des Tuners (nach etwa 2 s verfügbar).
@@ -992,7 +1004,12 @@ mod tests {
         while t.elapsed() < Duration::from_secs(4) {
             total += c.read(&mut buf).unwrap_or(0);
         }
-        println!("{} kB in 4 s, Status {:?}", total / 1024, relay.status());
+        println!(
+            "{} kB in 4 s, {} Pakete, Status {:?}",
+            total / 1024,
+            relay.packets(),
+            relay.status()
+        );
         assert!(total > 100_000);
         drop(c);
         let t = Instant::now();

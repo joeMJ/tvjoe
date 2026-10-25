@@ -1256,6 +1256,31 @@ impl App {
             let info = app.channel_info(ch, app.current_stream_of(ch), None);
             app.osd.set_reception(info.reception.as_deref());
         });
+        // Kommt nach einigen Sekunden nichts an, verwirft meist die Firewall (ufw) den UDP-Strom
+        // des Geräts, oder ein WireGuard-Tunnel mit Adressübersetzung (Masquerade) lässt ihn
+        // nicht zurück (das Gerät schickt an die übersetzte Adresse; Abhilfe in docs/SAT-IP.md).
+        let weak = Rc::downgrade(self);
+        let url = url.to_string();
+        glib::timeout_add_local_once(Duration::from_secs(6), move || {
+            let Some(app) = weak.upgrade() else { return };
+            let silent = app
+                .relay
+                .borrow()
+                .as_ref()
+                .is_some_and(|r| r.packets() == 0);
+            let same = app
+                .current_stream
+                .borrow()
+                .as_ref()
+                .map(|(u, _)| u.as_str())
+                == Some(&url);
+            if silent && same && app.vod.borrow().is_none() {
+                app.msg.show(
+                    "Kein Datenstrom vom SAT>IP-Gerät (UDP). Firewall: Einstellungen → SAT>IP → Prüfen. Über WireGuard: Masquerade im Tunnel verhindert den Rückweg (docs/SAT-IP.md)",
+                    app.overlay_secs() * 2,
+                );
+            }
+        });
     }
 
     /// Spielt einen Mediathek-Beitrag (Stufe nach der Qualitätseinstellung). Zurück zum

@@ -195,6 +195,23 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         .build();
     about_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
     about.add(&about_row);
+    // Fehler und Wünsche: öffnet den Issue-Tracker bei GitHub im Browser.
+    let issue_row = adw::ActionRow::builder()
+        .title("Fehler melden / Wunsch")
+        .subtitle("Öffnet die Issues von tvjoe bei GitHub im Browser (GitHub-Konto nötig)")
+        .activatable(true)
+        .build();
+    issue_row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
+    about.add(&issue_row);
+    let issue_parent = dialog.clone();
+    issue_row.connect_activated(move |_| {
+        let parent = issue_parent.root().and_downcast::<gtk::Window>();
+        gtk::UriLauncher::new(ISSUES_URL).launch(
+            parent.as_ref(),
+            gtk::gio::Cancellable::NONE,
+            |_| {},
+        );
+    });
     p_updates.add(&about);
     for p in [
         &p_control,
@@ -286,6 +303,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
 }
 
 const README_URL: &str = "https://github.com/joeMJ/tvjoe#readme";
+const ISSUES_URL: &str = "https://github.com/joeMJ/tvjoe/issues";
 const THIRD_PARTY_URL: &str = "https://github.com/joeMJ/tvjoe/blob/main/THIRD_PARTY.md";
 
 /// „Über tvjoe“: Version, Entwickler, Lizenz, Verweis auf das README, Mediathek-Daten von

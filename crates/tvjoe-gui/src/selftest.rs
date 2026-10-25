@@ -4,6 +4,8 @@
 //! - `TVJOE_SELFTEST=/ordner tvjoe --mute`: Bedienung des Hauptfensters.
 //! - zusätzlich `TVJOE_SELFTEST_IMPORT=/liste.m3u`: Verwaltung und Import mit Vorschau.
 //! - zusätzlich `TVJOE_SELFTEST_MEDIATHEK=1`: Mediathek (lädt beim ersten Mal die Filmliste).
+//! - `TVJOE_SELFTEST_README=1` (nur diese Schritte): Bilder für das README; mit neutralen Daten
+//!   starten (eigene `TVJOE_CONFIG_DIR`/`TVJOE_CACHE_DIR`, ohne Jellyfin und private Sender).
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -316,6 +318,78 @@ const JFPLAY_STEPS: &[Step] = &[
     ),
 ];
 
+/// README-Bilder (`TVJOE_SELFTEST_README=1`): Senderliste, Einblendung, Info, SAT mit
+/// Empfangsanzeige, Einstellungen (SAT>IP), dann die Ebenen Programm, Verwaltung, Mediathek.
+/// SAT und Einstellungen vor den Ebenen: direkt nach dem Wiedereinblenden des Videobilds
+/// liefert das Fensterbild nichts.
+const README_STEPS: &[Step] = &[
+    ("readme-01-senderliste", main_window, 14000),
+    (
+        "readme-02-einblendung",
+        |p| {
+            p.app.toggle_sidebar();
+            p.app.show_info();
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "readme-03-info",
+        |p| {
+            p.app.toggle_info();
+            main_window(p)
+        },
+        2000,
+    ),
+    (
+        "readme-04-sat",
+        |p| {
+            p.app.toggle_info();
+            p.app.switch_live(true);
+            main_window(p)
+        },
+        6000,
+    ),
+    (
+        "readme-05-einstellungen-sat",
+        |p| {
+            crate::prefs::open_at(&p.app, Some("satip"), &p.app.window);
+            main_window(p)
+        },
+        2000,
+    ),
+    (
+        "readme-06-programm",
+        |p| {
+            if let Some(d) = adw::prelude::AdwApplicationWindowExt::visible_dialog(&p.app.window) {
+                adw::prelude::AdwDialogExt::close(&d);
+            }
+            p.app.switch_live(false);
+            crate::grid::open(&p.app);
+            main_window(p)
+        },
+        4000,
+    ),
+    (
+        "readme-07-verwaltung",
+        |p| {
+            crate::layer::close_layer(&p.app);
+            crate::manage::open(&p.app);
+            main_window(p)
+        },
+        3000,
+    ),
+    (
+        "readme-08-mediathek",
+        |p| {
+            crate::layer::close_layer(&p.app);
+            crate::mediathek::open(&p.app);
+            main_window(p)
+        },
+        8000,
+    ),
+];
+
 /// Mediathek (`TVJOE_SELFTEST_MEDIATHEK=1`): beim ersten Öffnen wird die Filmliste geladen.
 const MEDIATHEK_STEPS: &[Step] = &[
     (
@@ -419,6 +493,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         JELLYFIN_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_JFPLAY").is_some() {
         JFPLAY_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_README").is_some() {
+        README_STEPS.to_vec()
     } else {
         STEPS.to_vec()
     };
