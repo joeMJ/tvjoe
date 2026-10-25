@@ -784,14 +784,15 @@ pub fn scan(
 }
 
 /// Frei empfangbare TV-Sender eines Suchlaufs für die SAT-Senderliste (ohne Radio, ohne
-/// verschlüsselte, ohne Platzhalternamen wie „.“ und ohne Testdienste „TEST_…“).
+/// verschlüsselte, ohne Platzhalternamen ohne Buchstaben wie „.“ oder „.4.“ und ohne
+/// Testdienste „TEST_…“).
 pub fn to_channels(host: &str, services: &[ScannedService]) -> Vec<crate::ScannedChannel> {
     services
         .iter()
         .filter(|s| {
             !s.radio
                 && !s.scrambled
-                && s.name.chars().any(char::is_alphanumeric)
+                && s.name.chars().any(char::is_alphabetic)
                 && !s.name.starts_with("TEST_")
         })
         .map(|s| crate::ScannedChannel {

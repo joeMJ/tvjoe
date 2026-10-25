@@ -199,9 +199,9 @@ impl Manager {
         mgr.refill();
 
         let m = mgr.clone();
-        import_file.connect_clicked(move |_| crate::import::from_file(&m));
+        import_file.connect_clicked(move |b| with_tv_list(b, &m, crate::import::from_file));
         let m = mgr.clone();
-        import_url.connect_clicked(move |_| crate::import::from_url(&m));
+        import_url.connect_clicked(move |b| with_tv_list(b, &m, crate::import::from_url));
         let m = mgr.clone();
         export.connect_clicked(move |_| m.export(None));
         let m = mgr.clone();
@@ -321,7 +321,9 @@ impl Manager {
         let m = Rc::downgrade(self);
         active.connect_toggled(move |b| {
             if let Some(m) = m.upgrade() {
-                m.set_flag(&[id], |c| c.active = b.is_active());
+                m.set_active(&[id], b.is_active());
+                // Nummern der anderen Zeilen ändern sich; nicht im eigenen Signal neu aufbauen.
+                glib::idle_add_local_once(move || m.refill());
             }
         });
         hbox.append(&active);
@@ -370,6 +372,20 @@ impl Manager {
     }
 
     /// Ändert Felder ohne Neuaufbau der Tabelle (Häkchen), speichert und aktualisiert das Hauptfenster.
+    /// Aktiv/inaktiv setzen; die Nummern folgen (inaktive Sender zählen nicht mit).
+    fn set_active(&self, ids: &[u64], on: bool) {
+        {
+            let mut lib = self.app.library_mut();
+            for id in ids {
+                if let Some(c) = lib.channel_mut(*id) {
+                    c.active = on;
+                }
+            }
+            lib.renumber();
+        }
+        self.app.library_changed();
+    }
+
     fn set_flag(&self, ids: &[u64], f: impl Fn(&mut Channel)) {
         {
             let mut lib = self.app.library_mut();
@@ -427,8 +443,10 @@ impl Manager {
         s1.append_item(&item("Eigenen Namen löschen", "reset-name"));
         menu.append_section(None, &s1);
         let s2 = gio::Menu::new();
+        s2.append_item(&item("An den Anfang verschieben", "top"));
         s2.append_item(&item("Nach oben", "up"));
         s2.append_item(&item("Nach unten", "down"));
+        s2.append_item(&item("Ans Ende verschieben", "bottom"));
         menu.append_section(None, &s2);
         let s3 = gio::Menu::new();
         s3.append_item(&item("Aktivieren", "activate"));
@@ -487,16 +505,18 @@ impl Manager {
                 m.set_flag(&ids, |c| c.custom_name = None);
                 m.refill();
             }),
+            entry("top", |m, id| m.move_to_edge(id, false)),
             entry("up", |m, id| m.shift(id, -1)),
             entry("down", |m, id| m.shift(id, 1)),
+            entry("bottom", |m, id| m.move_to_edge(id, true)),
             entry("activate", |m, id| {
                 let ids = m.targets(id);
-                m.set_flag(&ids, |c| c.active = true);
+                m.set_active(&ids, true);
                 m.refill();
             }),
             entry("deactivate", |m, id| {
                 let ids = m.targets(id);
-                m.set_flag(&ids, |c| c.active = false);
+                m.set_active(&ids, false);
                 m.refill();
             }),
             entry("favorite", |m, id| {
@@ -720,6 +740,29 @@ impl Manager {
             // Nummern folgen der Position (wie bei EyeTV).
             lib.renumber();
         }
+        self.reordered(&ids);
+    }
+
+    /// Markierte Sender an den Anfang bzw. ans Ende; ihre Reihenfolge untereinander bleibt.
+    fn move_to_edge(self: &Rc<Self>, id: u64, end: bool) {
+        let ids = self.targets(id);
+        {
+            let mut lib = self.app.library_mut();
+            let (moved, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut lib.channels)
+                .into_iter()
+                .partition(|c| ids.contains(&c.id));
+            lib.channels = if end {
+                rest.into_iter().chain(moved).collect()
+            } else {
+                moved.into_iter().chain(rest).collect()
+            };
+            lib.renumber();
+        }
+        self.reordered(&ids);
+    }
+
+    /// Nach dem Umsortieren: speichern, Tabelle neu füllen, Auswahl wiederherstellen.
+    fn reordered(self: &Rc<Self>, ids: &[u64]) {
         self.app.library_changed();
         self.refill();
         let rows = self.rows.borrow();
@@ -782,4 +825,29 @@ impl Manager {
             },
         );
     }
+}
+
+/// M3U-Übernahme gilt der TV-Senderliste: läuft die SAT-Quelle, nach Hinweis auf TV
+/// umschalten und die Verwaltung der TV-Liste öffnen.
+fn with_tv_list(parent: &gtk::Button, m: &Rc<Manager>, f: fn(&Rc<Manager>)) {
+    if !m.app.is_sat() {
+        f(m);
+        return;
+    }
+    let d = adw::AlertDialog::new(
+        Some("M3U übernehmen"),
+        Some("Die Übernahme gilt der TV-Senderliste. tvjoe schaltet dazu von SAT auf TV um."),
+    );
+    d.add_response("cancel", "Abbrechen");
+    d.add_response("ok", "Auf TV umschalten");
+    d.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+    d.set_close_response("cancel");
+    let app = m.app.clone();
+    d.connect_response(Some("ok"), move |_, _| {
+        app.switch_live(false);
+        if let Some(m) = open_manager(&app) {
+            f(&m);
+        }
+    });
+    d.present(Some(parent));
 }

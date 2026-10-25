@@ -63,6 +63,9 @@ pub struct ChannelInfo {
     pub name: String,
     /// Kategorie · Qualität (schon nach den Einstellungen zusammengesetzt).
     pub meta: String,
+    /// Dritte Zeile links: Empfang eines SAT-Senders; leer hält den Platz frei (Name und
+    /// Qualität bleiben beim Nachtragen an ihrer Stelle), `None` blendet die Zeile aus.
+    pub reception: Option<String>,
     pub now: Option<String>,
     pub desc: Option<String>,
     pub next: Option<String>,
@@ -85,6 +88,7 @@ pub struct Osd {
     sep_number: gtk::Separator,
     name: gtk::Label,
     meta: gtk::Label,
+    reception: gtk::Label,
     sep_right: gtk::Separator,
     right: gtk::Box,
     now: gtk::Label,
@@ -163,6 +167,9 @@ impl Osd {
         name_box.set_valign(gtk::Align::Center);
         name_box.append(&name);
         name_box.append(&meta_row);
+        let reception = label("tvjoe-osd-sub");
+        reception.set_visible(false);
+        name_box.append(&reception);
         let name_slot = adw::Clamp::builder()
             .orientation(gtk::Orientation::Horizontal)
             .maximum_size(NAME_WIDTH)
@@ -259,6 +266,7 @@ impl Osd {
             sep_number,
             name,
             meta,
+            reception,
             sep_right,
             right,
             now,
@@ -342,9 +350,12 @@ impl Osd {
         l.set_visible(text.is_some());
     }
 
-    /// Zeile unter dem Sendernamen nachführen, ohne die Anzeigedauer zu ändern (Empfang).
-    pub fn set_meta(&self, text: &str) {
-        Self::set_text(&self.meta, Some(text));
+    /// Empfangszeile nachführen, ohne die Anzeigedauer zu ändern.
+    pub fn set_reception(&self, text: Option<&str>) {
+        // Leerzeichen statt leer: die Zeile behält ihre Höhe.
+        self.reception
+            .set_label(text.filter(|t| !t.is_empty()).unwrap_or(" "));
+        self.reception.set_visible(text.is_some());
     }
 
     /// Senderanzeige für `secs` Sekunden (0 = bis zur nächsten Anzeige).
@@ -398,6 +409,7 @@ impl Osd {
             self.desc.set_size_request(-1, -1);
         }
         Self::set_text(&self.extra, info.extra.as_deref());
+        self.set_reception(info.reception.as_deref());
         // Mediathek: Fortschrittszeile statt „Danach“; nur dann nimmt die Anzeige Klicks an.
         match &info.video {
             Some(v) => {

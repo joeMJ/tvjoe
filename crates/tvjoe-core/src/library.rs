@@ -449,9 +449,16 @@ impl Library {
     }
 
     /// Nummern nach Position neu vergeben (1, 2, 3 … in der Anzeigereihenfolge), wie bei EyeTV.
+    /// Inaktive und in der Quelle fehlende Sender bekommen keine Nummer und zählen nicht mit.
     pub fn renumber(&mut self) {
-        for (i, c) in self.channels.iter_mut().enumerate() {
-            c.number = Some(i as u32 + 1);
+        let mut n = 0;
+        for c in &mut self.channels {
+            c.number = if c.active && !c.missing {
+                n += 1;
+                Some(n)
+            } else {
+                None
+            };
         }
     }
 
@@ -1055,6 +1062,11 @@ mod tests {
             nums,
             [("C.de", Some(1)), ("B.de", Some(2)), ("A.de", Some(3))]
         );
+        // Inaktive Sender zählen nicht mit.
+        lib.channels[1].active = false;
+        lib.renumber();
+        let nums: Vec<_> = lib.channels.iter().map(|c| c.number).collect();
+        assert_eq!(nums, [Some(1), None, Some(2)]);
     }
 
     #[test]

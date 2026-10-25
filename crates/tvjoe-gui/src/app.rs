@@ -55,9 +55,9 @@ struct Row {
 fn reception_text(t: &tvjoe_core::satip::TunerStatus) -> String {
     if t.lock {
         format!(
-            "Empfang {} % · Qualität {}/15",
+            "Signal {} % · Qualität {} %",
             t.level_percent(),
-            t.quality
+            t.quality * 100 / 15
         )
     } else {
         "Kein Empfang".to_string()
@@ -657,9 +657,16 @@ impl App {
         if st.osd_quality {
             meta.push(quality_label(stream.and_then(|s| s.quality)).to_string());
         }
-        if let Some(t) = self.relay.borrow().as_ref().and_then(|r| r.status()) {
-            meta.push(reception_text(&t));
-        }
+        let reception = stream
+            .is_some_and(|s| s.kind == Some(SourceKind::SatIp))
+            .then(|| {
+                self.relay
+                    .borrow()
+                    .as_ref()
+                    .and_then(|r| r.status())
+                    .map(|t| reception_text(&t))
+                    .unwrap_or_default()
+            });
         let origin = stream.map(|s| match s.kind {
             Some(SourceKind::SatIp) => Origin::Satellite,
             _ => Origin::Internet,
@@ -697,6 +704,7 @@ impl App {
             logo,
             name: ch.display_name().to_string(),
             meta: meta.join(" · "),
+            reception,
             now,
             desc,
             next,
@@ -743,6 +751,11 @@ impl App {
             self.library_changed();
             crate::manage::refresh_if_open();
         }
+    }
+
+    /// Die SAT-Quelle läuft (Verwaltung und Programm zeigen deren Senderliste).
+    pub fn is_sat(&self) -> bool {
+        self.sat.get()
     }
 
     pub fn library(&self) -> std::cell::Ref<'_, Library> {
@@ -1128,7 +1141,7 @@ impl App {
             let lib = app.lib.borrow();
             let Some(ch) = lib.channel(id) else { return };
             let info = app.channel_info(ch, app.current_stream_of(ch), None);
-            app.osd.set_meta(&info.meta);
+            app.osd.set_reception(info.reception.as_deref());
         });
     }
 
