@@ -22,6 +22,25 @@ pub struct Account {
     pub device_id: String,
 }
 
+/// Abspielquelle eines Eintrags.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Playback {
+    pub url: String,
+    pub source_id: String,
+    /// Vom Server umgerechnet (Bandbreitengrenze); braucht den Anmeldekopf auch für Teilstücke.
+    pub transcoded: bool,
+    /// Bitrate der Originaldatei (bit/s, 0 = unbekannt).
+    pub bitrate: u64,
+}
+
+/// Art der Meldung an Jellyfin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Report {
+    Start,
+    Progress,
+    Stop,
+}
+
 /// Öffentliche Angaben des Servers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerInfo {
@@ -181,6 +200,101 @@ impl Account {
             req = req.query(*k, *v);
         }
         read_json(req.call())
+    }
+
+    /// Angemeldete POST-Anfrage mit JSON (Antwort wird nicht ausgewertet).
+    pub fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<(), String> {
+        net::agent(Duration::from_secs(10))
+            .post(format!("{}{path}", self.server))
+            .header("Authorization", self.header())
+            .header("Content-Type", "application/json")
+            .send(body.to_string())
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Wie abspielen: Originaldatei, wenn keine Grenze gesetzt ist oder die Datei darunter
+    /// liegt; sonst vom Server auf H.264/AAC mit der Grenze umgerechnet (HLS). Fragt dafür
+    /// die Bitrate der Datei beim Server ab.
+    pub fn playback(
+        &self,
+        item_id: &str,
+        max_kbps: u32,
+        session: &str,
+    ) -> Result<Playback, String> {
+        let v = self.get_json(
+            &format!("/Users/{}/Items/{item_id}", self.user_id),
+            &[("Fields", "MediaSources")],
+        )?;
+        let source = &v["MediaSources"][0];
+        let source_id = source["Id"].as_str().unwrap_or(item_id).to_string();
+        let bitrate = source["Bitrate"].as_u64().unwrap_or(0);
+        let limit = u64::from(max_kbps) * 1000;
+        if limit == 0 || (bitrate > 0 && bitrate <= limit) {
+            return Ok(Playback {
+                url: format!(
+                    "{}/Videos/{item_id}/stream?static=true&MediaSourceId={source_id}",
+                    self.server
+                ),
+                source_id,
+                transcoded: false,
+                bitrate,
+            });
+        }
+        let audio = 128_000;
+        Ok(Playback {
+            url: format!(
+                "{}/Videos/{item_id}/master.m3u8?MediaSourceId={source_id}&VideoCodec=h264\
+                 &AudioCodec=aac&MaxStreamingBitrate={limit}&VideoBitrate={}&AudioBitrate={audio}\
+                 &TranscodingMaxAudioChannels=2&SegmentContainer=ts&PlaySessionId={session}\
+                 &DeviceId={}",
+                self.server,
+                limit.saturating_sub(audio),
+                self.device_id
+            ),
+            source_id,
+            transcoded: true,
+            bitrate,
+        })
+    }
+
+    /// Wiedergabe an Jellyfin melden: Start, Fortschritt, Ende (Position in Sekunden).
+    pub fn report(
+        &self,
+        what: Report,
+        item_id: &str,
+        pb: &Playback,
+        session: &str,
+        pos: f64,
+        paused: bool,
+    ) -> Result<(), String> {
+        let path = match what {
+            Report::Start => "/Sessions/Playing",
+            Report::Progress => "/Sessions/Playing/Progress",
+            Report::Stop => "/Sessions/Playing/Stopped",
+        };
+        self.post_json(
+            path,
+            &serde_json::json!({
+                "ItemId": item_id,
+                "MediaSourceId": pb.source_id,
+                "PlaySessionId": session,
+                "PositionTicks": (pos.max(0.0) * 10_000_000.0) as i64,
+                "IsPaused": paused,
+                "CanSeek": true,
+                "PlayMethod": if pb.transcoded { "Transcode" } else { "DirectPlay" },
+            }),
+        )
+    }
+
+    /// Umrechnung auf dem Server beenden (nach dem Abspielen mit Bandbreitengrenze).
+    pub fn stop_transcoding(&self, session: &str) {
+        let _ = net::agent(Duration::from_secs(10))
+            .delete(format!("{}/Videos/ActiveEncodings", self.server))
+            .query("DeviceId", &self.device_id)
+            .query("PlaySessionId", session)
+            .header("Authorization", self.header())
+            .call();
     }
 
     /// Abmelden: Schlüssel beim Server ungültig machen (Fehler werden ignoriert).

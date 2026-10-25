@@ -133,6 +133,50 @@ fn server_of(s: &Settings) -> String {
     }
 }
 
+/// Weiße Fassung des Logos (Bauchbinde, Info).
+pub fn white_logo_path() -> Option<PathBuf> {
+    paths::cache_dir().map(|d| d.join("jellyfin-logo-weiss.png"))
+}
+
+/// Position an Jellyfin melden (im Hintergrund) und im Zwischenspeicher nachführen.
+/// `stop`: Wiedergabe endet (Jellyfin wertet dann „gesehen“ aus; Umrechnung beenden).
+pub fn report_position(j: &crate::vod::JellyVod, pos: f64, dur: f64, paused: bool, stop: bool) {
+    let played = dur > 0.0 && pos >= dur * 0.9;
+    if let Some(lib) = paths::jellyfin_db()
+        .filter(|p| p.exists())
+        .and_then(|p| JellyfinLibrary::open(&p).ok())
+    {
+        lib.set_progress(
+            &j.item.id,
+            if played { 0.0 } else { pos },
+            played || j.item.played,
+        );
+    }
+    let (Some(acc), Some(pb)) = (account(), j.playback.clone()) else {
+        return;
+    };
+    let (id, session) = (j.item.id.clone(), j.session.clone());
+    let what = if stop {
+        jellyfin::Report::Stop
+    } else {
+        jellyfin::Report::Progress
+    };
+    let work = move || {
+        if let Err(e) = acc.report(what, &id, &pb, &session, pos, paused) {
+            eprintln!("tvjoe: Jellyfin melden: {e}");
+        }
+        if stop && pb.transcoded {
+            acc.stop_transcoding(&session);
+        }
+    };
+    if stop {
+        // Beim Beenden von tvjoe muss die Meldung noch rausgehen (kurzer Zeitrahmen im Agenten).
+        work();
+    } else {
+        std::thread::spawn(work);
+    }
+}
+
 fn logo_path() -> Option<PathBuf> {
     paths::cache_dir().map(|d| d.join("jellyfin-logo.png"))
 }
@@ -142,6 +186,7 @@ pub fn load_logo(app: &Rc<App>) {
     let Some(path) = logo_path() else { return };
     if path.exists() {
         app.set_jellyfin_logo(&path);
+        make_white(&path);
         return;
     }
     let server = server_of(&app.settings());
@@ -171,11 +216,20 @@ pub fn load_logo(app: &Rc<App>) {
                 if let Some(app) = weak.upgrade() {
                     app.set_jellyfin_logo(&path);
                 }
+                make_white(&path);
             }
             Ok(Err(e)) => trace(&format!("Jellyfin-Logo: {e}")),
             Err(_) => {}
         }
     });
+}
+
+fn make_white(path: &std::path::Path) {
+    if let Some(dst) = white_logo_path().filter(|p| !p.exists()) {
+        if let Err(e) = crate::logos::save_white_from_dark(path, &dst) {
+            trace(&format!("Jellyfin-Logo weiß: {e}"));
+        }
+    }
 }
 
 /// Reiter „Jellyfin“ im Einstellungsfenster. Gibt die Seite und die Übernahme beim Schließen

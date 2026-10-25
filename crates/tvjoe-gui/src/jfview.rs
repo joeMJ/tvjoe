@@ -174,10 +174,20 @@ fn label(text: &str, class: &str) -> gtk::Label {
         .build()
 }
 
-/// Abspielen (Schritt 4: Wiedergabe mit Fortschritt und Gesehen-Stand).
+/// Abspielen im Hauptfenster; als Ebene schließt sich die Ansicht, als Fenster kommt das
+/// Hauptfenster nach vorn.
 fn play(app: &Rc<App>, item: &Item, start: Option<f64>, rest: Vec<Item>) {
-    let _ = (item, start, rest);
-    app.show_message("Jellyfin: die Wiedergabe folgt im nächsten Schritt");
+    app.play_jellyfin(item, start, rest);
+    if let Some(v) = VIEW.with(|v| v.borrow().clone()) {
+        let view: Rc<dyn crate::layer::View> = v;
+        let in_layer = crate::layer::window_of(app, &view)
+            .is_some_and(|w| w == *app.window.upcast_ref::<gtk::Window>());
+        if in_layer {
+            crate::layer::close_if_layer(app, &view);
+        } else {
+            app.window.present();
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

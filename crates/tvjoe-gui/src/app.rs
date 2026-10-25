@@ -13,6 +13,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::{gdk, glib};
 use tvjoe_core::epg::{self, Guide};
+use tvjoe_core::jellyfin_lib::Item;
 use tvjoe_core::mediathek::Film;
 use tvjoe_core::{Channel, Library, Quality, Settings, SourceKind, Strategy, Stream, net, paths};
 
@@ -22,6 +23,8 @@ use crate::osd::{
 };
 use crate::player::{Player, PlayerEvent};
 use crate::trace;
+use crate::vod::{JellyVod, Vod};
+use tvjoe_core::jellyfin::Report;
 
 /// Mindestgröße des Bildbereichs für die Senderliste über dem Bild (sonst eigenes Fenster).
 const SIDEBAR_MIN: (i32, i32) = (600, 360);
@@ -98,12 +101,12 @@ pub struct App {
     guide: RefCell<Option<Rc<Guide>>>,
     epg_timer: Cell<bool>,
     /// Laufender Mediathek-Beitrag (statt eines Senders).
-    vod: RefCell<Option<Film>>,
+    vod: RefCell<Option<Vod>>,
     /// Zeitgeber für die Fortschrittszeile läuft.
     vod_timer: Cell<bool>,
     vod_ticks: Cell<u32>,
     /// Folgende Folgen einer Serie (laufen nacheinander).
-    vod_next: RefCell<Vec<Film>>,
+    vod_next: RefCell<Vec<Vod>>,
 }
 
 impl App {
@@ -339,11 +342,6 @@ impl App {
             let _ = &keep;
         });
         app
-    }
-
-    /// Meldung oben im Bild (Dauer wie die Einblendung).
-    pub fn show_message(&self, text: &str) {
-        self.msg.show(text, self.overlay_secs());
     }
 
     /// Knöpfe der Mediatheken nach den Einstellungen ein-/ausblenden; Jellyfin-Logo laden.
@@ -785,7 +783,7 @@ impl App {
         self.window.connect_close_request(move |_| {
             if let Some(app) = weak.upgrade() {
                 app.save_settings();
-                app.save_vod_progress();
+                app.finish_vod();
             }
             glib::Propagation::Proceed
         });
@@ -892,8 +890,7 @@ impl App {
         let Some((url, bitrate, name, info)) = picked else {
             return;
         };
-        self.save_vod_progress();
-        self.vod.replace(None);
+        self.finish_vod();
         self.info.hide();
         player.load(&url, bitrate);
         trace(&format!("lade {name} ({url}, hls-bitrate {bitrate:?})"));
@@ -913,36 +910,54 @@ impl App {
     /// Spielt einen Mediathek-Beitrag (Stufe nach der Qualitätseinstellung). Zurück zum
     /// Fernsehen über Ziffern oder die Senderliste.
     pub fn play_film(self: &Rc<Self>, film: &Film, start: Option<f64>) {
-        self.vod_next.borrow_mut().clear();
-        self.start_film(film, start);
+        self.play_vod(Vod::Oer(film.clone()), start, Vec::new());
     }
 
     /// Serie: erste Folge abspielen, die übrigen laufen danach automatisch.
     pub fn play_series(self: &Rc<Self>, first: &Film, start: Option<f64>, rest: Vec<Film>) {
-        self.play_film(first, start);
-        *self.vod_next.borrow_mut() = rest;
+        let rest = rest.into_iter().map(Vod::Oer).collect();
+        self.play_vod(Vod::Oer(first.clone()), start, rest);
     }
 
-    fn start_film(self: &Rc<Self>, film: &Film, start: Option<f64>) {
+    /// Jellyfin-Eintrag abspielen; `rest` (Folgen, Teile einer Sammlung) laufen danach.
+    pub fn play_jellyfin(self: &Rc<Self>, item: &Item, start: Option<f64>, rest: Vec<Item>) {
+        let rest = rest
+            .into_iter()
+            .map(|i| Vod::Jelly(JellyVod::new(i)))
+            .collect();
+        self.play_vod(Vod::Jelly(JellyVod::new(item.clone())), start, rest);
+    }
+
+    fn play_vod(self: &Rc<Self>, vod: Vod, start: Option<f64>, rest: Vec<Vod>) {
+        *self.vod_next.borrow_mut() = rest;
+        self.start_vod(vod, start);
+    }
+
+    fn start_vod(self: &Rc<Self>, vod: Vod, start: Option<f64>) {
         let Some(player) = self.player.clone() else {
             return;
         };
-        self.save_vod_progress();
-        let url = film.url_for(self.wanted_for_switch()).to_string();
-        player.load_from(&url, None, start);
+        self.finish_vod();
+        match &vod {
+            Vod::Oer(film) => {
+                let url = film.url_for(self.wanted_for_switch()).to_string();
+                player.load_from(&url, None, start);
+                trace(&format!("lade Mediathek {} ({url})", film.display_title()));
+            }
+            Vod::Jelly(j) => self.load_jellyfin(j, start),
+        }
         if let Some(s) = start {
             self.msg.show(
                 &format!("Weiter ab {}", crate::osd::clock(s)),
                 self.overlay_secs(),
             );
         }
-        trace(&format!("lade Mediathek {} ({url})", film.display_title()));
-        self.vod.replace(Some(film.clone()));
-        self.info.hide();
         self.window
-            .set_title(Some(&format!("{} – tvjoe", film.display_title())));
+            .set_title(Some(&format!("{} – tvjoe", vod.title())));
+        self.vod.replace(Some(vod));
+        self.info.hide();
         self.list.unselect_all();
-        self.show_film_info(film, self.overlay_secs());
+        self.show_vod_info(self.overlay_secs());
         self.update_inhibit();
         if !self.vod_timer.replace(true) {
             let weak = Rc::downgrade(self);
@@ -957,31 +972,103 @@ impl App {
                 if app.osd.is_shown() {
                     app.osd.update_video(&app.video_state());
                 }
-                // Alle 10 s die Spielposition merken (auch bei Absturz nicht verloren).
+                // Alle 10 s die Spielposition merken bzw. an Jellyfin melden.
                 let ticks = app.vod_ticks.get() + 1;
                 app.vod_ticks.set(ticks);
                 if ticks % 20 == 0 {
-                    app.save_vod_progress();
+                    app.save_vod_progress(false);
                 }
                 glib::ControlFlow::Continue
             });
         }
     }
 
-    /// Spielposition des laufenden Mediathek-Videos merken.
-    pub fn save_vod_progress(&self) {
-        let Some(film) = self.vod.borrow().clone() else {
+    /// Jellyfin: Quelle beim Server erfragen (Original oder umgerechnet), dann laden und den
+    /// Start melden. Der Anmeldekopf geht nur mit diesem Stream an den Jellyfin-Server.
+    fn load_jellyfin(self: &Rc<Self>, j: &JellyVod, start: Option<f64>) {
+        let Some(acc) = crate::jellyfin::account() else {
+            self.msg
+                .show("Jellyfin: nicht angemeldet", self.overlay_secs());
             return;
         };
-        let (Some(pos), dur, _) = self
+        let max_kbps = self.settings.borrow().jellyfin_max_kbps;
+        let (id, session) = (j.item.id.clone(), j.session.clone());
+        let (tx, rx) = async_channel::bounded(1);
+        let a = acc.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send_blocking(a.playback(&id, max_kbps, &session));
+        });
+        let weak = Rc::downgrade(self);
+        let session = j.session.clone();
+        glib::spawn_future_local(async move {
+            let Ok(result) = rx.recv().await else { return };
+            let Some(app) = weak.upgrade() else { return };
+            // Inzwischen etwas anderes gewählt?
+            let current = match app.vod.borrow().as_ref() {
+                Some(Vod::Jelly(j)) if j.session == session => Some(j.item.id.clone()),
+                _ => None,
+            };
+            let Some(item_id) = current else { return };
+            match result {
+                Ok(pb) => {
+                    trace(&format!(
+                        "lade Jellyfin {item_id} ({}, {:.1} Mbit/s)",
+                        if pb.transcoded {
+                            "umgerechnet"
+                        } else {
+                            "Original"
+                        },
+                        pb.bitrate as f64 / 1e6
+                    ));
+                    if let Some(p) = &app.player {
+                        p.load_with(
+                            &pb.url,
+                            None,
+                            start,
+                            Some(&format!("Authorization: {}", acc.header())),
+                        );
+                    }
+                    if let Some(Vod::Jelly(j)) = app.vod.borrow_mut().as_mut() {
+                        j.playback = Some(pb.clone());
+                    }
+                    let pos = start.unwrap_or(0.0);
+                    std::thread::spawn(move || {
+                        let r = acc.report(Report::Start, &item_id, &pb, &session, pos, false);
+                        if let Err(e) = r {
+                            eprintln!("tvjoe: Jellyfin-Start melden: {e}");
+                        }
+                    });
+                    app.show_vod_info(app.overlay_secs());
+                }
+                Err(e) => app
+                    .msg
+                    .show(&format!("Jellyfin: nicht abspielbar ({e})"), 0),
+            }
+        });
+    }
+
+    /// Spielposition merken: ÖR lokal, Jellyfin an den Server (und in den Zwischenspeicher).
+    /// `stop`: Wiedergabe endet (Jellyfin: „gestoppt“ melden, Umrechnung beenden).
+    pub fn save_vod_progress(&self, stop: bool) {
+        let Some(vod) = self.vod.borrow().clone() else {
+            return;
+        };
+        let (pos, dur, paused) = self
             .player
             .as_ref()
-            .map_or((None, None, false), |p| p.position())
-        else {
-            return;
-        };
-        let dur = dur.unwrap_or(film.duration as f64);
-        crate::mediathek::save_progress(&film, pos, dur);
+            .map_or((None, None, false), |p| p.position());
+        let Some(pos) = pos else { return };
+        let dur = dur.unwrap_or(vod.duration());
+        match vod {
+            Vod::Oer(film) => crate::mediathek::save_progress(&film, pos, dur),
+            Vod::Jelly(j) => crate::jellyfin::report_position(&j, pos, dur, paused, stop),
+        }
+    }
+
+    /// Laufendes Video verlassen (anderer Sender, anderes Video, Beenden).
+    pub fn finish_vod(&self) {
+        self.save_vod_progress(true);
+        self.vod.replace(None);
     }
 
     fn video_state(&self) -> VideoState {
@@ -990,7 +1077,7 @@ impl App {
             .as_ref()
             .map_or((None, None, false), |p| p.position());
         let duration = dur
-            .or_else(|| self.vod.borrow().as_ref().map(|f| f.duration as f64))
+            .or_else(|| self.vod.borrow().as_ref().map(Vod::duration))
             .unwrap_or(0.0);
         VideoState {
             position: pos.unwrap_or(0.0),
@@ -999,27 +1086,26 @@ impl App {
         }
     }
 
-    /// Bauchbinde eines Mediathek-Beitrags im Format der Senderanzeige: Logo | Sender, darunter
-    /// „Mediathek · Datum“ | Titel, Beschreibung, Fortschrittszeile.
-    fn film_info(&self, film: &Film) -> ChannelInfo {
-        let st = self.settings.borrow();
-        let logo = crate::mediathek::sender_logo(self, &film.sender).filter(|_| st.osd_logo);
-        let desc = st
-            .osd_description
+    /// Bauchbinde eines Videos im Format der Senderanzeige: Logo | Sender bzw. Serie, darunter
+    /// Herkunft und Datum | Titel, Beschreibung, Fortschrittszeile.
+    fn vod_info(&self, vod: &Vod) -> ChannelInfo {
+        let (osd_logo, osd_description) = {
+            let st = self.settings.borrow();
+            (st.osd_logo, st.osd_description)
+        };
+        let desc = osd_description
             .then(|| {
-                let d = if film.description.is_empty() {
-                    &film.topic
-                } else {
-                    &film.description
-                };
-                d.split_whitespace().collect::<Vec<_>>().join(" ")
+                vod.description()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
             })
             .filter(|d| !d.is_empty());
         ChannelInfo {
-            logo,
-            name: film.sender.clone(),
-            meta: format!("Mediathek · {}", crate::mediathek::day_time(film.timestamp)),
-            now: Some(film.display_title()),
+            logo: vod.logo(self).filter(|_| osd_logo),
+            name: vod.name(),
+            meta: vod.meta(),
+            now: Some(vod.title()),
             desc,
             video: Some(self.video_state()),
             full: true,
@@ -1027,18 +1113,24 @@ impl App {
         }
     }
 
-    /// Bauchbinde für `secs` Sekunden; bei Pause bleibt sie stehen.
-    fn show_film_info(self: &Rc<Self>, film: &Film, secs: u32) {
-        let info = self.film_info(film);
+    /// Bauchbinde des laufenden Videos für `secs` Sekunden; bei Pause bleibt sie stehen.
+    fn show_vod_info(self: &Rc<Self>, secs: u32) {
+        let Some(vod) = self.vod.borrow().clone() else {
+            return;
+        };
+        let info = self.vod_info(&vod);
         let paused = info.video.is_some_and(|v| v.paused);
         self.osd.show_channel(&info, if paused { 0 } else { secs });
     }
 
     /// Knöpfe und Tasten der Video-Bauchbinde.
     fn video_action(self: &Rc<Self>, action: VideoAction) {
-        let (Some(player), Some(film)) = (self.player.clone(), self.vod.borrow().clone()) else {
+        let Some(player) = self.player.clone() else {
             return;
         };
+        if self.vod.borrow().is_none() {
+            return;
+        }
         match action {
             VideoAction::Seek(secs) => player.seek_relative(secs),
             VideoAction::SeekTo(f) => player.seek_fraction(f),
@@ -1051,7 +1143,7 @@ impl App {
                 return;
             }
         }
-        self.show_film_info(&film, self.overlay_secs());
+        self.show_vod_info(self.overlay_secs());
     }
 
     /// Bildschirmsperre verhindern: im Vollbild immer, im Fenster nur mit der Einstellung
@@ -1087,23 +1179,23 @@ impl App {
         if self.vod.borrow().is_some() {
             trace(&format!("Mediathek-Video: {ev:?}"));
             if ev == PlayerEvent::Ended {
-                // Zu Ende gesehen merken; bei einer Serie die nächste Folge.
-                if let Some(f) = self.vod.borrow().as_ref() {
-                    let d = f.duration.max(1) as f64;
-                    crate::mediathek::save_progress(f, d, d);
+                // Zu Ende gesehen merken; bei einer Serie bzw. Sammlung der nächste Teil.
+                if let Some(vod) = self.vod.borrow_mut().take() {
+                    let d = vod.duration().max(1.0);
+                    match &vod {
+                        Vod::Oer(f) => crate::mediathek::save_progress(f, d, d),
+                        Vod::Jelly(j) => crate::jellyfin::report_position(j, d, d, false, true),
+                    }
                 }
                 let next = {
                     let mut q = self.vod_next.borrow_mut();
                     (!q.is_empty()).then(|| q.remove(0))
                 };
                 if let Some(next) = next {
-                    // Gesehen ist schon gemerkt; nicht erneut mit der Endposition speichern.
-                    self.vod.replace(None);
-                    self.start_film(&next, None);
-                    self.msg.show(
-                        &format!("Nächste Folge: {}", next.display_title()),
-                        self.overlay_secs(),
-                    );
+                    let title = next.title();
+                    self.start_vod(next, None);
+                    self.msg
+                        .show(&format!("Als Nächstes: {title}"), self.overlay_secs());
                     return;
                 }
             }
@@ -1397,24 +1489,17 @@ impl App {
             return;
         }
         let content = match self.vod.borrow().clone() {
-            Some(f) => {
-                let meta: Vec<String> = [
-                    format!("{} · {}", f.sender, f.topic),
-                    [
-                        crate::mediathek::day_time(f.timestamp),
-                        format!("{} Min.", (f.duration + 30) / 60),
-                    ]
-                    .join(" · "),
-                ]
-                .into();
-                InfoContent {
-                    logo: crate::mediathek::sender_logo(self, &f.sender),
-                    title: f.display_title(),
-                    meta,
-                    desc: f.description.trim().to_string(),
-                    next: None,
-                }
-            }
+            Some(vod) => InfoContent {
+                logo: vod.logo(self),
+                title: vod.title(),
+                meta: vod.info_meta(),
+                desc: vod.description().trim().to_string(),
+                next: self
+                    .vod_next
+                    .borrow()
+                    .first()
+                    .map(|n| format!("Danach: {}", n.title())),
+            },
             None => {
                 let Some(id) = self.current.get() else { return };
                 let lib = self.lib.borrow();
@@ -1467,8 +1552,8 @@ impl App {
 
     /// Senderanzeige erneut zeigen (Mausklick aufs Bild).
     pub fn show_info(self: &Rc<Self>) {
-        if let Some(film) = self.vod.borrow().clone() {
-            self.show_film_info(&film, self.overlay_secs() * 2);
+        if self.vod.borrow().is_some() {
+            self.show_vod_info(self.overlay_secs() * 2);
             return;
         }
         let Some(id) = self.current.get() else { return };

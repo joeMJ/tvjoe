@@ -15,6 +15,7 @@ mod osd;
 mod player;
 mod prefs;
 mod selftest;
+mod vod;
 
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};

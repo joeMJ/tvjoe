@@ -181,6 +181,30 @@ impl Player {
     /// Wie [`Player::load`], ab `start` Sekunden (Weitersehen). Die Startstelle wird bei jedem
     /// Laden neu gesetzt, damit sie nicht für den nächsten Stream gilt.
     pub fn load_from(&self, url: &str, max_bitrate: Option<u64>, start: Option<f64>) {
+        self.load_with(url, max_bitrate, start, None);
+    }
+
+    /// Wie [`Player::load_from`], mit Kopfzeile für alle Anfragen dieses Streams (Jellyfin:
+    /// Anmeldung). Jedes Laden setzt die Kopfzeilen neu, damit der Schlüssel nie an andere
+    /// Server geht.
+    pub fn load_with(
+        &self,
+        url: &str,
+        max_bitrate: Option<u64>,
+        start: Option<f64>,
+        header: Option<&str>,
+    ) {
+        let _ = self
+            .mpv
+            .command("change-list", &["http-header-fields", "clr", ""]);
+        if let Some(h) = header {
+            if let Err(e) = self
+                .mpv
+                .command("change-list", &["http-header-fields", "append", h])
+            {
+                eprintln!("tvjoe: Kopfzeile: {e:?}");
+            }
+        }
         let start = start.map_or_else(|| "none".to_string(), |s| format!("{s:.1}"));
         if let Err(e) = self.mpv.set_property("start", start.as_str()) {
             eprintln!("tvjoe: start={start}: {e:?}");
@@ -323,9 +347,10 @@ impl Player {
                 .unwrap_or_else(|_| "–".into())
         };
         format!(
-            "hwdec={} codec={} {}x{} fps={} vo-drop={}",
+            "hwdec={} codec={} format={} {}x{} fps={} vo-drop={}",
             s("hwdec-current"),
             s("video-codec"),
+            s("video-params/hw-pixelformat"),
             s("video-params/w"),
             s("video-params/h"),
             s("container-fps"),

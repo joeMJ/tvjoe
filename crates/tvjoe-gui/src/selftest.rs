@@ -278,6 +278,44 @@ const JELLYFIN_STEPS: &[Step] = &[
     ),
 ];
 
+/// Jellyfin-Wiedergabe (`TVJOE_SELFTEST_JFPLAY=<Eintrags-ID>`, nur diese Schritte): Eintrag
+/// abspielen, nach 10 s Videodaten mitschreiben, nach 40 s Bild; Last von außen messen.
+const JFPLAY_STEPS: &[Step] = &[
+    ("70-vorher", main_window, 8000),
+    (
+        "71-jellyfin-wiedergabe",
+        |p| {
+            let id = std::env::var("TVJOE_SELFTEST_JFPLAY").ok()?;
+            let item = tvjoe_core::paths::jellyfin_db()
+                .and_then(|d| tvjoe_core::jellyfin_lib::JellyfinLibrary::open(&d).ok())
+                .and_then(|lib| lib.item(&id))?;
+            p.app.play_jellyfin(&item, None, Vec::new());
+            main_window(p)
+        },
+        12000,
+    ),
+    (
+        "72-videodaten",
+        |p| {
+            if let Some(pl) = &p.app.player {
+                trace(&pl.report());
+            }
+            main_window(p)
+        },
+        30000,
+    ),
+    (
+        "73-videodaten-ende",
+        |p| {
+            if let Some(pl) = &p.app.player {
+                trace(&pl.report());
+            }
+            main_window(p)
+        },
+        500,
+    ),
+];
+
 /// Mediathek (`TVJOE_SELFTEST_MEDIATHEK=1`): beim ersten Öffnen wird die Filmliste geladen.
 const MEDIATHEK_STEPS: &[Step] = &[
     (
@@ -379,6 +417,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         GROESSE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_JELLYFIN").is_some() {
         JELLYFIN_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_JFPLAY").is_some() {
+        JFPLAY_STEPS.to_vec()
     } else {
         STEPS.to_vec()
     };

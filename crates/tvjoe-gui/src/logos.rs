@@ -127,6 +127,12 @@ pub fn white_from_dark(path: &Path) -> Option<gdk::Texture> {
     )
 }
 
+/// Wie [`white_from_dark`], als PNG-Datei abgelegt (für Bauchbinde und Info).
+pub fn save_white_from_dark(src: &Path, dst: &Path) -> Result<(), String> {
+    let t = white_from_dark(src).ok_or("Logo nicht lesbar")?;
+    t.save_to_png(dst).map_err(|e| e.to_string())
+}
+
 /// Bild mit [`bright`], sonst die Datei unverändert.
 pub fn bright_picture(path: &Path) -> gtk::Picture {
     let pic = gtk::Picture::builder()
