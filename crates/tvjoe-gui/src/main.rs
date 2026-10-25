@@ -14,6 +14,7 @@ mod mediathek;
 mod osd;
 mod player;
 mod prefs;
+mod satip;
 mod selftest;
 mod vod;
 

@@ -11,6 +11,7 @@ pub mod m3u;
 pub mod mediathek;
 pub mod net;
 pub mod paths;
+pub mod satip;
 pub mod settings;
 pub mod store;
 pub mod syscheck;

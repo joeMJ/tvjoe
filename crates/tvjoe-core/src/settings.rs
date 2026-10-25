@@ -86,6 +86,10 @@ pub struct Settings {
     pub jellyfin_hidden: Vec<String>,
     /// Jellyfin: Filme und Serien von A bis Z statt zuletzt hinzugefügt.
     pub jellyfin_az: bool,
+    /// SAT-Quelle (SAT>IP, z. B. Netstream 4Sat) eingeschaltet.
+    pub satip_enabled: bool,
+    /// Adresse des SAT>IP-Geräts.
+    pub satip_host: String,
 }
 
 impl Default for Settings {
@@ -126,6 +130,8 @@ impl Default for Settings {
             jellyfin_server: String::new(),
             jellyfin_max_kbps: 0,
             jellyfin_az: false,
+            satip_enabled: false,
+            satip_host: String::new(),
             jellyfin_hidden: crate::jellyfin_lib::HIDDEN_DEFAULT
                 .iter()
                 .map(|s| s.to_string())

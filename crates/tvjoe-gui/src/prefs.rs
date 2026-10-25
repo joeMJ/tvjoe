@@ -169,6 +169,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     p_guide.add(&guide);
     let (p_media, apply_media) = crate::mediathek::prefs_page(app);
     let (p_jellyfin, apply_jellyfin) = crate::jellyfin::prefs_page(app);
+    let (p_satip, apply_satip) = crate::satip::prefs_page(app);
     let p_updates = new_page("updates", "Updates", "software-update-available-symbolic");
     p_updates.add(&updates);
 
@@ -189,6 +190,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         &p_guide,
         &p_media,
         &p_jellyfin,
+        &p_satip,
         &p_updates,
     ] {
         dialog.add(p);
@@ -239,6 +241,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             s.update_check = check.is_active();
             apply_media(&mut s);
             apply_jellyfin(&mut s);
+            apply_satip(&mut s);
         }
         app.save_settings();
         app.reapply_quality();
