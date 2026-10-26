@@ -81,6 +81,9 @@ pub struct Settings {
     pub epg_sources: Vec<String>,
     /// EPG aus dem Netz neu laden, wenn der Cache älter ist (Stunden; 0 = nur per Knopf).
     pub epg_refresh_hours: u32,
+    /// Programmdaten aus dem SAT-Empfang neu sammeln nach (Stunden; nur für Sender mit
+    /// EPG-Quelle „SAT“).
+    pub sat_epg_hours: u32,
     /// Zeitpunkt der letzten Updateprüfung (Sekunden seit 1970).
     pub update_last_check: Option<u64>,
     /// Gewählte Qualität als Obergrenze (nie höher, solange es eine Stufe darunter gibt).
@@ -163,6 +166,7 @@ impl Default for Settings {
             record_max_internet: 0,
             epg_sources: Vec::new(),
             epg_refresh_hours: 24,
+            sat_epg_hours: 6,
             update_last_check: None,
             quality_cap: false,
             osd_number: true,

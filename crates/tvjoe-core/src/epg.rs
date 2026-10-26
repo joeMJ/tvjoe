@@ -19,7 +19,7 @@ use crate::net;
 
 const MAX_XMLTV_BYTES: u64 = 256 * 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Programme {
     pub start: i64,
     pub stop: i64,
@@ -442,6 +442,90 @@ pub fn parse_xmltv(bytes: &[u8]) -> Result<Guide, String> {
     }
     guide.index();
     Ok(guide)
+}
+
+// ---------------------------------------------------------------------------------------------
+// EPG aus dem SAT-Empfang (EIT)
+
+/// Präfix der Kanal-IDs aus dem SAT-Empfang; die ID ist der Schlüssel des SAT-Senders
+/// („satip:<onid>:<tsid>:<sid>“). Ein Sender nutzt sie, wenn seine `epg_id` darauf gesetzt ist.
+pub const SAT_PREFIX: &str = "satip:";
+
+/// Zwischenspeicher der SAT-Programmdaten.
+pub fn sat_cache_path(cache_dir: &Path) -> PathBuf {
+    cache_dir.join("epg").join("sat.json")
+}
+
+/// Gesammelte SAT-Programmdaten je Kanal-ID.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct SatEpg {
+    pub programmes: HashMap<String, Vec<Programme>>,
+}
+
+impl SatEpg {
+    pub fn load(cache_dir: &Path) -> SatEpg {
+        std::fs::read(sat_cache_path(cache_dir))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self, cache_dir: &Path) -> Result<(), String> {
+        let path = sat_cache_path(cache_dir);
+        if let Some(d) = path.parent() {
+            std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+        }
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, serde_json::to_vec(self).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    }
+
+    /// Neue Abschnitte übernehmen: je Sendung nach Beginn, Neues ersetzt Altes; Vergangenes
+    /// (älter als sechs Stunden) fällt weg.
+    pub fn add(&mut self, sections: &[crate::ts::EitSection], now: i64) {
+        for sec in sections {
+            let id = format!("{SAT_PREFIX}{}:{}:{}", sec.onid, sec.tsid, sec.service_id);
+            let list = self.programmes.entry(id).or_default();
+            for ev in &sec.events {
+                list.retain(|p| p.start != ev.start);
+                list.push(Programme {
+                    start: ev.start,
+                    stop: ev.stop,
+                    title: ev.title.clone(),
+                    subtitle: ev.subtitle.clone(),
+                    desc: ev.desc.clone(),
+                });
+            }
+        }
+        for list in self.programmes.values_mut() {
+            list.retain(|p| p.stop > now - 6 * 3600);
+            list.sort_by_key(|p| p.start);
+            // Überschneidungen (verschobene Sendungen): die spätere Angabe gilt.
+            let mut out: Vec<Programme> = Vec::with_capacity(list.len());
+            for p in list.drain(..) {
+                if let Some(last) = out.last() {
+                    if p.start < last.stop && p.start != last.start {
+                        out.pop();
+                    }
+                }
+                out.push(p);
+            }
+            *list = out;
+        }
+        self.programmes.retain(|_, l| !l.is_empty());
+    }
+
+    /// Als Guide (Kanalname „SAT-Empfang“), zum Zusammenführen mit XMLTV.
+    pub fn guide(&self) -> Guide {
+        let mut g = Guide::default();
+        for (id, list) in &self.programmes {
+            g.channels.push((id.clone(), vec!["SAT-Empfang".to_string()]));
+            g.programmes.insert(id.clone(), list.clone());
+        }
+        g.index();
+        g
+    }
 }
 
 /// Cachedatei für eine EPG-Quelle.

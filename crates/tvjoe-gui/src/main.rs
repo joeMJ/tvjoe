@@ -22,6 +22,7 @@ mod mediathek;
 mod osd;
 mod player;
 mod prefs;
+mod satepg;
 mod satip;
 mod selftest;
 mod vod;
@@ -150,6 +151,7 @@ fn activate(application: &adw::Application, opts: &Options) {
     };
     let app = app::App::new(application, lib, settings, settings_path, player);
     ablage::init(&app);
+    satepg::start(&app);
     app.start(opts.channel);
     app.window.connect_map(|_| trace("Fenster angezeigt"));
     app.window.present();

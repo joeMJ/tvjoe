@@ -228,6 +228,132 @@ fn iso6937(b: &[u8]) -> String {
     out
 }
 
+/// Sendung aus der EIT (Programminformation im DVB-Strom).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EitEvent {
+    /// Beginn und Ende (Sekunden seit 1970, UTC).
+    pub start: i64,
+    pub stop: i64,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub desc: Option<String>,
+}
+
+/// Abschnitt einer EIT (Tabellen 0x4E–0x6F): Netz, Transponder, Dienst und seine Sendungen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EitSection {
+    pub onid: u16,
+    pub tsid: u16,
+    pub service_id: u16,
+    pub events: Vec<EitEvent>,
+}
+
+/// BCD-Byte als Zahl.
+fn bcd8(b: u8) -> i64 {
+    i64::from(b >> 4) * 10 + i64::from(b & 0x0f)
+}
+
+/// EIT lesen: „Jetzt/Danach“ (0x4E/0x4F) und Programm (0x50–0x6F); kurze Beschreibung (0x4D)
+/// als Titel/Untertitel, erweiterte (0x4E) als Beschreibung.
+pub fn parse_eit(sec: &[u8]) -> Option<EitSection> {
+    if sec.len() < 18 || !(0x4e..=0x6f).contains(&sec[0]) {
+        return None;
+    }
+    let total = 3 + len12(sec, 1);
+    let end = total.min(sec.len()).checked_sub(4)?;
+    let service_id = u16_at(sec, 3);
+    let tsid = u16_at(sec, 8);
+    let onid = u16_at(sec, 10);
+    let mut events = Vec::new();
+    let mut i = 14;
+    while i + 12 <= end {
+        let mjd = i64::from(u16_at(sec, i + 2));
+        let start = (mjd - 40_587) * 86_400
+            + bcd8(sec[i + 4]) * 3600
+            + bcd8(sec[i + 5]) * 60
+            + bcd8(sec[i + 6]);
+        let duration = bcd8(sec[i + 7]) * 3600 + bcd8(sec[i + 8]) * 60 + bcd8(sec[i + 9]);
+        let dlen = len12(sec, i + 10);
+        let mut j = i + 12;
+        let dend = (j + dlen).min(end);
+        let (mut title, mut subtitle, mut ext) = (String::new(), None, String::new());
+        while j + 2 <= dend {
+            let tag = sec[j];
+            let l = sec[j + 1] as usize;
+            let d = &sec[(j + 2).min(dend)..(j + 2 + l).min(dend)];
+            match tag {
+                // Kurze Beschreibung: Sprache (3), Name, Text.
+                0x4d if d.len() >= 4 => {
+                    let nl = d[3] as usize;
+                    if 4 + nl < d.len() {
+                        title = dvb_text(&d[4..4 + nl]);
+                        let tl = d[4 + nl] as usize;
+                        let t = &d[(5 + nl).min(d.len())..(5 + nl + tl).min(d.len())];
+                        let t = dvb_text(t);
+                        if !t.is_empty() {
+                            subtitle = Some(t);
+                        }
+                    } else if 4 + nl == d.len() {
+                        title = dvb_text(&d[4..]);
+                    }
+                }
+                // Erweiterte Beschreibung (mehrteilig): Nummer, Sprache, Einträge, Text.
+                0x4e if d.len() >= 6 => {
+                    let items = d[4] as usize;
+                    let k = 5 + items;
+                    if k < d.len() {
+                        let tl = d[k] as usize;
+                        let t = &d[k + 1..(k + 1 + tl).min(d.len())];
+                        ext.push_str(&dvb_text_raw(t));
+                    }
+                }
+                _ => {}
+            }
+            j += 2 + l;
+        }
+        if !title.is_empty() && duration > 0 {
+            // Zeilenumbruch in DVB-Texten ist 0x8A; Hervorhebung 0x86/0x87 entfällt.
+            let desc: String = ext
+                .replace('\u{8a}', "\n")
+                .chars()
+                .filter(|c| !matches!(*c, '\u{86}' | '\u{87}') && (!c.is_control() || *c == '\n'))
+                .collect::<String>()
+                .trim()
+                .to_string();
+            events.push(EitEvent {
+                start,
+                stop: start + duration,
+                title,
+                subtitle,
+                desc: (!desc.is_empty()).then_some(desc),
+            });
+        }
+        i += 12 + dlen;
+    }
+    Some(EitSection {
+        onid,
+        tsid,
+        service_id,
+        events,
+    })
+}
+
+/// Teil eines mehrteiligen Textes: dekodiert, aber ohne Kürzen (die Teile werden aneinander-
+/// gehängt, Wortgrenzen liegen oft mitten im Teil).
+fn dvb_text_raw(b: &[u8]) -> String {
+    let (b, utf8) = match b.first() {
+        Some(0x15) => (&b[1..], true),
+        Some(0x10) if b.len() >= 3 => (&b[3..], false),
+        Some(&c) if c < 0x20 => (&b[1..], false),
+        _ => (b, false),
+    };
+    if utf8 {
+        String::from_utf8_lossy(b).to_string()
+    } else {
+        iso6937(b)
+    }
+}
+
 /// Eintrag der SDT.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SdtService {

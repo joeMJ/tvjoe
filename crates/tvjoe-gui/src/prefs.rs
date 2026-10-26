@@ -186,6 +186,11 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     hours.set_subtitle("Stunden; 0 = nur über „EPG-Quellen…“ in der Verwaltung");
     hours.set_value(f64::from(s.epg_refresh_hours));
     guide.add(&hours);
+    let sat_hours = adw::SpinRow::with_range(1.0, 24.0, 1.0);
+    sat_hours.set_title("SAT-Programmdaten sammeln alle");
+    sat_hours.set_subtitle("Stunden; nur für Sender mit EPG-Quelle „SAT“ (Sender verwalten → EPG). Belegt je Transponder etwa 40 Sekunden einen Tuner");
+    sat_hours.set_value(f64::from(s.sat_epg_hours));
+    guide.add(&sat_hours);
 
     let updates = adw::PreferencesGroup::builder()
         .title("Updates")
@@ -305,6 +310,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
                 Fallback::Down
             };
             s.epg_refresh_hours = hours.value() as u32;
+            s.sat_epg_hours = sat_hours.value() as u32;
             s.quality = levels.get(level.selected() as usize).copied().flatten();
             s.quality_cap = cap.is_active();
             s.deinterlace = deinterlace.is_active();

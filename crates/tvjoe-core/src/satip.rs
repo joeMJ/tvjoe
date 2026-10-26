@@ -419,6 +419,9 @@ pub struct Relay {
     status: std::sync::Arc<std::sync::Mutex<Option<TunerStatus>>>,
     /// Empfangene RTP-Pakete (0 nach einigen Sekunden: Firewall oder Tunnel).
     packets: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Programmdaten (EIT, PID 18), die beim Ansehen mitgelesen wurden; abholen mit
+    /// [`Relay::take_eit`].
+    eit: std::sync::Arc<std::sync::Mutex<Vec<crate::ts::EitSection>>>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -428,13 +431,28 @@ impl Relay {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::{Arc, Mutex};
         let (host, query) = split_url(url).ok_or("keine SAT>IP-Adresse")?;
+        // PID 18 (EIT) mitnehmen: „Jetzt/Danach“ beim Ansehen; der Player übergeht sie.
+        let query = match query.split_once("pids=") {
+            Some((a, rest)) => {
+                let (list, tail) = rest.split_once('&').map_or((rest, ""), |(l, t)| (l, t));
+                if list.split(',').any(|p| p == "18") || list == "all" {
+                    query.clone()
+                } else if tail.is_empty() {
+                    format!("{a}pids={list},18")
+                } else {
+                    format!("{a}pids={list},18&{tail}")
+                }
+            }
+            None => query,
+        };
         let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let status = Arc::new(Mutex::new(None));
         let stop = Arc::new(AtomicBool::new(false));
         let packets = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let (st, sp, pk) = (status.clone(), stop.clone(), packets.clone());
+        let eit: Arc<Mutex<Vec<crate::ts::EitSection>>> = Arc::default();
+        let (st, sp, pk, ei) = (status.clone(), stop.clone(), packets.clone(), eit.clone());
         let thread = std::thread::spawn(move || {
             let stopped = || sp.load(Ordering::Relaxed);
             let Ok(sock) = bind_rtp() else { return };
@@ -455,6 +473,8 @@ impl Relay {
             }
             sock.set_read_timeout(Some(Duration::from_millis(200))).ok();
             let mut next_status = Instant::now() + Duration::from_secs(2);
+            let mut next_eit = Instant::now() + Duration::from_secs(20);
+            let mut col = crate::ts::SectionCollector::default();
             let mut buf = [0u8; 2048];
             // Erste Verbindung des Players abwarten; trennt er (z. B. erneutes Öffnen beim
             // Erkennen des Formats), kurz auf eine neue warten.
@@ -496,6 +516,9 @@ impl Relay {
                     if let Ok(n) = sock.recv(&mut buf) {
                         pk.fetch_add(1, Ordering::Relaxed);
                         if let Some(ts) = rtp_payload(&buf[..n]) {
+                            for p in ts.chunks(188) {
+                                col.push_packet(p, &|pid| pid == 18);
+                            }
                             if client.write_all(ts).is_err() {
                                 continue 'clients;
                             }
@@ -507,6 +530,18 @@ impl Relay {
                             *st.lock().unwrap_or_else(|e| e.into_inner()) = s;
                         }
                     }
+                    if Instant::now() >= next_eit {
+                        next_eit = Instant::now() + Duration::from_secs(20);
+                        let done = std::mem::take(&mut col);
+                        let sections: Vec<_> = done
+                            .sections
+                            .iter()
+                            .filter_map(|(_, sec)| crate::ts::parse_eit(sec))
+                            .collect();
+                        if !sections.is_empty() {
+                            ei.lock().unwrap_or_else(|e| e.into_inner()).extend(sections);
+                        }
+                    }
                 }
             }
             session.teardown();
@@ -515,9 +550,15 @@ impl Relay {
             local_url: format!("http://127.0.0.1:{port}/satip.ts"),
             status,
             packets,
+            eit,
             stop,
             thread: Some(thread),
         })
+    }
+
+    /// Seit dem letzten Abholen mitgelesene Programmdaten.
+    pub fn take_eit(&self) -> Vec<crate::ts::EitSection> {
+        std::mem::take(&mut *self.eit.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     /// Bisher vom Gerät empfangene RTP-Pakete.
@@ -770,6 +811,35 @@ fn collect(
         }
     }
     col
+}
+
+/// Programmdaten (EIT, PID 18) eines Transponders sammeln: `query` ist die Abstimmung ohne
+/// `pids`; gelesen wird `secs` Sekunden lang (40 s reichen für mehrere Tage).
+pub fn collect_eit(host: &str, query: &str, secs: u64) -> Result<Vec<crate::ts::EitSection>, String> {
+    let sock = bind_rtp()?;
+    let port = sock.local_addr().map_err(|e| e.to_string())?.port();
+    let s = Session::setup(host, &format!("{query}&pids=18"), port)?;
+    if let Err(e) = s.play() {
+        s.teardown();
+        return Err(e);
+    }
+    let col = collect(&sock, Duration::from_secs(secs), &|pid| pid == 18, &|_| false);
+    s.teardown();
+    if col.sections.is_empty() {
+        return Err("keine Programmdaten empfangen".into());
+    }
+    Ok(col
+        .sections
+        .iter()
+        .filter_map(|(_, sec)| crate::ts::parse_eit(sec))
+        .collect())
+}
+
+/// Abstimmung eines Senders ohne Spurliste (`src=…&freq=…`), zum Gruppieren nach Transponder.
+pub fn tuning_of(url: &str) -> Option<(String, String)> {
+    let (host, query) = split_url(url)?;
+    let q: Vec<&str> = query.split('&').filter(|p| !p.starts_with("pids=")).collect();
+    Some((host, q.join("&")))
 }
 
 /// Transponder von Astra 19,2° Ost aus der Netzwerktabelle des Starttransponders.
@@ -1072,6 +1142,58 @@ fn base64(data: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Messung am Gerät: `TVJOE_EIT_HOST=<gerät> TVJOE_EIT_TP="<abstimmung>;…"
+    /// cargo test -p tvjoe-core eit_probe -- --ignored --nocapture`. Liest je Transponder 40 s
+    /// PID 18 und zeigt je Dienst Zahl der Sendungen und wie weit das Programm reicht.
+    #[test]
+    #[ignore]
+    fn eit_probe() {
+        let (Ok(host), Ok(tps)) = (std::env::var("TVJOE_EIT_HOST"), std::env::var("TVJOE_EIT_TP"))
+        else {
+            return;
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        for q in tps.split(';').filter(|q| !q.is_empty()) {
+            let sock = bind_rtp().unwrap();
+            let port = sock.local_addr().unwrap().port();
+            let s = Session::setup(&host, &format!("{q}&pids=0,17,18"), port).unwrap();
+            s.play().unwrap();
+            let col = collect(&sock, Duration::from_secs(40), &|pid| pid == 18 || pid == 17, &|_| false);
+            s.teardown();
+            let names: std::collections::HashMap<u16, String> = col
+                .tables(0x42)
+                .flat_map(crate::ts::parse_sdt)
+                .map(|x| (x.service_id, x.name))
+                .collect();
+            let mut per: std::collections::BTreeMap<u16, (usize, i64, String)> = Default::default();
+            let mut tables = std::collections::BTreeSet::new();
+            for (_, sec) in &col.sections {
+                if let Some(e) = crate::ts::parse_eit(sec) {
+                    tables.insert(sec[0]);
+                    let ent = per.entry(e.service_id).or_insert((0, 0, String::new()));
+                    for ev in e.events {
+                        ent.0 += 1;
+                        ent.1 = ent.1.max(ev.stop);
+                        if ent.2.is_empty() {
+                            ent.2 = format!("{} / {}", ev.title, ev.desc.as_deref().unwrap_or("").chars().take(60).collect::<String>());
+                        }
+                    }
+                }
+            }
+            eprintln!("== {q}: {} Abschnitte, Tabellen {:02x?}", col.sections.len(), tables);
+            for (sid, (n, max, sample)) in per {
+                eprintln!(
+                    "  {sid:5} {:28} {n:5} Sendungen, bis +{:.1} Tage | {sample}",
+                    names.get(&sid).cloned().unwrap_or_default(),
+                    (max - now) as f64 / 86400.0
+                );
+            }
+        }
+    }
+
     use super::*;
 
     #[test]

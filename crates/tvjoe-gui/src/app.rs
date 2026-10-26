@@ -749,7 +749,10 @@ impl App {
             let s = self.settings.borrow();
             (s.epg_sources.clone(), s.epg_refresh_hours)
         };
-        if sources.is_empty() {
+        let sat_cache = paths::cache_dir()
+            .map(|d| tvjoe_core::epg::sat_cache_path(&d))
+            .is_some_and(|p| p.exists());
+        if sources.is_empty() && !sat_cache {
             return;
         }
         let max_age = if force {
@@ -760,7 +763,12 @@ impl App {
         let cache = paths::cache_dir();
         let (tx, rx) = async_channel::bounded(1);
         std::thread::spawn(move || {
-            let _ = tx.send_blocking(epg::load_sources(&sources, cache.as_deref(), max_age));
+            let (mut guide, notes) = epg::load_sources(&sources, cache.as_deref(), max_age);
+            // Programmdaten aus dem SAT-Empfang dazu (Sender mit EPG-Quelle „SAT“).
+            if let Some(dir) = cache.as_deref() {
+                guide.merge(epg::SatEpg::load(dir).guide());
+            }
+            let _ = tx.send_blocking((guide, notes));
         });
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
@@ -783,11 +791,39 @@ impl App {
             let weak = Rc::downgrade(self);
             glib::timeout_add_seconds_local(60, move || match weak.upgrade() {
                 Some(app) => {
+                    app.merge_live_eit();
                     app.refresh_epg();
                     glib::ControlFlow::Continue
                 }
                 None => glib::ControlFlow::Break,
             });
+        }
+    }
+
+    /// Beim Ansehen eines SAT-Senders mitgelesene Programmdaten übernehmen (nur für Sender mit
+    /// EPG-Quelle „SAT“ sichtbar): in den Zwischenspeicher und ins laufende EPG.
+    fn merge_live_eit(&self) {
+        let sections = match self.relay.borrow().as_ref() {
+            Some(r) => r.take_eit(),
+            None => return,
+        };
+        if sections.is_empty() {
+            return;
+        }
+        let Some(dir) = paths::cache_dir() else { return };
+        let now = epg::now();
+        let mut cache = epg::SatEpg::load(&dir);
+        cache.add(&sections, now);
+        let _ = cache.save(&dir);
+        let mut fresh = epg::SatEpg::default();
+        fresh.add(&sections, now);
+        let merged = self.guide().map(|g| {
+            let mut g = (*g).clone();
+            g.merge(fresh.guide());
+            g
+        });
+        if let Some(g) = merged {
+            *self.guide.borrow_mut() = Some(Rc::new(g));
         }
     }
 
@@ -959,6 +995,15 @@ impl App {
     /// Die SAT-Quelle läuft (Verwaltung und Programm zeigen deren Senderliste).
     pub fn is_sat(&self) -> bool {
         self.sat.get()
+    }
+
+    /// Sender der SAT-Liste (egal, welche Liste gerade gezeigt wird).
+    pub fn sat_channels(&self) -> Vec<Channel> {
+        if self.sat.get() {
+            self.lib.borrow().channels.clone()
+        } else {
+            self.other_lib.borrow().channels.clone()
+        }
     }
 
     pub fn library(&self) -> std::cell::Ref<'_, Library> {

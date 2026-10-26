@@ -325,7 +325,15 @@ impl Manager {
             "ok"
         };
         hbox.append(&cell(status, 110, "tvjoe-sub"));
+        let sat_epg = ch
+            .epg_id
+            .as_deref()
+            .is_some_and(|e| e.starts_with(tvjoe_core::epg::SAT_PREFIX));
         let epg_text = match self.app.guide() {
+            _ if sat_epg => match self.app.guide().filter(|g| g.has_channel(&ch.key)) {
+                Some(_) => "SAT-Empfang".to_string(),
+                None => "SAT-Empfang (wird gesammelt)".to_string(),
+            },
             Some(g) => match g.match_channel(ch) {
                 Some((id, kind)) => {
                     let how = match kind {
@@ -690,14 +698,21 @@ impl Manager {
     }
 
     fn assign_epg(self: &Rc<Self>, id: u64) {
-        let Some(guide) = self.app.guide() else {
-            self.toast("Kein EPG geladen – zuerst eine EPG-Quelle eintragen.");
-            return;
-        };
         let Some(ch) = self.app.library().channel(id).cloned() else {
             return;
         };
-        let suggestions = guide.suggestions(&ch);
+        // SAT-Sender: Programmdaten auch aus dem Empfang (EIT); die ID ist der Senderschlüssel.
+        let sat = ch.key.starts_with(tvjoe_core::epg::SAT_PREFIX);
+        let guide = self.app.guide();
+        if guide.is_none() && !sat {
+            self.toast("Kein EPG geladen – zuerst eine EPG-Quelle eintragen.");
+            return;
+        }
+        let mut suggestions = guide.map(|g| g.suggestions(&ch)).unwrap_or_default();
+        suggestions.retain(|(sid, _)| !sid.starts_with(tvjoe_core::epg::SAT_PREFIX));
+        if sat {
+            suggestions.insert(0, (ch.key.clone(), "Aus dem SAT-Empfang".to_string()));
+        }
         let mut labels: Vec<String> = vec!["Automatisch zuordnen".into()];
         labels.extend(
             suggestions
@@ -734,8 +749,15 @@ impl Manager {
                 .checked_sub(1)
                 .and_then(|i| suggestions.get(i))
                 .map(|(sid, _)| sid.clone());
+            let to_sat = epg_id
+                .as_deref()
+                .is_some_and(|e| e.starts_with(tvjoe_core::epg::SAT_PREFIX));
             m.set_flag(&[id], |c| c.epg_id = epg_id.clone());
             m.refill();
+            if to_sat {
+                m.toast("Programmdaten werden aus dem SAT-Empfang gesammelt (etwa 40 Sekunden je Transponder).");
+                crate::satepg::run(&m.app);
+            }
         });
         d.present(Some(&self.body));
     }
