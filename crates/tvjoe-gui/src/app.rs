@@ -145,6 +145,10 @@ pub struct App {
     vod_ticks: Cell<u32>,
     /// Folgende Folgen einer Serie (laufen nacheinander).
     vod_next: RefCell<Vec<Vod>>,
+    /// Fernsehen zeitversetzt: Summe der Pausen seit dem Laden (Sekunden) und Beginn der
+    /// laufenden Pause.
+    live_delay: Cell<f64>,
+    live_paused_at: Cell<Option<std::time::Instant>>,
 }
 
 impl App {
@@ -353,6 +357,8 @@ impl App {
             vod_timer: Cell::new(false),
             vod_ticks: Cell::new(0),
             vod_next: RefCell::new(Vec::new()),
+            live_delay: Cell::new(0.0),
+            live_paused_at: Cell::new(None),
         });
         let weak = Rc::downgrade(&app);
         app.osd.set_action_handler(move |a| {
@@ -811,6 +817,11 @@ impl App {
         }
         if st.osd_quality {
             meta.push(quality_label(stream.and_then(|s| s.quality)).to_string());
+        }
+        let delay = self.live_delay_secs();
+        if delay >= 1.0 {
+            let d = delay.round() as u64;
+            meta.push(format!("zeitversetzt −{}:{:02}", d / 60, d % 60));
         }
         let reception = stream
             .is_some_and(|s| s.kind == Some(SourceKind::SatIp))
@@ -1313,6 +1324,8 @@ impl App {
     /// Nach 3 s den Empfang in der Senderanzeige nachtragen.
     fn load_live(self: &Rc<Self>, player: &Player, url: &str, bitrate: Option<u64>) {
         self.relay.replace(None);
+        self.live_delay.set(0.0);
+        self.live_paused_at.set(None);
         if tvjoe_core::satip::split_url(url).is_none() {
             player.load(url, bitrate);
             return;
@@ -1950,6 +1963,50 @@ impl App {
         self.msg.show(text, 2);
     }
 
+    /// Rückstand zum laufenden Programm (Sekunden), mit der laufenden Pause.
+    fn live_delay_secs(&self) -> f64 {
+        self.live_delay.get()
+            + self
+                .live_paused_at
+                .get()
+                .map_or(0.0, |t| t.elapsed().as_secs_f64())
+    }
+
+    /// Leertaste im Fernsehen: anhalten (der Pufferspeicher füllt sich weiter) und
+    /// zeitversetzt fortsetzen.
+    fn toggle_live_pause(self: &Rc<Self>) {
+        let Some(player) = self.player.clone() else { return };
+        let Some(id) = self.current.get() else { return };
+        let Some(paused) = player.toggle_pause() else { return };
+        if paused {
+            self.live_paused_at.set(Some(std::time::Instant::now()));
+            let lib = self.lib.borrow();
+            let Some(ch) = lib.channel(id) else { return };
+            let info = self.channel_info(
+                ch,
+                self.current_stream_of(ch),
+                Some("Pause – Leertaste setzt fort, Ende springt zurück auf live".to_string()),
+            );
+            self.osd.show_channel(&info, 0);
+        } else {
+            self.live_delay.set(self.live_delay_secs());
+            self.live_paused_at.set(None);
+            self.show_info();
+        }
+    }
+
+    /// Taste Ende: zurück auf live.
+    fn go_live(self: &Rc<Self>) {
+        let Some(player) = self.player.clone() else { return };
+        if self.current.get().is_none() || self.live_delay_secs() < 1.0 {
+            return;
+        }
+        player.jump_live();
+        self.live_delay.set(0.0);
+        self.live_paused_at.set(None);
+        self.show_info();
+    }
+
     fn toggle_mute(&self) {
         if let Some(muted) = self.player.as_ref().and_then(|p| p.toggle_mute()) {
             self.msg.show(if muted { "Ton aus" } else { "Ton an" }, 2);
@@ -2140,6 +2197,8 @@ impl App {
             Key::m => self.toggle_mute(),
             Key::a => self.cycle_audio(),
             Key::u => self.cycle_subtitles(),
+            Key::space => self.toggle_live_pause(),
+            Key::End | Key::KP_End => self.go_live(),
             Key::z => {
                 let (crop, fill) = self.view_mode();
                 self.set_view(crop, !fill);

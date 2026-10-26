@@ -56,6 +56,10 @@ pub struct Settings {
     pub crop_bars: bool,
     /// Bild füllt das Fenster (Überstand fällt weg) statt eingepasst zu werden.
     pub fill: bool,
+    /// Pufferspeicher im Arbeitsspeicher (MB): Pause im Fernsehen, Vorrat bei schwachem Netz.
+    pub buffer_mb: u32,
+    /// Startpuffer (Sekunden), der vor dem Abspielen und nach einem Abriss gefüllt wird.
+    pub start_buffer_secs: u32,
     /// XMLTV-Quellen (Dateien oder URLs).
     pub epg_sources: Vec<String>,
     /// EPG aus dem Netz neu laden, wenn der Cache älter ist (Stunden; 0 = nur per Knopf).
@@ -128,6 +132,8 @@ impl Default for Settings {
             loudness: !cfg!(windows),
             crop_bars: true,
             fill: false,
+            buffer_mb: 512,
+            start_buffer_secs: 3,
             epg_sources: Vec::new(),
             epg_refresh_hours: 24,
             update_last_check: None,

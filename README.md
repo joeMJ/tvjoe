@@ -139,6 +139,8 @@ SAT>IP-Empfänger.
 | A | Tonspur wechseln |
 | U | Untertitel wechseln (Spur 1 … letzte, dann aus) |
 | Z | Bild füllen / einpassen |
+| Leertaste | Fernsehen anhalten / zeitversetzt weiter |
+| Ende | zurück auf live |
 | G | Programmraster |
 | Strg+E | Sender verwalten |
 | Strg+, | Einstellungen |

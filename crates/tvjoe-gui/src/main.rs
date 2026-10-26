@@ -133,6 +133,7 @@ fn activate(application: &adw::Application, opts: &Options) {
             p.set_subtitles(settings.subtitles);
             p.set_loudness(settings.loudness);
             p.set_view_mode(settings.crop_bars, settings.fill);
+            p.set_buffer(settings.buffer_mb, settings.start_buffer_secs);
             Some(p)
         }
         Err(e) => {

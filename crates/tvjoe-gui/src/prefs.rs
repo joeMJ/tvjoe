@@ -163,6 +163,21 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     quality.add(&strategy);
     quality.add(&fallback);
 
+    let storage = adw::PreferencesGroup::builder()
+        .title("Pufferspeicher")
+        .description("Im Arbeitsspeicher: hält beim Fernsehen eine Pause (Leertaste) und gleicht ein schwaches Netz aus. Gilt ab dem nächsten Senderwechsel.")
+        .build();
+    let buffer_mb = adw::SpinRow::with_range(64.0, 8192.0, 64.0);
+    buffer_mb.set_title("Größe");
+    buffer_mb.set_subtitle("MB; drei Viertel davon halten die Pause, bei 1080p (etwa 5 Mbit/s) reichen 512 MB für rund zehn Minuten");
+    buffer_mb.set_value(f64::from(s.buffer_mb));
+    let start_buffer = adw::SpinRow::with_range(3.0, 10.0, 1.0);
+    start_buffer.set_title("Startpuffer");
+    start_buffer.set_subtitle("Sekunden Vorrat vor dem Abspielen und nach einem Abriss; mehr ist robuster, der Senderwechsel dauert entsprechend länger");
+    start_buffer.set_value(f64::from(s.start_buffer_secs));
+    storage.add(&buffer_mb);
+    storage.add(&start_buffer);
+
     let guide = adw::PreferencesGroup::builder()
         .title("Programm (EPG)")
         .build();
@@ -202,6 +217,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     p_osd.add(&osd);
     let p_quality = new_page("qualitaet", "Qualität", "emblem-photos-symbolic");
     p_quality.add(&quality);
+    p_quality.add(&storage);
     let p_guide = new_page("programm", "Programm", "x-office-calendar-symbolic");
     p_guide.add(&guide);
     let (p_media, apply_media) = crate::mediathek::prefs_page(app);
@@ -291,6 +307,8 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             s.quality_cap = cap.is_active();
             s.deinterlace = deinterlace.is_active();
             s.subtitles = subtitles.is_active();
+            s.buffer_mb = buffer_mb.value() as u32;
+            s.start_buffer_secs = start_buffer.value() as u32;
             s.loudness = loudness.is_active();
             s.osd_number = osd_number.is_active();
             s.osd_origin = osd_origin.is_active();
@@ -311,6 +329,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             p.set_deinterlace(app.settings().deinterlace);
             p.set_subtitles(app.settings().subtitles);
             p.set_loudness(app.settings().loudness);
+            p.set_buffer(app.settings().buffer_mb, app.settings().start_buffer_secs);
         }
         app.reapply_quality();
         app.update_inhibit();

@@ -398,6 +398,36 @@ impl Player {
         }
     }
 
+    /// Pufferspeicher: drei Viertel als Vorrat nach vorn (füllt sich auch während einer
+    /// Pause), ein Viertel für Gesehenes; vor dem Abspielen und nach einem Abriss wartet mpv,
+    /// bis `start_secs` Sekunden im Vorrat sind.
+    pub fn set_buffer(&self, mb: u32, start_secs: u32) {
+        let total = u64::from(mb.max(32)) << 20;
+        let options = [
+            ("cache", "yes".to_string()),
+            ("demuxer-max-bytes", (total / 4 * 3).to_string()),
+            ("demuxer-max-back-bytes", (total / 4).to_string()),
+            ("cache-pause-initial", "yes".to_string()),
+            ("cache-pause-wait", start_secs.to_string()),
+        ];
+        for (k, v) in options {
+            if let Err(e) = self.mpv.set_property(k, v.as_str()) {
+                eprintln!("tvjoe: {k}={v}: {e:?}");
+            }
+        }
+    }
+
+    /// Ans Ende des Vorrats springen (zurück auf live) und weiterspielen.
+    pub fn jump_live(&self) {
+        let _ = self.mpv.set_property("pause", false);
+        let ahead = self.mpv.get_property::<f64>("demuxer-cache-time").unwrap_or(0.0);
+        if ahead > 1.0 {
+            let _ = self
+                .mpv
+                .command("seek", &[&format!("{:.1}", ahead - 1.0), "relative"]);
+        }
+    }
+
     /// Wiedergabe beenden (kein Stream).
     pub fn stop(&self) {
         let _ = self.mpv.command("stop", &[]);
