@@ -42,7 +42,7 @@ fn print_help() {
         "tvjoe {VERSION}
 
 Aufruf:
-  tvjoe [--channel NUMMER] [--mute] [--quit-after SEKUNDEN]
+  tvjoe [--channel NUMMER] [--mute] [--quit-after SEKUNDEN] [--protokoll]
   tvjoe --import DATEI.m3u [--name NAME] [--mit-warnungen]
   tvjoe --check [--dev]
   tvjoe --epg-add QUELLE          XMLTV-Datei oder -URL in die Einstellungen aufnehmen
@@ -50,6 +50,8 @@ Aufruf:
   tvjoe --update-check            nach neuer Version auf GitHub fragen
   tvjoe --version
 
+--protokoll schreibt nach jeder Pause oder Fortsetzung sechs Sekunden lang Bildnummer,
+Position und jedes Neuzeichnen in die Ausgabe (Fehlersuche).
 --import übernimmt Einträge ohne Befund; mit --mit-warnungen auch Einträge mit Warnungen.
 Umgebung: TVJOE_CONFIG_DIR, TVJOE_CACHE_DIR (andere Ablage), TVJOE_TRACE=1 (Zeitmessung)."
     );

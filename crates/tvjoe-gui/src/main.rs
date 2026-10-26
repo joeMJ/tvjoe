@@ -72,6 +72,8 @@ struct Options {
     mute: bool,
     quit_after: Option<u32>,
     channel: Option<u32>,
+    /// Ablauf einer Pause protokollieren (Bildnummer, Position, Neuzeichnen).
+    protocol: bool,
 }
 
 fn parse_options() -> Options {
@@ -80,6 +82,7 @@ fn parse_options() -> Options {
     while let Some(a) = it.next() {
         match a.as_str() {
             "--mute" => o.mute = true,
+            "--protokoll" => o.protocol = true,
             "--quit-after" => o.quit_after = it.next().and_then(|v| v.parse().ok()),
             "--channel" => o.channel = it.next().and_then(|v| v.parse().ok()),
             _ => eprintln!("tvjoe: unbekannte Option {a}"),
@@ -134,6 +137,7 @@ fn activate(application: &adw::Application, opts: &Options) {
             p.set_loudness(settings.loudness);
             p.set_view_mode(settings.crop_bars, settings.fill);
             p.set_buffer(settings.buffer_mb, settings.start_buffer_secs);
+            p.set_protocol(opts.protocol);
             Some(p)
         }
         Err(e) => {

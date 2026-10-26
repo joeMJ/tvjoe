@@ -48,6 +48,9 @@ pub struct Player {
     /// Anzeigegröße des Bildes (`video-params/dw`, `dh`), 0 ohne Bild.
     dims: Cell<(f64, f64)>,
     grabbing: Arc<AtomicBool>,
+    /// `--protokoll`: Ablauf nach Pause/Fortsetzen bis zu diesem Zeitpunkt mitschreiben.
+    protocol: Cell<bool>,
+    protocol_start: Cell<Option<std::time::Instant>>,
     pub area: gtk::GLArea,
 }
 
@@ -128,6 +131,8 @@ impl Player {
             ticks: Cell::new(0),
             dims: Cell::new((0.0, 0.0)),
             grabbing: Arc::new(AtomicBool::new(false)),
+            protocol: Cell::new(false),
+            protocol_start: Cell::new(None),
             area: area.clone(),
         });
         let p = player.clone();
@@ -195,6 +200,7 @@ impl Player {
         if let Err(e) = ctx.render::<()>(fbo, area.width() * scale, area.height() * scale, true) {
             eprintln!("tvjoe: Rendern fehlgeschlagen: {e:?}");
         }
+        self.protocol_line("gezeichnet");
         if !self.first_frame.get() && self.mpv.get_property::<i64>("video-params/w").is_ok() {
             self.first_frame.set(true);
             trace("erstes Bild gezeichnet");
@@ -453,9 +459,57 @@ impl Player {
     }
 
     /// Pause umschalten; gibt zurück, ob jetzt pausiert ist.
-    pub fn toggle_pause(&self) -> Option<bool> {
+    pub fn toggle_pause(self: &Rc<Self>) -> Option<bool> {
         self.mpv.command("cycle", &["pause"]).ok()?;
-        self.mpv.get_property::<bool>("pause").ok()
+        let paused = self.mpv.get_property::<bool>("pause").ok();
+        if self.protocol.get() {
+            self.protocol_begin(if paused == Some(true) { "Pause" } else { "weiter" });
+        }
+        paused
+    }
+
+    pub fn set_protocol(&self, on: bool) {
+        self.protocol.set(on);
+    }
+
+    /// Protokoll: sechs Sekunden lang alle 100 ms Zustand, dazu jedes Neuzeichnen.
+    fn protocol_begin(self: &Rc<Self>, what: &str) {
+        let start = std::time::Instant::now();
+        self.protocol_start.set(Some(start));
+        self.protocol_line(what);
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local(Duration::from_millis(100), move || {
+            let Some(p) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if p.protocol_start.get() != Some(start) {
+                return glib::ControlFlow::Break;
+            }
+            if start.elapsed() > Duration::from_secs(6) {
+                p.protocol_start.set(None);
+                return glib::ControlFlow::Break;
+            }
+            p.protocol_line("Zustand");
+            glib::ControlFlow::Continue
+        });
+    }
+
+    fn protocol_line(&self, what: &str) {
+        let Some(start) = self.protocol_start.get() else { return };
+        let get = |k: &str| {
+            self.mpv
+                .get_property::<String>(k)
+                .unwrap_or_else(|_| "–".into())
+        };
+        eprintln!(
+            "[tvjoe protokoll +{:6.3} s] {what}: pause={} time-pos={} frame={} drop={} cache={}",
+            start.elapsed().as_secs_f64(),
+            get("pause"),
+            get("time-pos"),
+            get("estimated-frame-number"),
+            get("frame-drop-count"),
+            get("demuxer-cache-time"),
+        );
     }
 
     /// Spuren einer Art (`audio`, `sub`) als (ID, Bezeichnung).
