@@ -4,6 +4,7 @@
 //! - `TVJOE_SELFTEST=/ordner tvjoe --mute`: Bedienung des Hauptfensters.
 //! - zusätzlich `TVJOE_SELFTEST_IMPORT=/liste.m3u`: Verwaltung und Import mit Vorschau.
 //! - zusätzlich `TVJOE_SELFTEST_MEDIATHEK=1`: Mediathek (lädt beim ersten Mal die Filmliste).
+//! - `TVJOE_SELFTEST_BAUCHBINDE=1` (nur diese Schritte): Höhe der Bauchbinde in allen Lagen.
 //! - `TVJOE_SELFTEST_README=1` (nur diese Schritte): Bilder für das README; mit neutralen Daten
 //!   starten (eigene `TVJOE_CONFIG_DIR`/`TVJOE_CACHE_DIR`, ohne Jellyfin und private Sender).
 
@@ -138,6 +139,69 @@ const EBENE_STEPS: &[Step] = &[
             main_window(p)
         },
         15000,
+    ),
+];
+
+/// Bauchbinde (`TVJOE_SELFTEST_BAUCHBINDE=1`, nur diese Schritte): live, angehalten, gespult,
+/// fortgesetzt, zurück auf live, Senderwechsel, Info. Zu jedem Bild steht die Höhe der
+/// Bauchbinde in der Ausgabe (mit `TVJOE_TRACE=1`); sie muss überall gleich sein.
+const BAUCHBINDE_STEPS: &[Step] = &[
+    ("70-start", main_window, 8000),
+    (
+        "71-live",
+        |p| {
+            p.app.show_info();
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "72-angehalten",
+        |p| {
+            p.app.toggle_live_pause();
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "73-zurueckgespult",
+        |p| {
+            p.app.live_seek(-10.0);
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "74-fortgesetzt",
+        |p| {
+            p.app.toggle_live_pause();
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "75-wieder-live",
+        |p| {
+            p.app.go_live();
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "76-senderwechsel",
+        |p| {
+            p.app.step(1);
+            main_window(p)
+        },
+        2000,
+    ),
+    (
+        "77-info",
+        |p| {
+            p.app.show_info();
+            main_window(p)
+        },
+        1500,
     ),
 ];
 
@@ -493,6 +557,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         JELLYFIN_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_JFPLAY").is_some() {
         JFPLAY_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_BAUCHBINDE").is_some() {
+        BAUCHBINDE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_README").is_some() {
         README_STEPS.to_vec()
     } else {
@@ -522,6 +588,9 @@ fn next(probe: Rc<Probe>, steps: Rc<Vec<Step>>, dir: PathBuf, i: usize) {
     let window = action(&probe);
     glib::timeout_add_local_once(Duration::from_millis(wait), move || {
         let path = dir.join(format!("{name}.png"));
+        if std::env::var_os("TVJOE_SELFTEST_BAUCHBINDE").is_some() {
+            trace(&format!("Bauchbinde {name}: {} px hoch", probe.app.osd_height()));
+        }
         match window.as_ref().map(|w| shot(w, &path)) {
             Some(Ok(())) => trace(&format!("Bild {}", path.display())),
             Some(Err(e)) => eprintln!("tvjoe: Bild {name}: {e}"),

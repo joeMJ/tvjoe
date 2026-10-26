@@ -201,6 +201,9 @@ impl Osd {
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .build();
         let next = label("tvjoe-osd-sub");
+        // „Danach“ und die Steuerzeile haben in der CSS dieselbe feste Höhe (`tvjoe-osd-line`):
+        // die Bauchbinde bleibt gleich groß, egal welche gezeigt wird (Nutzer, 2026-10-26).
+        next.add_css_class("tvjoe-osd-line");
         let extra = label("tvjoe-osd-extra");
         extra.set_wrap(true);
 
@@ -225,6 +228,7 @@ impl Osd {
             .xalign(1.0)
             .build();
         let video_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        video_row.add_css_class("tvjoe-osd-line");
         for b in [&back_min, &back, &pause, &fwd, &fwd_min] {
             video_row.append(b);
         }
@@ -275,9 +279,14 @@ impl Osd {
         root.append(&name_slot);
         root.append(&sep_right);
         root.append(&right);
-        let rec = osd_button("media-record-symbolic", "Aufnehmen (R)");
-        rec.add_css_class("tvjoe-rec");
-        rec.set_visible(false);
+        // Aufnahmeknopf wie an einer Kamera: weißes Feld „REC“; während der Aufnahme rot.
+        let rec = gtk::Button::builder()
+            .label("REC")
+            .tooltip_text("Aufnehmen bis Sendungsende (R)")
+            .css_classes(["tvjoe-rec-button"])
+            .valign(gtk::Align::Center)
+            .visible(false)
+            .build();
         root.append(&rec);
 
         let osd = Rc::new(Self {
@@ -486,11 +495,11 @@ impl Osd {
                 } else {
                     "Aufnehmen bis Sendungsende (R)"
                 }));
-                self.rec.set_icon_name(if on {
-                    "media-playback-stop-symbolic"
+                if on {
+                    self.rec.add_css_class("tvjoe-rec-on");
                 } else {
-                    "media-record-symbolic"
-                });
+                    self.rec.remove_css_class("tvjoe-rec-on");
+                }
                 self.rec.set_visible(true);
                 self.root.set_can_target(true);
             }

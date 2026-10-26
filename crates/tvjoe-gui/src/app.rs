@@ -826,10 +826,7 @@ impl App {
         }
         let is_current = self.vod.borrow().is_none() && self.current.get() == Some(ch.id);
         let shift = if is_current { self.live_state() } else { None };
-        if let Some(v) = &shift {
-            let d = v.live.unwrap_or(0.0).round() as u64;
-            meta.push(format!("zeitversetzt −{}:{:02}", d / 60, d % 60));
-        }
+        // Der Rückstand steht rechts in der Steuerzeile und läuft dort mit (Nutzer, 2026-10-26).
         let reception = stream
             .is_some_and(|s| s.kind == Some(SourceKind::SatIp))
             .then(|| {
@@ -1285,6 +1282,15 @@ impl App {
         let (id, _) = guide.match_channel(ch)?;
         let (cur, _) = guide.now_next(&id, epg::now());
         cur.map(|p| (p.title.clone(), p.start, p.stop))
+    }
+
+    /// Höhe der Bauchbinde (Selbstprobe), 0 wenn ausgeblendet.
+    pub fn osd_height(&self) -> i32 {
+        if self.osd.is_shown() {
+            self.osd.root.height()
+        } else {
+            0
+        }
     }
 
     /// Kurze Meldung oben im Bild.
@@ -2127,7 +2133,7 @@ impl App {
 
     /// Leertaste im Fernsehen: anhalten (der Pufferspeicher füllt sich weiter) und
     /// zeitversetzt fortsetzen.
-    fn toggle_live_pause(self: &Rc<Self>) {
+    pub fn toggle_live_pause(self: &Rc<Self>) {
         let Some(player) = self.player.clone() else { return };
         if self.current.get().is_none() {
             return;
@@ -2140,7 +2146,7 @@ impl App {
     }
 
     /// Im zeitversetzten Fernsehen spulen; vorwärts höchstens bis live.
-    fn live_seek(self: &Rc<Self>, secs: f64) {
+    pub fn live_seek(self: &Rc<Self>, secs: f64) {
         let Some(player) = self.player.clone() else { return };
         if self.current.get().is_none() {
             return;
@@ -2183,7 +2189,7 @@ impl App {
     }
 
     /// Taste Ende, Knopf „Live“: zurück auf live.
-    fn go_live(self: &Rc<Self>) {
+    pub fn go_live(self: &Rc<Self>) {
         let Some(player) = self.player.clone() else { return };
         let Some(gap) = self.live_gap.get() else { return };
         if let Some((_, end, _)) = player.live_window() {

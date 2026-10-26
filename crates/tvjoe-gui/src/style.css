@@ -228,3 +228,34 @@
 .tvjoe-rec {
   color: #ff5555;
 }
+
+/* Bauchbinde: „Danach“ und die Steuerzeile gleich hoch (Nutzer, 2026-10-26); die Knöpfe der
+   Steuerzeile passen in diese Höhe. */
+.tvjoe-osd-line {
+  min-height: 26px;
+}
+
+.tvjoe-osd-line button {
+  min-height: 26px;
+  min-width: 26px;
+  padding: 0;
+}
+
+.tvjoe-osd-line button.flat:not(.circular) {
+  padding: 0 6px;
+}
+
+/* Aufnahmeknopf wie an einer Kamera: weißes Feld „REC“, während der Aufnahme rot */
+.tvjoe-rec-button {
+  background: #f6f6f6;
+  color: #1e1e1e;
+  font-weight: bold;
+  border-radius: 6px;
+  min-height: 26px;
+  padding: 0 8px;
+}
+
+.tvjoe-rec-button.tvjoe-rec-on {
+  background: #e01b24;
+  color: #ffffff;
+}
