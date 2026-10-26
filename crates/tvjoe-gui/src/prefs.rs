@@ -125,6 +125,18 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         .build();
     quality.add(&subtitles);
     quality.add(&loudness);
+    let crop_bars = adw::SwitchRow::builder()
+        .title("Schwarze Balken abschneiden")
+        .subtitle("Erkennt mitgesendete Balken im Bild; das Fenster lässt sich dann kleiner ziehen, ohne dass das Bild schrumpft. Knopf neben Vollbild")
+        .active(s.crop_bars)
+        .build();
+    let fill = adw::SwitchRow::builder()
+        .title("Bild füllen")
+        .subtitle("Vergrößert, bis das Bild an allen Seiten anstößt; Überstand fällt weg (z. B. Breitbildmonitor im Vollbild). Taste Z")
+        .active(s.fill)
+        .build();
+    quality.add(&crop_bars);
+    quality.add(&fill);
     let strategy = adw::ComboRow::builder()
         .title("Beim Senderwechsel")
         .model(&gtk::StringList::new(&[
@@ -294,6 +306,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             apply_satip(&mut s);
         }
         app.save_settings();
+        app.set_view(crop_bars.is_active(), fill.is_active());
         if let Some(p) = &app.player {
             p.set_deinterlace(app.settings().deinterlace);
             p.set_subtitles(app.settings().subtitles);

@@ -1212,6 +1212,7 @@ dependencies = [
  "libc",
  "libloading",
  "libmpv2",
+ "libmpv2-sys",
  "tvjoe-core",
 ]
 

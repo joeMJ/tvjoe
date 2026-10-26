@@ -8,12 +8,16 @@ use std::cell::{Cell, RefCell};
 #[cfg(target_os = "linux")]
 use std::ffi::c_void;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use gtk::glib;
 use gtk::prelude::*;
 use libmpv2::Mpv;
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 
+use crate::crop::{self, Area};
 use crate::gl;
 use crate::trace;
 
@@ -33,6 +37,17 @@ pub struct Player {
     first_frame: Cell<bool>,
     /// Untertitel beim Laden eines Streams (Einstellung); `U` wählt nur für den laufenden.
     subtitles: Cell<bool>,
+    /// Schwarze Balken abschneiden / Bild füllen (Einstellung, Knöpfe, Taste Z).
+    crop_on: Cell<bool>,
+    fill: Cell<bool>,
+    tracker: RefCell<crop::Tracker>,
+    /// Zählt jedes Laden; Messungen eines früheren Streams werden verworfen.
+    generation: Cell<u64>,
+    /// Sekunden seit dem Laden (Takt der Messungen).
+    ticks: Cell<u32>,
+    /// Anzeigegröße des Bildes (`video-params/dw`, `dh`), 0 ohne Bild.
+    dims: Cell<(f64, f64)>,
+    grabbing: Arc<AtomicBool>,
     pub area: gtk::GLArea,
 }
 
@@ -106,8 +121,18 @@ impl Player {
             render: RefCell::new(None),
             first_frame: Cell::new(false),
             subtitles: Cell::new(false),
+            crop_on: Cell::new(false),
+            fill: Cell::new(false),
+            tracker: RefCell::new(crop::Tracker::default()),
+            generation: Cell::new(0),
+            ticks: Cell::new(0),
+            dims: Cell::new((0.0, 0.0)),
+            grabbing: Arc::new(AtomicBool::new(false)),
             area: area.clone(),
         });
+        let p = player.clone();
+        area.connect_resize(move |_, _, _| p.apply_view());
+        player.start_crop_timer();
 
         let p = player.clone();
         area.connect_realize(move |a| p.on_realize(a));
@@ -239,6 +264,12 @@ impl Player {
         if let Err(e) = self.mpv.set_property("hls-bitrate", limit.as_str()) {
             eprintln!("tvjoe: hls-bitrate={limit}: {e:?}");
         }
+        // Ausschnitt gilt nur für den bisherigen Stream.
+        self.generation.set(self.generation.get() + 1);
+        self.ticks.set(0);
+        self.tracker.borrow_mut().reset();
+        self.dims.set((0.0, 0.0));
+        self.apply_view();
         // Eine mit U gewählte Untertitelspur gilt nicht für den nächsten Stream.
         let sid = if self.subtitles.get() { "auto" } else { "no" };
         let _ = self.mpv.set_property("sid", sid);
@@ -278,6 +309,92 @@ impl Player {
         };
         if let Err(e) = self.mpv.set_property("af", v) {
             eprintln!("tvjoe: af={v}: {e:?}");
+        }
+    }
+
+    /// Balken abschneiden und einpassen/füllen; gilt sofort.
+    pub fn set_view_mode(&self, crop_on: bool, fill: bool) {
+        if !crop_on {
+            self.tracker.borrow_mut().reset();
+        } else if !self.crop_on.get() {
+            // Gleich neu messen statt erst beim nächsten Zehnertakt.
+            self.ticks.set(0);
+        }
+        self.crop_on.set(crop_on);
+        self.fill.set(fill);
+        self.apply_view();
+    }
+
+    /// Zoom und Verschiebung aus Ausschnitt, Bild- und Fenstergröße neu setzen.
+    fn apply_view(&self) {
+        let area = if self.crop_on.get() {
+            self.tracker.borrow().shown()
+        } else {
+            Area::FULL
+        };
+        let window = (f64::from(self.area.width()), f64::from(self.area.height()));
+        let v = crop::view(area, self.dims.get(), window, self.fill.get());
+        let _ = self.mpv.set_property("video-zoom", v.zoom);
+        let _ = self.mpv.set_property("video-pan-x", v.pan_x);
+        let _ = self.mpv.set_property("video-pan-y", v.pan_y);
+    }
+
+    /// Takt je Sekunde: Bildgröße verfolgen, Einzelbilder messen (nach 1, 2 und 4 s, dann alle
+    /// 10 s; ein Formatwechsel im Fernsehen kann jederzeit kommen).
+    fn start_crop_timer(self: &Rc<Self>) {
+        let (tx, rx) = async_channel::unbounded::<(u64, Option<Area>)>();
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local(Duration::from_secs(1), move || {
+            let Some(p) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            p.crop_tick(&tx);
+            glib::ControlFlow::Continue
+        });
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            while let Ok((generation, m)) = rx.recv().await {
+                let Some(p) = weak.upgrade() else { break };
+                p.crop_measured(generation, m);
+            }
+        });
+    }
+
+    fn crop_tick(&self, tx: &async_channel::Sender<(u64, Option<Area>)>) {
+        let dw = self.mpv.get_property::<i64>("video-params/dw").unwrap_or(0) as f64;
+        let dh = self.mpv.get_property::<i64>("video-params/dh").unwrap_or(0) as f64;
+        if (dw, dh) != self.dims.get() {
+            self.dims.set((dw, dh));
+            self.apply_view();
+        }
+        if !self.crop_on.get() || dw <= 0.0 || dh <= 0.0 {
+            return;
+        }
+        let t = self.ticks.get() + 1;
+        self.ticks.set(t);
+        if !(t == 1 || t == 2 || t == 4 || t % 10 == 0) {
+            return;
+        }
+        if self.grabbing.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let ctx = self.mpv.ctx.as_ptr() as usize;
+        let generation = self.generation.get();
+        let grabbing = self.grabbing.clone();
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let m = crop::grab(ctx as *mut libmpv2_sys::mpv_handle);
+            grabbing.store(false, Ordering::Release);
+            let _ = tx.send_blocking((generation, m));
+        });
+    }
+
+    fn crop_measured(&self, generation: u64, m: Option<Area>) {
+        if generation != self.generation.get() || !self.crop_on.get() {
+            return;
+        }
+        if self.tracker.borrow_mut().feed(m).is_some() {
+            self.apply_view();
         }
     }
 

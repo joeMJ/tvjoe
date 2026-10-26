@@ -4,6 +4,7 @@
 
 mod app;
 mod backup;
+mod crop;
 mod dnd;
 mod gl;
 mod grid;
@@ -131,6 +132,7 @@ fn activate(application: &adw::Application, opts: &Options) {
             p.set_deinterlace(settings.deinterlace);
             p.set_subtitles(settings.subtitles);
             p.set_loudness(settings.loudness);
+            p.set_view_mode(settings.crop_bars, settings.fill);
             Some(p)
         }
         Err(e) => {

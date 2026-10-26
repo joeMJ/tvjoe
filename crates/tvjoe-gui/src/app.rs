@@ -103,6 +103,8 @@ pub struct App {
     mediathek_button: gtk::Button,
     jellyfin_button: gtk::Button,
     jellyfin_logo: gtk::Image,
+    crop_button: gtk::Button,
+    fill_button: gtk::Button,
     sat_button: gtk::Button,
     /// Ebene über dem Bild (Programm, Mediathek, Verwaltung).
     pub layer: Rc<crate::layer::Layer>,
@@ -208,13 +210,38 @@ impl App {
             .tooltip_text("Sender verwalten (Strg+E)")
             .build();
         header.pack_start(&manage_button);
-        // Rechts (pack_end von außen nach innen): Vollbild, Einstellungen, Programm, Info,
-        // davor abgesetzt der Quellenumschalter TV | Mediathek | Jellyfin (Nutzer, 2026-10-25).
+        // Rechts (pack_end von außen nach innen): Bildgruppe Vollbild | Balken abschneiden |
+        // Bild füllen (eingeschaltet mit weißer Linie wie beim Quellenumschalter), Einstellungen,
+        // Programm, Info, davor abgesetzt der Quellenumschalter TV | Mediathek | Jellyfin
+        // (Nutzer, 2026-10-25 und 2026-10-26).
         let fullscreen_button = gtk::Button::builder()
             .icon_name("view-fullscreen-symbolic")
             .tooltip_text("Vollbild (F)")
+            .css_classes(["tvjoe-source"])
             .build();
-        header.pack_end(&fullscreen_button);
+        let crop_button = gtk::Button::builder()
+            .icon_name(crate::icons::CROP)
+            .tooltip_text("Schwarze Balken abschneiden")
+            .css_classes(["tvjoe-source"])
+            .build();
+        let fill_button = gtk::Button::builder()
+            .icon_name("zoom-fit-best-symbolic")
+            .tooltip_text("Bild füllen (Z)")
+            .css_classes(["tvjoe-source"])
+            .build();
+        for (b, on) in [(&crop_button, settings.crop_bars), (&fill_button, settings.fill)] {
+            if on {
+                b.add_css_class("tvjoe-source-active");
+            }
+        }
+        let view_group = gtk::Box::builder()
+            .css_classes(["linked"])
+            .margin_start(6)
+            .build();
+        view_group.append(&fullscreen_button);
+        view_group.append(&crop_button);
+        view_group.append(&fill_button);
+        header.pack_end(&view_group);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
             .tooltip_text("Einstellungen (Strg+,)")
@@ -298,6 +325,8 @@ impl App {
             mediathek_button: mediathek_button.clone(),
             jellyfin_button: jellyfin_button.clone(),
             jellyfin_logo,
+            crop_button: crop_button.clone(),
+            fill_button: fill_button.clone(),
             sat_button: sat_button.clone(),
             layer,
             video: overlay.clone(),
@@ -1036,6 +1065,21 @@ impl App {
                 .map(|r| r.id);
             if let Some(id) = id {
                 app.play_channel(id);
+            }
+        });
+
+        let weak = Rc::downgrade(self);
+        self.crop_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                let (crop, fill) = app.view_mode();
+                app.set_view(!crop, fill);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.fill_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                let (crop, fill) = app.view_mode();
+                app.set_view(crop, !fill);
             }
         });
 
@@ -1862,6 +1906,50 @@ impl App {
         self.msg.show(&text, self.overlay_secs());
     }
 
+    fn view_mode(&self) -> (bool, bool) {
+        let s = self.settings();
+        (s.crop_bars, s.fill)
+    }
+
+    /// Balken abschneiden / Bild füllen: Einstellung, Player und Knöpfe abgleichen, Meldung.
+    pub fn set_view(&self, crop: bool, fill: bool) {
+        let (old_crop, old_fill) = {
+            let s = self.settings();
+            (s.crop_bars, s.fill)
+        };
+        if (crop, fill) == (old_crop, old_fill) {
+            return;
+        }
+        {
+            let mut s = self.settings_mut();
+            s.crop_bars = crop;
+            s.fill = fill;
+        }
+        self.save_settings();
+        if let Some(p) = &self.player {
+            p.set_view_mode(crop, fill);
+        }
+        for (b, on) in [(&self.crop_button, crop), (&self.fill_button, fill)] {
+            if on {
+                b.add_css_class("tvjoe-source-active");
+            } else {
+                b.remove_css_class("tvjoe-source-active");
+            }
+        }
+        let text = if crop != old_crop {
+            if crop {
+                "Schwarze Balken werden abgeschnitten"
+            } else {
+                "Schwarze Balken bleiben"
+            }
+        } else if fill {
+            "Bild füllt das Fenster"
+        } else {
+            "Bild eingepasst"
+        };
+        self.msg.show(text, 2);
+    }
+
     fn toggle_mute(&self) {
         if let Some(muted) = self.player.as_ref().and_then(|p| p.toggle_mute()) {
             self.msg.show(if muted { "Ton aus" } else { "Ton an" }, 2);
@@ -2052,6 +2140,10 @@ impl App {
             Key::m => self.toggle_mute(),
             Key::a => self.cycle_audio(),
             Key::u => self.cycle_subtitles(),
+            Key::z => {
+                let (crop, fill) = self.view_mode();
+                self.set_view(crop, !fill);
+            }
             Key::l => self.toggle_sidebar(),
             Key::i => self.toggle_info(),
             Key::g => crate::grid::open(self),
