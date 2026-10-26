@@ -139,7 +139,12 @@ pub fn init(app: &Rc<App>) {
 
 /// Ablageordner für Heruntergeladenes und Aufnahmen (Einstellung, sonst `Videos/tvjoe`).
 pub fn storage_dir(app: &App) -> PathBuf {
-    if let Some(d) = app.settings().storage_dir.as_deref().filter(|d| !d.is_empty()) {
+    storage_dir_for(&app.settings())
+}
+
+/// Ablageordner nach den Einstellungen (auch ohne Fenster, Aufnahmedienst).
+pub fn storage_dir_for(s: &tvjoe_core::Settings) -> PathBuf {
+    if let Some(d) = s.storage_dir.as_deref().filter(|d| !d.is_empty()) {
         return PathBuf::from(d);
     }
     glib::user_special_dir(glib::UserDirectory::Videos)
@@ -198,7 +203,7 @@ fn move_into_subdirs(app: &App, index: &Index) {
 }
 
 /// Freier Platz auf dem Datenträger von `dir` (der Ordner muss noch nicht existieren).
-fn free_bytes(dir: &Path) -> Option<u64> {
+pub fn free_bytes(dir: &Path) -> Option<u64> {
     let mut p = dir;
     while !p.exists() {
         p = p.parent()?;
@@ -210,7 +215,7 @@ fn free_bytes(dir: &Path) -> Option<u64> {
 }
 
 /// Ortszeit für Dateinamen.
-fn stamp(ts: i64) -> String {
+pub fn stamp(ts: i64) -> String {
     glib::DateTime::from_unix_local(ts)
         .ok()
         .and_then(|d| d.format("%Y-%m-%d %H-%M").ok())
@@ -913,6 +918,51 @@ pub fn toggle_record(app: &Rc<App>) {
         app.message("Aufnehmen geht beim Fernsehen (nicht bei Abrufvideos)");
         return;
     };
+    // Aufnahmedienst: Sofortaufnahme als Planung ab jetzt; Beenden löscht sie aus dem Plan.
+    if app.settings().record_service {
+        let now = ablage::now();
+        let post = i64::from(app.settings().record_post_min) * 60;
+        let current = a
+            .index
+            .timers()
+            .into_iter()
+            .find(|t| t.channel_id == cid && t.sat == sat && t.start <= now + 60 && now < t.stop + post);
+        if let Some(t) = current {
+            a.index.remove_timer(t.id);
+            app.message(&format!("Aufnahme wird beendet: {}", t.title));
+            return;
+        }
+        let (title, stop) = app
+            .programme_now(cid, sat)
+            .map(|(t, _, stop)| (t, stop))
+            .unwrap_or_else(|| (String::new(), now + 4 * 3600));
+        let name = app
+            .record_source(cid, sat)
+            .map(|(n, _, _)| n)
+            .unwrap_or_default();
+        let timer = Timer {
+            id: 0,
+            channel_id: cid,
+            sat,
+            channel: name.clone(),
+            title: if title.is_empty() { name } else { title },
+            // Vorlauf zählt der Dienst ab: so beginnt die Aufnahme sofort.
+            start: now,
+            stop,
+        };
+        match a.index.add_timer(&timer) {
+            Ok(id) => {
+                crate::dienst::start_now(id);
+                app.message(&format!(
+                    "Aufnahme an den Aufnahmedienst übergeben: {} (bis {})",
+                    timer.title,
+                    crate::app::hm(stop + post)
+                ));
+            }
+            Err(e) => app.message(&format!("Aufnahme nicht übergeben: {e}")),
+        }
+        return;
+    }
     let running = a
         .recs
         .borrow()
@@ -935,10 +985,17 @@ pub fn toggle_record(app: &Rc<App>) {
 /// Läuft eine Aufnahme dieses Senders?
 pub fn is_recording(channel_id: u64, sat: bool) -> bool {
     get().is_some_and(|a| {
+        let source = if sat { "sat" } else { "tv" };
+        let prefix = format!("{channel_id}@");
         a.recs
             .borrow()
             .iter()
             .any(|r| r.channel_id == channel_id && r.sat == sat)
+            // Aufnahmen des Dienstes (eigener Vorgang, im Verzeichnis „lädt“).
+            || a.index
+                .running_recordings()
+                .iter()
+                .any(|e| e.source == source && e.key.starts_with(&prefix))
     })
 }
 
@@ -955,6 +1012,7 @@ pub fn plan(app: &Rc<App>, timer: &Timer) {
         Err(e) => app.message(&format!("Aufnahme nicht geplant: {e}")),
     }
     a.check_recordings();
+    crate::dienst::sync_tasks(app);
 }
 
 /// Planung löschen (eine schon laufende Aufnahme läuft weiter).
@@ -967,14 +1025,21 @@ pub fn unplan(app: &Rc<App>, timer: &Timer) {
         }
     }
     app.message(&format!("Planung gelöscht: {}", timer.title));
+    crate::dienst::sync_tasks(app);
 }
 
 /// Für die Rückfrage beim Beenden: laufende und geplante Aufnahmen, laufende Downloads.
 pub fn busy_text() -> Option<String> {
     let a = get()?;
     let now = ablage::now();
+    let service = a.app.upgrade().is_some_and(|app| app.settings().record_service);
     let recs = a.recs.borrow().len();
-    let planned = a.index.timers().iter().filter(|t| t.stop > now).count();
+    // Mit Aufnahmedienst laufen Aufnahmen ohne das Fenster weiter.
+    let planned = if service {
+        0
+    } else {
+        a.index.timers().iter().filter(|t| t.stop > now).count()
+    };
     let loads = a.jobs.borrow().len() + a.queue.borrow().len();
     let mut parts = Vec::new();
     if recs > 0 {
@@ -1186,6 +1251,10 @@ impl Ablage {
                 app.message("Aufnahme beendet: zu wenig Platz auf der Platte");
             }
             self.stop(i);
+        }
+        // Mit Aufnahmedienst nimmt nur der Dienst auf.
+        if app.settings().record_service {
+            return;
         }
         for t in self.index.timers() {
             let (begin, end) = (t.start - pre, t.stop + post);
@@ -1412,6 +1481,16 @@ pub fn prefs_page(
     for r in [&pre, &post, &max_sat, &max_net] {
         record.add(r);
     }
+    let service = adw::SwitchRow::builder()
+        .title("Aufnahmen auch ohne geöffnetes tvjoe")
+        .subtitle(if cfg!(windows) {
+            "Jede geplante Aufnahme wird eine Aufgabe in der Aufgabenplanung von Windows"
+        } else {
+            "Richtet einen Hintergrunddienst ein (systemd-Benutzerdienst), der auch ohne Anmeldung aufnimmt"
+        })
+        .active(s.record_service)
+        .build();
+    record.add(&service);
 
     page.add(&place);
     page.add(&download);
@@ -1430,6 +1509,9 @@ pub fn prefs_page(
         s.record_post_min = post.value() as u32;
         s.record_max_sat = max_sat.value() as u32;
         s.record_max_internet = max_net.value() as u32;
+        if service.is_active() != s.record_service {
+            crate::dienst::set_enabled(s, service.is_active());
+        }
     };
     (page, apply)
 }
@@ -1549,4 +1631,16 @@ pub fn play_entry(app: &Rc<App>, id: i64) {
         },
         _ => app.play_file(&e.title, &e.subtitle, &e.path),
     }
+}
+
+/// Meldung im Hauptfenster (aus Einstellungen und Dienst-Einrichtung).
+/// Erst im nächsten Durchlauf der Hauptschleife: der Aufrufer hält oft die Einstellungen zum
+/// Schreiben (Einstellungsdialog), die Meldung liest sie.
+pub fn report(text: &str) {
+    let text = text.to_string();
+    glib::idle_add_local_once(move || {
+        if let Some(app) = get().and_then(|a| a.app.upgrade()) {
+            app.message(&text);
+        }
+    });
 }

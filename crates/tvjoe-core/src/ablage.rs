@@ -163,6 +163,9 @@ impl Index {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         let conn = Connection::open(path).map_err(sql)?;
+        // Fenster und Aufnahmedienst schreiben gleichzeitig: kurz warten statt scheitern.
+        conn.busy_timeout(Duration::from_secs(10)).map_err(sql)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(sql)?;
         conn.execute_batch(SCHEMA).map_err(sql)?;
         Ok(Self { conn })
     }
@@ -340,6 +343,20 @@ impl Index {
             )
             .map_err(sql)?;
         Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn timer(&self, id: i64) -> Option<Timer> {
+        self.timers().into_iter().find(|t| t.id == id)
+    }
+
+    /// Laufende Aufnahmen (Zustand „lädt“).
+    pub fn running_recordings(&self) -> Vec<Entry> {
+        self.query(
+            &format!(
+                "SELECT {ENTRY_COLS} FROM entries WHERE art = 'recording' AND state = 'loading'"
+            ),
+            [],
+        )
     }
 
     pub fn remove_timer(&self, id: i64) {

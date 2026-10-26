@@ -77,6 +77,11 @@ pub struct Settings {
     /// Gleichzeitige Aufnahmen (0 = ohne Grenze).
     pub record_max_sat: u32,
     pub record_max_internet: u32,
+    /// Aufnahmen auch ohne geöffnetes tvjoe (Linux: Benutzerdienst, Windows: Aufgabenplanung);
+    /// dann nimmt nur der Dienst auf, das Fenster plant und zeigt an.
+    pub record_service: bool,
+    /// tvjoe hat `loginctl enable-linger` gesetzt (beim Abschalten wieder zurücknehmen).
+    pub record_service_linger: bool,
     /// XMLTV-Quellen (Dateien oder URLs).
     pub epg_sources: Vec<String>,
     /// EPG aus dem Netz neu laden, wenn der Cache älter ist (Stunden; 0 = nur per Knopf).
@@ -164,6 +169,8 @@ impl Default for Settings {
             record_post_min: 5,
             record_max_sat: 2,
             record_max_internet: 0,
+            record_service: false,
+            record_service_linger: false,
             epg_sources: Vec::new(),
             epg_refresh_hours: 24,
             sat_epg_hours: 6,

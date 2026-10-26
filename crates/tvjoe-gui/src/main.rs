@@ -8,6 +8,9 @@ mod ablageview;
 mod backup;
 mod capture;
 mod crop;
+mod dienst;
+#[cfg(windows)]
+mod dienst_win;
 mod dnd;
 mod gl;
 mod grid;
@@ -189,6 +192,16 @@ fn activate(application: &adw::Application, opts: &Options) {
 
 fn main() -> glib::ExitCode {
     tvjoe_core::console::attach_parent();
+    // Ohne Fenster: Aufnahmedienst (Linux) bzw. eine geplante Aufnahme (Windows-Aufgabe).
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("--aufnahmedienst") => std::process::exit(dienst::run_service()),
+        Some("--aufnahme") => {
+            let id = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(-1);
+            std::process::exit(dienst::run_one(id));
+        }
+        _ => {}
+    }
     init_trace();
     trace("Oberfläche gestartet");
     let opts = parse_options();

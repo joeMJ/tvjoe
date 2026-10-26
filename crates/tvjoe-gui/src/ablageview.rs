@@ -125,6 +125,38 @@ pub fn planned_page(app: &Rc<App>) -> gtk::Widget {
     };
     live_page(signature, move |content| {
         let Some(app) = weak.upgrade() else { return };
+        // Aufnahmedienst: Stand oben; laufende Aufnahmen stehen dann im Verzeichnis.
+        if app.settings().record_service {
+            let text = if cfg!(windows) {
+                "Aufnahmen laufen über die Aufgabenplanung von Windows, auch ohne geöffnetes tvjoe (solange Sie angemeldet sind)."
+            } else if crate::dienst::alive() {
+                "Aufnahmedienst läuft: Aufnahmen auch ohne geöffnetes tvjoe."
+            } else {
+                "Aufnahmedienst antwortet nicht – geplante Aufnahmen finden nicht statt. Einstellungen → Ablage: Schalter aus- und wieder einschalten."
+            };
+            content.append(&label(text, "tvjoe-sub"));
+            let entries = crate::ablage::all_entries();
+            let running: Vec<_> = entries
+                .iter()
+                .filter(|e| e.art == Art::Recording && e.state == State::Loading)
+                .collect();
+            if !running.is_empty() {
+                let g = group("Läuft", None);
+                for e in running {
+                    let row = adw::ActionRow::builder()
+                        .title(glib::markup_escape_text(&e.title))
+                        .subtitle(glib::markup_escape_text(&format!(
+                            "{} · seit {}",
+                            e.subtitle,
+                            hm(e.created)
+                        )))
+                        .build();
+                    row.add_prefix(&label("●", "tvjoe-rec"));
+                    g.add(&row);
+                }
+                content.append(&g);
+            }
+        }
         let running = crate::ablage::running_recordings();
         let entries = crate::ablage::all_entries();
         let now = tvjoe_core::ablage::now();
