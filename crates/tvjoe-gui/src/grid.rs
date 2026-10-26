@@ -92,6 +92,7 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
     }
     rows.append(&ticks);
 
+    let sat = app.is_sat();
     let lib = app.library();
     for ch in lib
         .channels
@@ -141,10 +142,65 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
                 .xalign(0.0)
                 .ellipsize(gtk::pango::EllipsizeMode::End)
                 .build();
+            // Roter Punkt: Aufnahme geplant.
+            let dot = gtk::Label::builder()
+                .label("●")
+                .css_classes(["tvjoe-rec"])
+                .visible(crate::ablage::timer_for(ch.id, sat, p.start).is_some())
+                .build();
+            let content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+            content.append(&dot);
+            content.append(&label);
             let button = gtk::Button::builder()
-                .child(&label)
+                .child(&content)
                 .css_classes(["tvjoe-prog"])
                 .build();
+            // Rechtsklick: Aufnahme planen bzw. Planung löschen.
+            {
+                let weak = Rc::downgrade(app);
+                let (cid, name, title, start, stop) = (
+                    ch.id,
+                    ch.display_name().to_string(),
+                    p.title.clone(),
+                    p.start,
+                    p.stop,
+                );
+                let dot = dot.clone();
+                crate::ablage::context_menu(&button, move || {
+                    let mut out: Vec<(String, Box<dyn Fn()>)> = Vec::new();
+                    let Some(app) = weak.upgrade() else { return out };
+                    let dot = dot.clone();
+                    match crate::ablage::timer_for(cid, sat, start) {
+                        Some(t) => out.push((
+                            "Planung löschen".into(),
+                            Box::new(move || {
+                                crate::ablage::unplan(&app, &t);
+                                dot.set_visible(false);
+                            }),
+                        )),
+                        None if stop > epg::now() => {
+                            let t = tvjoe_core::ablage::Timer {
+                                id: 0,
+                                channel_id: cid,
+                                sat,
+                                channel: name.clone(),
+                                title: title.clone(),
+                                start,
+                                stop,
+                            };
+                            out.push((
+                                "Aufnahme planen".into(),
+                                Box::new(move || {
+                                    crate::ablage::plan(&app, &t);
+                                    dot.set_visible(true);
+                                }),
+                            ));
+                        }
+                        None => {}
+                    }
+                    out
+                });
+            }
             if p.start <= now && now < p.stop {
                 button.add_css_class("tvjoe-prog-now");
             }

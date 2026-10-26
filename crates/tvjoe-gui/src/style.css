@@ -215,3 +215,16 @@
   min-height: 36px;
   padding: 2px 10px;
 }
+
+/* Ablage: Kennzeichen auf Kacheln und Folgen (heruntergeladen, lädt, teilweise) */
+.tvjoe-store-badge {
+  background-color: rgba(0, 0, 0, 0.7);
+  color: #ffffff;
+  border-radius: 999px;
+  padding: 4px;
+}
+
+/* Aufnahme läuft (Bauchbinde, Programmraster) */
+.tvjoe-rec {
+  color: #ff5555;
+}

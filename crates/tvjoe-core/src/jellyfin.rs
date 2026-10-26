@@ -258,6 +258,33 @@ impl Account {
         })
     }
 
+    /// Originaldatei zum Herunterladen: Adresse (mit Anmeldekopf abzurufen), Containerformat
+    /// als Dateiendung und Größe in Bytes (0 = unbekannt).
+    pub fn download_source(&self, item_id: &str) -> Result<(String, String, u64), String> {
+        let v = self.get_json(
+            &format!("/Users/{}/Items/{item_id}", self.user_id),
+            &[("Fields", "MediaSources")],
+        )?;
+        let source = &v["MediaSources"][0];
+        let source_id = source["Id"].as_str().unwrap_or(item_id);
+        // „mkv“, „mp4“ …; Jellyfin nennt manchmal mehrere („mov,mp4,m4a“): die erste nehmen.
+        let container = source["Container"]
+            .as_str()
+            .and_then(|c| c.split(',').next())
+            .filter(|c| !c.is_empty())
+            .unwrap_or("mkv")
+            .to_string();
+        let size = source["Size"].as_u64().unwrap_or(0);
+        Ok((
+            format!(
+                "{}/Videos/{item_id}/stream?static=true&MediaSourceId={source_id}",
+                self.server
+            ),
+            container,
+            size,
+        ))
+    }
+
     /// Wiedergabe an Jellyfin melden: Start, Fortschritt, Ende (Position in Sekunden).
     pub fn report(
         &self,

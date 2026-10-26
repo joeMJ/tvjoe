@@ -547,6 +547,152 @@ impl Drop for Relay {
     }
 }
 
+/// Aufnahme eines SAT-Senders in eine Datei: eigene Sitzung am Gerät (teilt sich bei gleichem
+/// Transponder den Tuner mit der Wiedergabe), Empfang in einem Thread, Schreiben in einem
+/// zweiten über eine Warteschlange im Arbeitsspeicher. Kommt die Platte kurz nicht nach, füllt
+/// sich die Warteschlange bis `queue_bytes`; erst darüber gehen Daten verloren (gezählt).
+/// Geschrieben wird nach `<datei>.part`, beim Beenden umbenannt.
+pub struct Recorder {
+    pub path: std::path::PathBuf,
+    bytes: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    dropped: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    error: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+/// Größe der Stücke in der Warteschlange.
+const CHUNK: usize = 64 * 1024;
+
+impl Recorder {
+    pub fn start(url: &str, path: &std::path::Path, queue_bytes: u64) -> Result<Self, String> {
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+        use std::sync::{Arc, Mutex, mpsc};
+        let (host, query) = split_url(url).ok_or("keine SAT>IP-Adresse")?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let part = crate::ablage::part_path(path);
+        let mut file = std::fs::File::create(&part).map_err(|e| e.to_string())?;
+        let bytes = Arc::new(AtomicU64::new(0));
+        let dropped = Arc::new(AtomicU64::new(0));
+        let error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let stop = Arc::new(AtomicBool::new(false));
+        let slots = (queue_bytes as usize / CHUNK).max(4);
+        let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(slots);
+        let set_error = {
+            let error = error.clone();
+            move |e: String| {
+                let mut g = error.lock().unwrap_or_else(|e| e.into_inner());
+                g.get_or_insert(e);
+            }
+        };
+
+        let (b, err, sp) = (bytes.clone(), set_error.clone(), stop.clone());
+        let writer = std::thread::spawn(move || {
+            for chunk in rx {
+                if let Err(e) = file.write_all(&chunk) {
+                    err(format!("Schreiben fehlgeschlagen: {e}"));
+                    sp.store(true, Ordering::Relaxed);
+                    break;
+                }
+                b.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+            }
+            let _ = file.sync_all();
+        });
+
+        let (dr, err, sp) = (dropped.clone(), set_error, stop.clone());
+        let receiver = std::thread::spawn(move || {
+            let stopped = || sp.load(Ordering::Relaxed);
+            let sock = match bind_rtp() {
+                Ok(s) => s,
+                Err(e) => return err(e),
+            };
+            let Ok(port) = sock.local_addr().map(|a| a.port()) else {
+                return err("kein UDP-Anschluss".into());
+            };
+            let session = match Session::setup(&host, &query, port) {
+                Ok(s) => s,
+                Err(e) => return err(e),
+            };
+            if let Err(e) = session.play() {
+                session.teardown();
+                return err(e);
+            }
+            sock.set_read_timeout(Some(Duration::from_millis(200))).ok();
+            let mut next_status = Instant::now() + Duration::from_secs(5);
+            let mut last_data = Instant::now();
+            let mut buf = [0u8; 2048];
+            let mut chunk = Vec::with_capacity(CHUNK);
+            while !stopped() {
+                if let Ok(n) = sock.recv(&mut buf) {
+                    if let Some(ts) = rtp_payload(&buf[..n]) {
+                        last_data = Instant::now();
+                        chunk.extend_from_slice(ts);
+                        if chunk.len() >= CHUNK {
+                            let full = std::mem::replace(&mut chunk, Vec::with_capacity(CHUNK));
+                            if let Err(mpsc::TrySendError::Full(lost)) = tx.try_send(full) {
+                                dr.fetch_add(lost.len() as u64, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                } else if last_data.elapsed() > Duration::from_secs(15) {
+                    err("kein Datenstrom vom SAT>IP-Gerät".into());
+                    break;
+                }
+                if Instant::now() >= next_status {
+                    next_status = Instant::now() + Duration::from_secs(5);
+                    let _ = session.describe();
+                }
+            }
+            if !chunk.is_empty() {
+                let _ = tx.send(chunk);
+            }
+            session.teardown();
+        });
+        Ok(Self {
+            path: path.to_path_buf(),
+            bytes,
+            dropped,
+            error,
+            stop,
+            threads: vec![receiver, writer],
+        })
+    }
+
+    /// Geschriebene Bytes.
+    pub fn bytes(&self) -> u64 {
+        self.bytes.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Verlorene Bytes (Warteschlange voll).
+    pub fn dropped(&self) -> u64 {
+        self.dropped.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Erster Fehler (Gerät, Netz, Platte); die Aufnahme läuft dann nicht mehr.
+    pub fn error(&self) -> Option<String> {
+        self.error.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Beenden, Warteschlange leeren, Tuner freigeben, Datei umbenennen.
+    pub fn finish(mut self) -> Result<std::path::PathBuf, String> {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        for t in self.threads.drain(..) {
+            let _ = t.join();
+        }
+        let part = crate::ablage::part_path(&self.path);
+        std::fs::rename(&part, &self.path).map_err(|e| e.to_string())?;
+        Ok(self.path.clone())
+    }
+}
+
+impl Drop for Recorder {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Suchlauf
 

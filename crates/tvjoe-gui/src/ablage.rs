@@ -1,0 +1,1204 @@
+//! Ablage in der Oberfläche: Warteschlange der Downloads (höchstens zwei gleichzeitig),
+//! Zwischenspeicher mit Grenze, Aufnahmen (sofort und nach Plan aus dem Programm), Kennzeichen
+//! auf den Kacheln. Das Verzeichnis liegt in `ablage.sqlite` im Konfigurationsordner.
+//!
+//! Geladen und aufgenommen wird in Hintergrund-Threads; Ergebnisse kommen über einen Kanal in
+//! den Hauptthread, der allein das Verzeichnis schreibt.
+
+use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
+use std::rc::{Rc, Weak};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use gtk::prelude::*;
+use gtk::{gio, glib};
+use tvjoe_core::ablage::{self, Art, Index, Progress, State, Timer};
+use tvjoe_core::jellyfin_lib::Item;
+use tvjoe_core::mediathek::Film;
+use tvjoe_core::paths;
+
+use crate::app::App;
+use crate::capture;
+
+/// Gleichzeitige Downloads.
+const PARALLEL: usize = 2;
+
+thread_local! {
+    static ABLAGE: RefCell<Option<Rc<Ablage>>> = const { RefCell::new(None) };
+}
+
+pub fn get() -> Option<Rc<Ablage>> {
+    ABLAGE.with(|a| a.borrow().clone())
+}
+
+/// Was geladen wird.
+#[derive(Clone)]
+enum Fetch {
+    Http { url: String, header: Option<String> },
+    Hls { url: String, header: Option<String> },
+    /// Jellyfin: Quelle erst im Ladethread beim Server erfragen.
+    Jelly {
+        account: tvjoe_core::jellyfin::Account,
+        item_id: String,
+        original: bool,
+        kbps: u32,
+    },
+}
+
+struct Pending {
+    id: i64,
+    fetch: Fetch,
+}
+
+struct Job {
+    id: i64,
+    progress: Arc<Progress>,
+    /// Bei HLS: gelesene Position (ms); `progress.total` ist dann die Dauer in ms.
+    position_ms: Arc<AtomicU64>,
+    hls: bool,
+}
+
+enum Recorder {
+    Sat(tvjoe_core::satip::Recorder),
+    Stream(Arc<Progress>),
+}
+
+struct Rec {
+    id: i64,
+    sat: bool,
+    channel_id: u64,
+    /// Ende (Sekunden seit 1970) mit Nachlauf.
+    stop_at: i64,
+    timer_id: Option<i64>,
+    rec: Option<Recorder>,
+}
+
+enum Done {
+    Job(i64, Result<PathBuf, String>),
+    Rec(i64, Result<(), String>),
+}
+
+pub struct Ablage {
+    app: Weak<App>,
+    index: Index,
+    queue: RefCell<VecDeque<Pending>>,
+    jobs: RefCell<Vec<Job>>,
+    recs: RefCell<Vec<Rec>>,
+    badges: RefCell<Vec<(String, String, glib::WeakRef<gtk::Image>)>>,
+    done_tx: async_channel::Sender<Done>,
+    suspend_cookie: Cell<Option<u32>>,
+    ticks: Cell<u32>,
+}
+
+/// Beim Start: Verzeichnis öffnen, Abgebrochenes als „teilweise“ markieren, Takt starten.
+pub fn init(app: &Rc<App>) {
+    let Some(path) = paths::config_dir().map(|d| d.join("ablage.sqlite")) else {
+        return;
+    };
+    let index = match Index::open(&path) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("tvjoe: Ablage: {e}");
+            return;
+        }
+    };
+    index.mark_interrupted();
+    let (tx, rx) = async_channel::unbounded();
+    let a = Rc::new(Ablage {
+        app: Rc::downgrade(app),
+        index,
+        queue: RefCell::new(VecDeque::new()),
+        jobs: RefCell::new(Vec::new()),
+        recs: RefCell::new(Vec::new()),
+        badges: RefCell::new(Vec::new()),
+        done_tx: tx,
+        suspend_cookie: Cell::new(None),
+        ticks: Cell::new(0),
+    });
+    ABLAGE.with(|s| *s.borrow_mut() = Some(a));
+    glib::spawn_future_local(async move {
+        while let Ok(d) = rx.recv().await {
+            if let Some(a) = get() {
+                a.finished(d);
+            }
+        }
+    });
+    glib::timeout_add_seconds_local(1, || {
+        if let Some(a) = get() {
+            a.tick();
+        }
+        glib::ControlFlow::Continue
+    });
+}
+
+/// Ablageordner für Heruntergeladenes und Aufnahmen (Einstellung, sonst `Videos/tvjoe`).
+pub fn storage_dir(app: &App) -> PathBuf {
+    if let Some(d) = app.settings().storage_dir.as_deref().filter(|d| !d.is_empty()) {
+        return PathBuf::from(d);
+    }
+    glib::user_special_dir(glib::UserDirectory::Videos)
+        .unwrap_or_else(|| glib::home_dir().join("Videos"))
+        .join("tvjoe")
+}
+
+/// Ordner des Zwischenspeichers.
+fn cache_dir() -> PathBuf {
+    paths::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("zwischenspeicher")
+}
+
+/// Freier Platz auf dem Datenträger von `dir` (der Ordner muss noch nicht existieren).
+fn free_bytes(dir: &Path) -> Option<u64> {
+    let mut p = dir;
+    while !p.exists() {
+        p = p.parent()?;
+    }
+    gio::File::for_path(p)
+        .query_filesystem_info("filesystem::free", gio::Cancellable::NONE)
+        .ok()
+        .map(|i| i.attribute_uint64("filesystem::free"))
+}
+
+/// Ortszeit für Dateinamen.
+fn stamp(ts: i64) -> String {
+    glib::DateTime::from_unix_local(ts)
+        .ok()
+        .and_then(|d| d.format("%Y-%m-%d %H-%M").ok())
+        .map(|s| s.to_string())
+        .unwrap_or_default()
+}
+
+fn gb(n: u32) -> u64 {
+    u64::from(n) << 30
+}
+
+// ---------------------------------------------------------------------------------------------
+// Herunterladen und Zwischenspeichern
+
+/// Beitrag der ÖR-Mediathek herunterladen bzw. zwischenspeichern.
+pub fn fetch_film(app: &Rc<App>, film: &Film, art: Art) {
+    let Some(a) = get() else { return };
+    let quality = {
+        let s = app.settings();
+        if art == Art::Download {
+            s.download_quality
+        } else {
+            s.quality
+        }
+    };
+    let url = film.url_for(quality).to_string();
+    let hls = url.contains(".m3u8");
+    let ext = if hls {
+        "ts".to_string()
+    } else {
+        ablage::extension_of(&url, "mp4")
+    };
+    let name = ablage::show_name(&film.sender, &film.display_title(), &stamp(film.timestamp), &ext);
+    let fetch = if hls {
+        Fetch::Hls { url, header: None }
+    } else {
+        Fetch::Http { url, header: None }
+    };
+    a.enqueue(
+        app,
+        art,
+        "oer",
+        &film.url,
+        &film.display_title(),
+        &format!("{} · {}", film.sender, film.topic),
+        &name,
+        fetch,
+    );
+}
+
+/// Jellyfin-Eintrag (Film oder Folge) herunterladen bzw. zwischenspeichern.
+pub fn fetch_item(app: &Rc<App>, item: &Item, art: Art) {
+    let Some(a) = get() else { return };
+    let Some(account) = crate::jellyfin::account() else {
+        app.message("Jellyfin: nicht angemeldet");
+        return;
+    };
+    let (original, kbps) = {
+        let s = app.settings();
+        (s.jellyfin_download_original, s.jellyfin_download_kbps)
+    };
+    // Endung der Originaldatei kennt erst der Server; der Ladethread korrigiert sie.
+    let ext = if original { "mkv" } else { "ts" };
+    let title = match (&item.series_name, item.season_no, item.episode_no) {
+        (Some(s), Some(se), Some(ep)) => format!("{s} S{se:02}E{ep:02} {}", item.name),
+        _ => item.name.clone(),
+    };
+    let name = match item.kind.as_str() {
+        "Episode" => format!("{}.{ext}", ablage::clean_name(&title)),
+        _ => ablage::film_name(&item.name, item.year, ext),
+    };
+    a.enqueue(
+        app,
+        art,
+        "jellyfin",
+        &item.id,
+        &title,
+        "Jellyfin",
+        &name,
+        Fetch::Jelly {
+            account,
+            item_id: item.id.clone(),
+            original,
+            kbps,
+        },
+    );
+}
+
+/// Laufenden oder wartenden Download abbrechen.
+pub fn cancel(source: &str, key: &str) {
+    let Some(a) = get() else { return };
+    for e in a.index.find(source, key) {
+        a.queue.borrow_mut().retain(|p| p.id != e.id);
+        if let Some(j) = a.jobs.borrow().iter().find(|j| j.id == e.id) {
+            j.progress.cancel.store(true, Ordering::Relaxed);
+        }
+        if e.state == State::Queued {
+            a.index.set_state(e.id, State::Partial, Some("abgebrochen"));
+        }
+    }
+    a.refresh_badges();
+}
+
+/// Lokale Datei einer Sendung, falls vollständig in der Ablage (Download vor Zwischenspeicher).
+pub fn local_file(source: &str, key: &str) -> Option<PathBuf> {
+    let a = get()?;
+    let mut entries = a.index.find(source, key);
+    entries.sort_by_key(|e| e.art != Art::Download);
+    let e = entries
+        .into_iter()
+        .find(|e| e.state == State::Done && e.path.exists())?;
+    a.index.touch(e.id);
+    Some(e.path)
+}
+
+/// Zustand einer Sendung für Kontextmenü und Kennzeichen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    None,
+    Loading,
+    Done,
+    Partial,
+}
+
+pub fn status(source: &str, key: &str) -> Status {
+    let Some(a) = get() else {
+        return Status::None;
+    };
+    let entries = a.index.find(source, key);
+    if entries
+        .iter()
+        .any(|e| matches!(e.state, State::Loading | State::Queued))
+    {
+        Status::Loading
+    } else if entries.iter().any(|e| e.state == State::Done && e.path.exists()) {
+        Status::Done
+    } else if entries.iter().any(|e| e.state == State::Partial) {
+        Status::Partial
+    } else {
+        Status::None
+    }
+}
+
+/// Kennzeichen für eine Kachel (unten rechts): vollständig, lädt (mit Anteil), teilweise.
+/// Ohne Eintrag unsichtbar; wird jede Sekunde nachgeführt.
+pub fn badge(source: &str, key: &str) -> gtk::Image {
+    let img = gtk::Image::builder()
+        .pixel_size(16)
+        .halign(gtk::Align::End)
+        .valign(gtk::Align::End)
+        .margin_end(6)
+        .margin_bottom(8)
+        .css_classes(["tvjoe-store-badge"])
+        .visible(false)
+        .build();
+    if let Some(a) = get() {
+        a.badges
+            .borrow_mut()
+            .push((source.to_string(), key.to_string(), img.downgrade()));
+        a.update_badge(source, key, &img);
+    }
+    img
+}
+
+impl Ablage {
+    #[allow(clippy::too_many_arguments)]
+    fn enqueue(
+        &self,
+        app: &Rc<App>,
+        art: Art,
+        source: &str,
+        key: &str,
+        title: &str,
+        subtitle: &str,
+        name: &str,
+        fetch: Fetch,
+    ) {
+        let existing = self.index.find(source, key);
+        if existing
+            .iter()
+            .any(|e| e.art == art && e.state == State::Done && e.path.exists())
+        {
+            app.message(&format!("Liegt schon in der Ablage: {title}"));
+            return;
+        }
+        if existing
+            .iter()
+            .any(|e| matches!(e.state, State::Loading | State::Queued))
+        {
+            app.message(&format!("Wird schon geladen: {title}"));
+            return;
+        }
+        let dir = if art == Art::Cache {
+            cache_dir()
+        } else {
+            storage_dir(app)
+        };
+        let min_free = gb(app.settings().min_free_gb);
+        if free_bytes(&dir).is_some_and(|f| f < min_free) {
+            app.message(&format!(
+                "Zu wenig Platz in {} (unter {} GB frei)",
+                dir.display(),
+                app.settings().min_free_gb
+            ));
+            return;
+        }
+        // Abgebrochenen Download derselben Art an derselben Stelle fortsetzen.
+        let path = existing
+            .iter()
+            .find(|e| e.art == art && e.state == State::Partial)
+            .map(|e| e.path.clone())
+            .unwrap_or_else(|| ablage::unique_path(&dir.join(name)));
+        let id = match self.index.add(art, source, key, title, subtitle, &path) {
+            Ok(id) => id,
+            Err(e) => {
+                app.message(&format!("Ablage: {e}"));
+                return;
+            }
+        };
+        self.queue.borrow_mut().push_back(Pending { id, fetch });
+        app.message(&format!(
+            "{}: {title}",
+            if art == Art::Cache {
+                "Wird zwischengespeichert"
+            } else {
+                "Wird heruntergeladen"
+            }
+        ));
+        self.pump();
+        self.refresh_badges();
+    }
+
+    /// Wartende starten, solange Plätze frei sind.
+    fn pump(&self) {
+        while self.jobs.borrow().len() < PARALLEL {
+            let Some(p) = self.queue.borrow_mut().pop_front() else {
+                break;
+            };
+            self.start(p);
+        }
+    }
+
+    fn start(&self, p: Pending) {
+        let Some(entry) = self.index.get(p.id) else {
+            return;
+        };
+        self.index.set_state(p.id, State::Loading, None);
+        let progress = Arc::new(Progress::default());
+        let position_ms = Arc::new(AtomicU64::new(0));
+        let hls = matches!(
+            p.fetch,
+            Fetch::Hls { .. } | Fetch::Jelly { original: false, .. }
+        );
+        self.jobs.borrow_mut().push(Job {
+            id: p.id,
+            progress: progress.clone(),
+            position_ms: position_ms.clone(),
+            hls,
+        });
+        let tx = self.done_tx.clone();
+        let id = p.id;
+        std::thread::spawn(move || {
+            let r = run_fetch(p.fetch, entry.path, &progress, &position_ms);
+            let _ = tx.send_blocking(Done::Job(id, r));
+        });
+    }
+
+    fn finished(&self, d: Done) {
+        let app = self.app.upgrade();
+        match d {
+            Done::Job(id, r) => {
+                let cancelled = self
+                    .jobs
+                    .borrow()
+                    .iter()
+                    .any(|j| j.id == id && j.progress.cancelled());
+                self.jobs.borrow_mut().retain(|j| j.id != id);
+                let Some(e) = self.index.get(id) else { return };
+                match r {
+                    Ok(path) => {
+                        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                        self.index.set_path(id, &path);
+                        self.index.set_size(id, size, size);
+                        self.index.set_state(id, State::Done, None);
+                        if let Some(app) = &app {
+                            app.message(&format!(
+                                "{}: {}",
+                                if e.art == Art::Cache {
+                                    "Zwischengespeichert"
+                                } else {
+                                    "Heruntergeladen"
+                                },
+                                e.title
+                            ));
+                        }
+                        if e.art == Art::Cache {
+                            self.enforce_cache_limit();
+                        }
+                    }
+                    Err(err) => {
+                        let size = std::fs::metadata(ablage::part_path(&e.path))
+                            .map(|m| m.len())
+                            .unwrap_or(0);
+                        self.index.set_size(id, size, e.total);
+                        self.index.set_state(
+                            id,
+                            if cancelled || size > 0 {
+                                State::Partial
+                            } else {
+                                State::Failed
+                            },
+                            Some(&err),
+                        );
+                        if let (Some(app), false) = (&app, cancelled) {
+                            app.message(&format!("Laden fehlgeschlagen: {} ({err})", e.title));
+                        }
+                    }
+                }
+                self.pump();
+            }
+            Done::Rec(id, r) => {
+                let Some(e) = self.index.get(id) else { return };
+                let size = std::fs::metadata(&e.path).map(|m| m.len()).unwrap_or(0);
+                self.index.set_size(id, size, size);
+                match r {
+                    Ok(()) => {
+                        self.index.set_state(id, State::Done, None);
+                        if let Some(app) = &app {
+                            app.message(&format!("Aufnahme beendet: {}", e.title));
+                        }
+                    }
+                    Err(err) => {
+                        self.index.set_state(
+                            id,
+                            if size > 0 { State::Partial } else { State::Failed },
+                            Some(&err),
+                        );
+                        if let Some(app) = &app {
+                            app.message(&format!("Aufnahme abgebrochen: {} ({err})", e.title));
+                        }
+                    }
+                }
+            }
+        }
+        self.refresh_badges();
+    }
+
+    /// Zwischenspeicher auf die Grenze bringen: am längsten nicht Benutztes löschen.
+    fn enforce_cache_limit(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let limit = gb(app.settings().cache_limit_gb);
+        for e in self.index.evictable(limit, 0) {
+            let _ = std::fs::remove_file(&e.path);
+            let _ = std::fs::remove_file(ablage::part_path(&e.path));
+            self.index.remove(e.id);
+        }
+    }
+
+    /// Jede Sekunde: Kennzeichen; alle 5 s Größen ins Verzeichnis; alle 15 s Aufnahmen und Plan.
+    fn tick(&self) {
+        let t = self.ticks.get().wrapping_add(1);
+        self.ticks.set(t);
+        if !self.jobs.borrow().is_empty() || !self.recs.borrow().is_empty() {
+            self.refresh_badges();
+        }
+        if t % 5 == 0 {
+            for j in self.jobs.borrow().iter() {
+                self.index.set_size(
+                    j.id,
+                    j.progress.done.load(Ordering::Relaxed),
+                    if j.hls {
+                        0
+                    } else {
+                        j.progress.total.load(Ordering::Relaxed)
+                    },
+                );
+            }
+        }
+        if t % 15 == 1 {
+            self.check_recordings();
+        }
+    }
+
+    fn refresh_badges(&self) {
+        let list: Vec<(String, String, gtk::Image)> = {
+            let mut b = self.badges.borrow_mut();
+            b.retain(|(_, _, w)| w.upgrade().is_some());
+            b.iter()
+                .filter_map(|(s, k, w)| w.upgrade().map(|i| (s.clone(), k.clone(), i)))
+                .collect()
+        };
+        for (s, k, img) in list {
+            self.update_badge(&s, &k, &img);
+        }
+    }
+
+    fn update_badge(&self, source: &str, key: &str, img: &gtk::Image) {
+        let entries = self.index.find(source, key);
+        let running = entries.iter().find_map(|e| {
+            self.jobs
+                .borrow()
+                .iter()
+                .find(|j| j.id == e.id)
+                .map(|j| fraction(j))
+        });
+        let (icon, tip) = if let Some(f) = running {
+            (
+                "folder-download-symbolic",
+                match f {
+                    Some(f) => format!("Wird geladen: {:.0} %", f * 100.0),
+                    None => "Wird geladen".to_string(),
+                },
+            )
+        } else if entries.iter().any(|e| e.state == State::Queued) {
+            ("folder-download-symbolic", "Wartet auf das Laden".to_string())
+        } else if let Some(e) = entries
+            .iter()
+            .find(|e| e.state == State::Done && e.path.exists())
+        {
+            (
+                "drive-harddisk-symbolic",
+                if e.art == Art::Cache {
+                    "Zwischengespeichert".to_string()
+                } else {
+                    "Heruntergeladen".to_string()
+                },
+            )
+        } else if entries.iter().any(|e| e.state == State::Partial) {
+            (
+                "media-playback-pause-symbolic",
+                "Teilweise geladen (Herunterladen setzt fort)".to_string(),
+            )
+        } else {
+            img.set_visible(false);
+            return;
+        };
+        img.set_icon_name(Some(icon));
+        img.set_tooltip_text(Some(&tip));
+        img.set_visible(true);
+    }
+}
+
+/// Anteil eines laufenden Downloads (0–1), falls bekannt.
+fn fraction(j: &Job) -> Option<f64> {
+    let total = j.progress.total.load(Ordering::Relaxed);
+    if total == 0 {
+        return None;
+    }
+    let done = if j.hls {
+        j.position_ms.load(Ordering::Relaxed)
+    } else {
+        j.progress.done.load(Ordering::Relaxed)
+    };
+    Some((done as f64 / total as f64).clamp(0.0, 1.0))
+}
+
+/// Im Ladethread: holen und die endgültige Datei zurückgeben.
+fn run_fetch(
+    fetch: Fetch,
+    path: PathBuf,
+    progress: &Progress,
+    position_ms: &AtomicU64,
+) -> Result<PathBuf, String> {
+    match fetch {
+        Fetch::Http { url, header } => {
+            ablage::download(&url, header.as_deref(), &path, progress).map(|_| path)
+        }
+        Fetch::Hls { url, header } => {
+            let src = capture::Source {
+                url: &url,
+                header: header.as_deref(),
+                max_bitrate: None,
+                live: false,
+            };
+            capture::run(&src, &path, progress, position_ms).map(|_| path)
+        }
+        Fetch::Jelly {
+            account,
+            item_id,
+            original,
+            kbps,
+        } => {
+            let header = format!("Authorization: {}", account.header());
+            if original {
+                let (url, container, size) = account.download_source(&item_id)?;
+                let path = path.with_extension(&container);
+                progress.total.store(size, Ordering::Relaxed);
+                ablage::download(&url, Some(&header), &path, progress).map(|_| path)
+            } else {
+                let session = tvjoe_core::jellyfin::new_device_id();
+                let pb = account.playback(&item_id, kbps, &session)?;
+                let src = capture::Source {
+                    url: &pb.url,
+                    header: Some(&header),
+                    max_bitrate: None,
+                    live: false,
+                };
+                let r = capture::run(&src, &path, progress, position_ms).map(|_| path);
+                account.stop_transcoding(&session);
+                r
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Aufnahmen
+
+/// Taste R / Aufnahmeknopf: laufenden Sender bis zum Sendungsende (mit Nachlauf) aufnehmen bzw.
+/// die laufende Aufnahme dieses Senders beenden.
+pub fn toggle_record(app: &Rc<App>) {
+    let Some(a) = get() else { return };
+    let Some((cid, sat)) = app.current_live() else {
+        app.message("Aufnehmen geht beim Fernsehen (nicht bei Abrufvideos)");
+        return;
+    };
+    let running = a
+        .recs
+        .borrow()
+        .iter()
+        .position(|r| r.channel_id == cid && r.sat == sat);
+    if let Some(i) = running {
+        a.stop(i);
+        return;
+    }
+    let now = ablage::now();
+    let post = i64::from(app.settings().record_post_min) * 60;
+    let (title, stop_at) = match app.programme_now(cid, sat) {
+        Some((title, _, stop)) => (title, stop + post),
+        // Ohne Programm: höchstens vier Stunden, vorher mit R beenden.
+        None => (String::new(), now + 4 * 3600),
+    };
+    a.start_rec(app, cid, sat, &title, stop_at, None);
+}
+
+/// Läuft eine Aufnahme dieses Senders?
+pub fn is_recording(channel_id: u64, sat: bool) -> bool {
+    get().is_some_and(|a| {
+        a.recs
+            .borrow()
+            .iter()
+            .any(|r| r.channel_id == channel_id && r.sat == sat)
+    })
+}
+
+/// Geplante Aufnahme einer Sendung.
+pub fn timer_for(channel_id: u64, sat: bool, start: i64) -> Option<Timer> {
+    get()?.index.timer_for(channel_id, sat, start)
+}
+
+/// Aufnahme einer Sendung planen.
+pub fn plan(app: &Rc<App>, timer: &Timer) {
+    let Some(a) = get() else { return };
+    match a.index.add_timer(timer) {
+        Ok(_) => app.message(&format!("Aufnahme geplant: {}", timer.title)),
+        Err(e) => app.message(&format!("Aufnahme nicht geplant: {e}")),
+    }
+    a.check_recordings();
+}
+
+/// Planung löschen (eine schon laufende Aufnahme läuft weiter).
+pub fn unplan(app: &Rc<App>, timer: &Timer) {
+    let Some(a) = get() else { return };
+    a.index.remove_timer(timer.id);
+    for r in a.recs.borrow_mut().iter_mut() {
+        if r.timer_id == Some(timer.id) {
+            r.timer_id = None;
+        }
+    }
+    app.message(&format!("Planung gelöscht: {}", timer.title));
+}
+
+/// Für die Rückfrage beim Beenden: laufende und geplante Aufnahmen, laufende Downloads.
+pub fn busy_text() -> Option<String> {
+    let a = get()?;
+    let now = ablage::now();
+    let recs = a.recs.borrow().len();
+    let planned = a.index.timers().iter().filter(|t| t.stop > now).count();
+    let loads = a.jobs.borrow().len() + a.queue.borrow().len();
+    let mut parts = Vec::new();
+    if recs > 0 {
+        parts.push(format!(
+            "{recs} {} läuft",
+            if recs == 1 { "Aufnahme" } else { "Aufnahmen" }
+        ));
+    }
+    if planned > 0 {
+        parts.push(format!(
+            "{planned} {} geplant",
+            if planned == 1 { "Aufnahme" } else { "Aufnahmen" }
+        ));
+    }
+    if loads > 0 {
+        parts.push(format!(
+            "{loads} {} läuft",
+            if loads == 1 { "Download" } else { "Downloads" }
+        ));
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
+thread_local! {
+    static CLOSE_CONFIRMED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Beenden trotz laufender Aufnahmen bestätigt.
+pub fn confirm_close() {
+    CLOSE_CONFIRMED.with(|c| c.set(true));
+}
+
+pub fn close_confirmed() -> bool {
+    CLOSE_CONFIRMED.with(Cell::get)
+}
+
+/// Beim Beenden: Aufnahmen sauber abschließen (Datei umbenennen), Downloads anhalten (sie
+/// lassen sich später fortsetzen).
+pub fn shutdown() {
+    let Some(a) = get() else { return };
+    for j in a.jobs.borrow().iter() {
+        j.progress.cancel.store(true, Ordering::Relaxed);
+    }
+    let recs: Vec<Rec> = a.recs.borrow_mut().drain(..).collect();
+    for mut r in recs {
+        let ok = match r.rec.take() {
+            Some(Recorder::Sat(rec)) => rec.finish().is_ok(),
+            Some(Recorder::Stream(p)) => {
+                p.cancel.store(true, Ordering::Relaxed);
+                false
+            }
+            None => false,
+        };
+        if ok {
+            a.index.set_state(r.id, State::Done, None);
+        }
+    }
+}
+
+impl Ablage {
+    fn start_rec(
+        &self,
+        app: &Rc<App>,
+        cid: u64,
+        sat: bool,
+        title: &str,
+        stop_at: i64,
+        timer_id: Option<i64>,
+    ) {
+        let (max, min_free, queue_bytes) = {
+            let s = app.settings();
+            (
+                if sat {
+                    s.record_max_sat
+                } else {
+                    s.record_max_internet
+                },
+                gb(s.min_free_gb),
+                u64::from(s.buffer_mb) << 19,
+            )
+        };
+        let running = self.recs.borrow().iter().filter(|r| r.sat == sat).count();
+        if max > 0 && running >= max as usize {
+            app.message(&format!(
+                "Keine weitere {}-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Ablage)",
+                if sat { "SAT" } else { "Internet" }
+            ));
+            return;
+        }
+        let dir = storage_dir(app);
+        if free_bytes(&dir).is_some_and(|f| f < min_free) {
+            app.message(&format!(
+                "Aufnahme nicht gestartet: zu wenig Platz in {}",
+                dir.display()
+            ));
+            return;
+        }
+        let Some((name, url, bitrate)) = app.record_source(cid, sat) else {
+            app.message("Aufnahme nicht gestartet: Sender nicht gefunden");
+            return;
+        };
+        let title = if title.is_empty() { name.clone() } else { title.to_string() };
+        let now = ablage::now();
+        let path = ablage::unique_path(&dir.join(ablage::show_name(&name, &title, &stamp(now), "ts")));
+        let source = if sat { "sat" } else { "tv" };
+        let id = match self.index.add(
+            Art::Recording,
+            source,
+            &format!("{cid}@{now}"),
+            &title,
+            &name,
+            &path,
+        ) {
+            Ok(id) => id,
+            Err(e) => {
+                app.message(&format!("Ablage: {e}"));
+                return;
+            }
+        };
+        let rec = if sat {
+            match tvjoe_core::satip::Recorder::start(&url, &path, queue_bytes) {
+                Ok(r) => Recorder::Sat(r),
+                Err(e) => {
+                    self.index.set_state(id, State::Failed, Some(&e));
+                    app.message(&format!("Aufnahme nicht gestartet: {e}"));
+                    return;
+                }
+            }
+        } else {
+            let progress = Arc::new(Progress::default());
+            let (p, tx) = (progress.clone(), self.done_tx.clone());
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let src = capture::Source {
+                    url: &url,
+                    header: None,
+                    max_bitrate: bitrate,
+                    live: true,
+                };
+                let r = capture::run(&src, &path, &p, &AtomicU64::new(0));
+                let _ = tx.send_blocking(Done::Rec(id, r));
+            });
+            Recorder::Stream(progress)
+        };
+        self.index.set_state(id, State::Loading, None);
+        self.recs.borrow_mut().push(Rec {
+            id,
+            sat,
+            channel_id: cid,
+            stop_at,
+            timer_id,
+            rec: Some(rec),
+        });
+        app.message(&format!(
+            "Aufnahme läuft: {title} (bis {})",
+            crate::app::hm(stop_at)
+        ));
+        self.update_suspend();
+    }
+
+    /// Aufnahme `i` beenden (SAT: im Hintergrund, der Tuner wird frei).
+    fn stop(&self, i: usize) {
+        let mut r = self.recs.borrow_mut().remove(i);
+        if let Some(t) = r.timer_id {
+            self.index.remove_timer(t);
+        }
+        match r.rec.take() {
+            Some(Recorder::Sat(rec)) => {
+                let (tx, id) = (self.done_tx.clone(), r.id);
+                let err = rec.error();
+                std::thread::spawn(move || {
+                    let res = rec.finish().map(|_| ());
+                    let res = match (res, err) {
+                        (Ok(()), Some(e)) => Err(e),
+                        (r, _) => r,
+                    };
+                    let _ = tx.send_blocking(Done::Rec(id, res));
+                });
+            }
+            Some(Recorder::Stream(p)) => p.cancel.store(true, Ordering::Relaxed),
+            None => {}
+        }
+        self.update_suspend();
+    }
+
+    /// Alle 15 s: Enden, Fehler und Platz der laufenden Aufnahmen prüfen, Geplantes starten.
+    fn check_recordings(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let now = ablage::now();
+        let (pre, post, min_free) = {
+            let s = app.settings();
+            (
+                i64::from(s.record_pre_min) * 60,
+                i64::from(s.record_post_min) * 60,
+                gb(s.min_free_gb),
+            )
+        };
+        let low = free_bytes(&storage_dir(&app)).is_some_and(|f| f < min_free);
+        loop {
+            let due = self.recs.borrow().iter().position(|r| {
+                r.stop_at <= now
+                    || low
+                    || matches!(&r.rec, Some(Recorder::Sat(s)) if s.error().is_some())
+            });
+            let Some(i) = due else { break };
+            if low {
+                app.message("Aufnahme beendet: zu wenig Platz auf der Platte");
+            }
+            self.stop(i);
+        }
+        for t in self.index.timers() {
+            let (begin, end) = (t.start - pre, t.stop + post);
+            let running = self.recs.borrow().iter().any(|r| r.timer_id == Some(t.id));
+            if now >= end {
+                if !running {
+                    self.index.remove_timer(t.id);
+                }
+            } else if now >= begin && !running && !low {
+                self.start_rec(&app, t.channel_id, t.sat, &t.title, end, Some(t.id));
+            }
+        }
+    }
+
+    /// Ruhezustand verhindern, solange aufgenommen wird.
+    fn update_suspend(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let Some(application) = app.window.application() else {
+            return;
+        };
+        let want = !self.recs.borrow().is_empty();
+        match (want, self.suspend_cookie.get()) {
+            (true, None) => {
+                let cookie = application.inhibit(
+                    Some(&app.window),
+                    gtk::ApplicationInhibitFlags::SUSPEND,
+                    Some("Aufnahme läuft"),
+                );
+                self.suspend_cookie.set((cookie != 0).then_some(cookie));
+            }
+            (false, Some(cookie)) => {
+                application.uninhibit(cookie);
+                self.suspend_cookie.set(None);
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Kontextmenü
+
+/// Rechtsklick auf `widget` öffnet ein Menü mit den Einträgen von `items` (erst beim Klick
+/// berechnet, damit es den aktuellen Zustand zeigt).
+pub fn context_menu<W: IsA<gtk::Widget>>(
+    widget: &W,
+    items: impl Fn() -> Vec<(String, Box<dyn Fn()>)> + 'static,
+) {
+    let click = gtk::GestureClick::builder().button(3).build();
+    let w = widget.as_ref().clone();
+    click.connect_pressed(move |g, _, x, y| {
+        g.set_state(gtk::EventSequenceState::Claimed);
+        let entries = items();
+        if entries.is_empty() {
+            return;
+        }
+        let popover = gtk::Popover::builder().has_arrow(true).build();
+        popover.set_parent(&w);
+        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        for (label, action) in entries {
+            let b = gtk::Button::builder()
+                .label(label)
+                .css_classes(["flat"])
+                .build();
+            if let Some(l) = b.child().and_downcast::<gtk::Label>() {
+                l.set_xalign(0.0);
+            }
+            let pop = popover.clone();
+            b.connect_clicked(move |_| {
+                pop.popdown();
+                action();
+            });
+            list.append(&b);
+        }
+        popover.set_child(Some(&list));
+        popover.connect_closed(|p| {
+            let p = p.clone();
+            glib::idle_add_local_once(move || p.unparent());
+        });
+        popover.popup();
+    });
+    widget.as_ref().add_controller(click);
+}
+
+/// Menüeinträge für eine Sendung (Herunterladen, Zwischenspeichern, Abbrechen) je Zustand.
+pub fn entries_for(
+    source: &str,
+    key: &str,
+    download: impl Fn() + Clone + 'static,
+    cache: impl Fn() + 'static,
+) -> Vec<(String, Box<dyn Fn()>)> {
+    let mut out: Vec<(String, Box<dyn Fn()>)> = Vec::new();
+    match status(source, key) {
+        Status::Loading => {
+            let (s, k) = (source.to_string(), key.to_string());
+            out.push(("Laden abbrechen".into(), Box::new(move || cancel(&s, &k))));
+        }
+        Status::Done => {}
+        Status::Partial => {
+            out.push(("Herunterladen fortsetzen".into(), Box::new(download)));
+        }
+        Status::None => {
+            out.push(("Herunterladen".into(), Box::new(download)));
+            out.push(("Zwischenspeichern".into(), Box::new(cache)));
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------------------------
+// Einstellungen
+
+/// Seite „Ablage“: Ordner und Grenzen, Herunterladen, Aufnahme.
+pub fn prefs_page(
+    app: &App,
+) -> (
+    adw::PreferencesPage,
+    impl Fn(&mut tvjoe_core::Settings) + 'static,
+) {
+    use adw::prelude::*;
+    use tvjoe_core::Quality;
+    let s = app.settings().clone();
+    let page = adw::PreferencesPage::builder()
+        .name("ablage")
+        .title("Ablage")
+        .icon_name("drive-harddisk-symbolic")
+        .build();
+
+    let place = adw::PreferencesGroup::builder()
+        .title("Ablage")
+        .description("Heruntergeladenes und Aufnahmen bleiben, bis Sie sie löschen. Zwischengespeichertes löscht tvjoe wieder, sobald die Grenze erreicht ist (am längsten nicht Gesehenes zuerst).")
+        .build();
+    let dir: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(s.storage_dir.clone()));
+    let dir_row = adw::ActionRow::builder()
+        .title("Ordner für Heruntergeladenes und Aufnahmen")
+        .subtitle(storage_dir(app).display().to_string())
+        .build();
+    let choose = gtk::Button::builder()
+        .label("Ändern …")
+        .valign(gtk::Align::Center)
+        .build();
+    dir_row.add_suffix(&choose);
+    {
+        let (dir, row) = (dir.clone(), dir_row.clone());
+        choose.connect_clicked(move |b| {
+            let dialog = gtk::FileDialog::builder()
+                .title("Ordner für die Ablage")
+                .modal(true)
+                .build();
+            let parent = b.root().and_downcast::<gtk::Window>();
+            let (dir, row) = (dir.clone(), row.clone());
+            dialog.select_folder(parent.as_ref(), gio::Cancellable::NONE, move |r| {
+                if let Some(path) = r.ok().and_then(|f| f.path()) {
+                    row.set_subtitle(&path.display().to_string());
+                    *dir.borrow_mut() = Some(path.to_string_lossy().to_string());
+                }
+            });
+        });
+    }
+    let cache_limit = adw::SpinRow::with_range(1.0, 2000.0, 1.0);
+    cache_limit.set_title("Zwischenspeicher höchstens");
+    cache_limit.set_subtitle("GB");
+    cache_limit.set_value(f64::from(s.cache_limit_gb));
+    let min_free = adw::SpinRow::with_range(1.0, 500.0, 1.0);
+    min_free.set_title("Mindestens frei lassen");
+    min_free.set_subtitle("GB; darunter beginnt kein Download und keine Aufnahme, eine laufende Aufnahme endet");
+    min_free.set_value(f64::from(s.min_free_gb));
+    place.add(&dir_row);
+    place.add(&cache_limit);
+    place.add(&min_free);
+
+    let download = adw::PreferencesGroup::builder()
+        .title("Herunterladen")
+        .description("Rechtsklick auf eine Kachel: Herunterladen, Zwischenspeichern, bei Serien eine Staffel oder alle Folgen")
+        .build();
+    let levels = [None, Some(Quality::P1080), Some(Quality::P720), Some(Quality::Sd)];
+    let oer_quality = adw::ComboRow::builder()
+        .title("ÖR-Mediathek: Qualität")
+        .subtitle("Zwischenspeichern nimmt die Qualität der Wiedergabe")
+        .model(&gtk::StringList::new(&["Höchste", "1080p", "720p", "SD"]))
+        .selected(
+            levels
+                .iter()
+                .position(|l| *l == s.download_quality)
+                .unwrap_or(0) as u32,
+        )
+        .build();
+    let jf_original = adw::SwitchRow::builder()
+        .title("Jellyfin: Originaldatei")
+        .subtitle("Aus: vom Server umgerechnet mit der Bitrate darunter (kleinere Datei)")
+        .active(s.jellyfin_download_original)
+        .build();
+    let jf_kbps = adw::SpinRow::with_range(500.0, 40000.0, 500.0);
+    jf_kbps.set_title("Jellyfin: Bitrate beim Umrechnen");
+    jf_kbps.set_subtitle("kbit/s");
+    jf_kbps.set_value(f64::from(s.jellyfin_download_kbps));
+    download.add(&oer_quality);
+    download.add(&jf_original);
+    download.add(&jf_kbps);
+
+    let record = adw::PreferencesGroup::builder()
+        .title("Aufnahme")
+        .description("Taste R oder der rote Knopf in der Senderanzeige nimmt die laufende Sendung auf; im Programm per Rechtsklick planen. Aufgenommen wird nur, solange tvjoe läuft.")
+        .build();
+    let pre = adw::SpinRow::with_range(0.0, 30.0, 1.0);
+    pre.set_title("Vorlauf");
+    pre.set_subtitle("Minuten vor Beginn laut Programm");
+    pre.set_value(f64::from(s.record_pre_min));
+    let post = adw::SpinRow::with_range(0.0, 60.0, 1.0);
+    post.set_title("Nachlauf");
+    post.set_subtitle("Minuten nach Ende laut Programm");
+    post.set_value(f64::from(s.record_post_min));
+    let max_sat = adw::SpinRow::with_range(0.0, 8.0, 1.0);
+    max_sat.set_title("SAT: gleichzeitig höchstens");
+    max_sat.set_subtitle("Aufnahmen; jede belegt einen Tuner (bei gleichem Transponder geteilt); 0 = ohne Grenze");
+    max_sat.set_value(f64::from(s.record_max_sat));
+    let max_net = adw::SpinRow::with_range(0.0, 20.0, 1.0);
+    max_net.set_title("Internet: gleichzeitig höchstens");
+    max_net.set_subtitle("Aufnahmen; 0 = ohne Grenze");
+    max_net.set_value(f64::from(s.record_max_internet));
+    for r in [&pre, &post, &max_sat, &max_net] {
+        record.add(r);
+    }
+
+    page.add(&place);
+    page.add(&download);
+    page.add(&record);
+    let apply = move |s: &mut tvjoe_core::Settings| {
+        s.storage_dir = dir.borrow().clone();
+        s.cache_limit_gb = cache_limit.value() as u32;
+        s.min_free_gb = min_free.value() as u32;
+        s.download_quality = levels
+            .get(oer_quality.selected() as usize)
+            .copied()
+            .flatten();
+        s.jellyfin_download_original = jf_original.is_active();
+        s.jellyfin_download_kbps = jf_kbps.value() as u32;
+        s.record_pre_min = pre.value() as u32;
+        s.record_post_min = post.value() as u32;
+        s.record_max_sat = max_sat.value() as u32;
+        s.record_max_internet = max_net.value() as u32;
+    };
+    (page, apply)
+}

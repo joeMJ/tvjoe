@@ -147,8 +147,13 @@ pub struct App {
     vod_next: RefCell<Vec<Vod>>,
     /// Fernsehen zeitversetzt: Summe der Pausen seit dem Laden (Sekunden) und Beginn der
     /// laufenden Pause.
-    live_delay: Cell<f64>,
-    live_paused_at: Cell<Option<std::time::Instant>>,
+    /// Zeitversetzt: Abstand zwischen geladenem Ende und Abspielstelle im normalen Live-Betrieb
+    /// (Vorrat von mpv), gemessen beim Anhalten bzw. ersten Spulen; `None` = live.
+    live_gap: Cell<Option<f64>>,
+    /// Zeitgeber für die Steuerzeile im zeitversetzten Fernsehen läuft.
+    live_timer: Cell<bool>,
+    /// Laufendes Abrufvideo kommt aus der Ablage (lokale Datei).
+    vod_local: Cell<bool>,
 }
 
 impl App {
@@ -357,8 +362,9 @@ impl App {
             vod_timer: Cell::new(false),
             vod_ticks: Cell::new(0),
             vod_next: RefCell::new(Vec::new()),
-            live_delay: Cell::new(0.0),
-            live_paused_at: Cell::new(None),
+            live_gap: Cell::new(None),
+            live_timer: Cell::new(false),
+            vod_local: Cell::new(false),
         });
         let weak = Rc::downgrade(&app);
         app.osd.set_action_handler(move |a| {
@@ -818,9 +824,10 @@ impl App {
         if st.osd_quality {
             meta.push(quality_label(stream.and_then(|s| s.quality)).to_string());
         }
-        let delay = self.live_delay_secs();
-        if delay >= 1.0 {
-            let d = delay.round() as u64;
+        let is_current = self.vod.borrow().is_none() && self.current.get() == Some(ch.id);
+        let shift = if is_current { self.live_state() } else { None };
+        if let Some(v) = &shift {
+            let d = v.live.unwrap_or(0.0).round() as u64;
             meta.push(format!("zeitversetzt −{}:{:02}", d / 60, d % 60));
         }
         let reception = stream
@@ -860,12 +867,19 @@ impl App {
                 }
             }
         }
+        // Aufnahmeknopf nur für den laufenden Sender (nicht bei der Vorschau der Ziffernwahl).
+        let record = (self.vod.borrow().is_none() && self.current.get() == Some(ch.id))
+            .then(|| crate::ablage::is_recording(ch.id, self.sat.get()));
+        if record == Some(true) {
+            meta.push("● Aufnahme".to_string());
+        }
         ChannelInfo {
             number: if st.osd_number {
                 number_text(ch)
             } else {
                 String::new()
             },
+            record,
             origin: origin.filter(|_| st.osd_origin),
             logo,
             name: ch.display_name().to_string(),
@@ -875,7 +889,8 @@ impl App {
             desc,
             next,
             extra,
-            video: None,
+            // Zeitversetzt: Steuerzeile statt „Danach“.
+            video: shift,
             full: true,
         }
     }
@@ -1167,11 +1182,34 @@ impl App {
         }
 
         let weak = Rc::downgrade(self);
-        self.window.connect_close_request(move |_| {
+        self.window.connect_close_request(move |w| {
+            // Laufende oder geplante Aufnahmen, Downloads: erst nachfragen (geplante
+            // Aufnahmen gibt es nur, solange tvjoe läuft).
+            if let Some(text) = crate::ablage::busy_text().filter(|_| !crate::ablage::close_confirmed()) {
+                let dialog = adw::AlertDialog::builder()
+                    .heading("tvjoe beenden?")
+                    .body(format!(
+                        "{text}. Aufnahmen gibt es nur, solange tvjoe läuft; laufende werden beim Beenden abgeschlossen, Downloads lassen sich später fortsetzen."
+                    ))
+                    .build();
+                dialog.add_responses(&[("cancel", "Weiterlaufen lassen"), ("quit", "Beenden")]);
+                dialog.set_response_appearance("quit", adw::ResponseAppearance::Destructive);
+                dialog.set_default_response(Some("cancel"));
+                let win = w.clone();
+                dialog.connect_response(None, move |_, r| {
+                    if r == "quit" {
+                        crate::ablage::confirm_close();
+                        win.close();
+                    }
+                });
+                dialog.present(Some(w));
+                return glib::Propagation::Stop;
+            }
             if let Some(app) = weak.upgrade() {
                 app.save_settings();
                 app.finish_vod();
             }
+            crate::ablage::shutdown();
             glib::Propagation::Proceed
         });
     }
@@ -1211,6 +1249,47 @@ impl App {
                 eprintln!("tvjoe: {e}");
             }
         }
+    }
+
+    /// Laufender Sender (Kennung, SAT-Liste), nicht bei Abrufvideos.
+    pub fn current_live(&self) -> Option<(u64, bool)> {
+        if self.vod.borrow().is_some() {
+            return None;
+        }
+        self.current.get().map(|id| (id, self.sat.get()))
+    }
+
+    /// Stream zum Aufnehmen eines Senders der Fernseh- bzw. SAT-Liste nach den
+    /// Qualitätseinstellungen: Name, URL, Bitratengrenze.
+    pub fn record_source(&self, channel_id: u64, sat: bool) -> Option<(String, String, Option<u64>)> {
+        let lib = if self.sat.get() == sat {
+            self.lib.borrow()
+        } else {
+            self.other_lib.borrow()
+        };
+        let st = self.settings.borrow();
+        let ch = lib.channel(channel_id)?;
+        let s = ch.pick_stream_capped(st.quality, st.fallback, st.quality_cap)?;
+        Some((ch.display_name().to_string(), s.url.clone(), s.max_bitrate))
+    }
+
+    /// Laufende Sendung eines Senders laut EPG: Titel, Beginn, Ende.
+    pub fn programme_now(&self, channel_id: u64, sat: bool) -> Option<(String, i64, i64)> {
+        let guide = self.guide()?;
+        let lib = if self.sat.get() == sat {
+            self.lib.borrow()
+        } else {
+            self.other_lib.borrow()
+        };
+        let ch = lib.channel(channel_id)?;
+        let (id, _) = guide.match_channel(ch)?;
+        let (cur, _) = guide.now_next(&id, epg::now());
+        cur.map(|p| (p.title.clone(), p.start, p.stop))
+    }
+
+    /// Kurze Meldung oben im Bild.
+    pub fn message(&self, text: &str) {
+        self.msg.show(text, self.overlay_secs());
     }
 
     fn wanted_for_switch(&self) -> Option<Quality> {
@@ -1324,8 +1403,7 @@ impl App {
     /// Nach 3 s den Empfang in der Senderanzeige nachtragen.
     fn load_live(self: &Rc<Self>, player: &Player, url: &str, bitrate: Option<u64>) {
         self.relay.replace(None);
-        self.live_delay.set(0.0);
-        self.live_paused_at.set(None);
+        self.live_gap.set(None);
         if tvjoe_core::satip::split_url(url).is_none() {
             player.load(url, bitrate);
             return;
@@ -1411,13 +1489,23 @@ impl App {
         };
         self.finish_vod();
         self.relay.replace(None);
-        match &vod {
-            Vod::Oer(film) => {
+        // Liegt die Sendung vollständig in der Ablage, spielt die lokale Datei.
+        let local = match &vod {
+            Vod::Oer(film) => crate::ablage::local_file("oer", &film.url),
+            Vod::Jelly(j) => crate::ablage::local_file("jellyfin", &j.item.id),
+        };
+        self.vod_local.set(local.is_some());
+        match (&vod, local) {
+            (_, Some(path)) => {
+                player.load_from(&path.to_string_lossy(), None, start);
+                trace(&format!("lade aus der Ablage {}", path.display()));
+            }
+            (Vod::Oer(film), None) => {
                 let url = film.url_for(self.wanted_for_switch()).to_string();
                 player.load_from(&url, None, start);
                 trace(&format!("lade Mediathek {} ({url})", film.display_title()));
             }
-            Vod::Jelly(j) => self.load_jellyfin(j, start),
+            (Vod::Jelly(j), None) => self.load_jellyfin(j, start),
         }
         if let Some(s) = start {
             self.msg.show(
@@ -1557,6 +1645,7 @@ impl App {
             position: pos.unwrap_or(0.0),
             duration,
             paused,
+            live: None,
         }
     }
 
@@ -1578,7 +1667,11 @@ impl App {
         ChannelInfo {
             logo: vod.logo(self).filter(|_| osd_logo),
             name: vod.name(),
-            meta: vod.meta(),
+            meta: if self.vod_local.get() {
+                format!("{} · aus der Ablage", vod.meta())
+            } else {
+                vod.meta()
+            },
             now: Some(vod.title()),
             desc,
             video: Some(self.video_state()),
@@ -1602,7 +1695,22 @@ impl App {
         let Some(player) = self.player.clone() else {
             return;
         };
+        if matches!(action, VideoAction::Record) {
+            crate::ablage::toggle_record(self);
+            self.show_info();
+            return;
+        }
+        // Zeitversetztes Fernsehen: dieselben Knöpfe, bezogen auf den Pufferspeicher.
         if self.vod.borrow().is_none() {
+            match action {
+                VideoAction::Seek(s) => self.live_seek(s),
+                VideoAction::SeekTo(f) => self.live_seek_to(f),
+                VideoAction::TogglePause => self.toggle_live_pause(),
+                VideoAction::Live => self.go_live(),
+                VideoAction::Audio => self.cycle_audio(),
+                VideoAction::Info => self.toggle_info(),
+                VideoAction::Record => {}
+            }
             return;
         }
         match action {
@@ -1612,6 +1720,8 @@ impl App {
                 player.toggle_pause();
             }
             VideoAction::Audio => self.cycle_audio(),
+            // Oben schon behandelt (gilt nur beim Fernsehen).
+            VideoAction::Record | VideoAction::Live => {}
             VideoAction::Info => {
                 self.toggle_info();
                 return;
@@ -1963,47 +2073,124 @@ impl App {
         self.msg.show(text, 2);
     }
 
-    /// Rückstand zum laufenden Programm (Sekunden), mit der laufenden Pause.
-    fn live_delay_secs(&self) -> f64 {
-        self.live_delay.get()
-            + self
-                .live_paused_at
-                .get()
-                .map_or(0.0, |t| t.elapsed().as_secs_f64())
+    /// Zeitversetztes Fernsehen: Stand für die Steuerzeile (Leiste vom ältesten Zeitpunkt im
+    /// Pufferspeicher bis live, Rückstand in `live`); `None`, solange live geschaut wird.
+    fn live_state(&self) -> Option<VideoState> {
+        let gap = self.live_gap.get()?;
+        let player = self.player.as_ref()?;
+        let (start, end, pos) = player.live_window()?;
+        let live_edge = (end - gap).max(pos);
+        let (_, _, paused) = player.position();
+        Some(VideoState {
+            position: pos - start,
+            duration: (live_edge - start).max(0.0),
+            paused,
+            live: Some((live_edge - pos).max(0.0)),
+        })
+    }
+
+    /// Zeitversetzt beginnen: Abstand im Live-Betrieb merken.
+    fn enter_timeshift(self: &Rc<Self>) {
+        if self.live_gap.get().is_some() {
+            return;
+        }
+        let Some((_, end, pos)) = self.player.as_ref().and_then(|p| p.live_window()) else {
+            return;
+        };
+        self.live_gap.set(Some((end - pos).max(0.0)));
+        if !self.live_timer.replace(true) {
+            let weak = Rc::downgrade(self);
+            glib::timeout_add_local(Duration::from_millis(500), move || {
+                let Some(app) = weak.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                let state = if app.vod.borrow().is_none() {
+                    app.live_state()
+                } else {
+                    None
+                };
+                match state {
+                    Some(v) => {
+                        if app.osd.is_shown() {
+                            app.osd.update_video(&v);
+                        }
+                        glib::ControlFlow::Continue
+                    }
+                    None => {
+                        app.live_timer.set(false);
+                        glib::ControlFlow::Break
+                    }
+                }
+            });
+        }
     }
 
     /// Leertaste im Fernsehen: anhalten (der Pufferspeicher füllt sich weiter) und
     /// zeitversetzt fortsetzen.
     fn toggle_live_pause(self: &Rc<Self>) {
         let Some(player) = self.player.clone() else { return };
-        let Some(id) = self.current.get() else { return };
-        let Some(paused) = player.toggle_pause() else { return };
-        if paused {
-            self.live_paused_at.set(Some(std::time::Instant::now()));
-            let lib = self.lib.borrow();
-            let Some(ch) = lib.channel(id) else { return };
-            let info = self.channel_info(
-                ch,
-                self.current_stream_of(ch),
-                Some("Pause – Leertaste setzt fort, Ende springt zurück auf live".to_string()),
-            );
-            self.osd.show_channel(&info, 0);
-        } else {
-            self.live_delay.set(self.live_delay_secs());
-            self.live_paused_at.set(None);
-            self.show_info();
-        }
-    }
-
-    /// Taste Ende: zurück auf live.
-    fn go_live(self: &Rc<Self>) {
-        let Some(player) = self.player.clone() else { return };
-        if self.current.get().is_none() || self.live_delay_secs() < 1.0 {
+        if self.current.get().is_none() {
             return;
         }
-        player.jump_live();
-        self.live_delay.set(0.0);
-        self.live_paused_at.set(None);
+        self.enter_timeshift();
+        if player.toggle_pause().is_none() {
+            return;
+        }
+        self.show_live_controls();
+    }
+
+    /// Im zeitversetzten Fernsehen spulen; vorwärts höchstens bis live.
+    fn live_seek(self: &Rc<Self>, secs: f64) {
+        let Some(player) = self.player.clone() else { return };
+        if self.current.get().is_none() {
+            return;
+        }
+        self.enter_timeshift();
+        let Some(v) = self.live_state() else { return };
+        if secs >= v.live.unwrap_or(0.0) {
+            self.go_live();
+            return;
+        }
+        let Some((start, _, pos)) = player.live_window() else { return };
+        player.seek_absolute((pos + secs).max(start));
+        self.show_live_controls();
+    }
+
+    /// Klick in die Leiste: Anteil zwischen ältestem Zeitpunkt und live.
+    fn live_seek_to(self: &Rc<Self>, fraction: f64) {
+        let Some(player) = self.player.clone() else { return };
+        let Some(v) = self.live_state() else { return };
+        let Some((start, _, _)) = player.live_window() else { return };
+        if fraction >= 0.99 {
+            self.go_live();
+            return;
+        }
+        player.seek_absolute(start + fraction.clamp(0.0, 1.0) * v.duration);
+        self.show_live_controls();
+    }
+
+    /// Bauchbinde mit Steuerzeile; angehalten bleibt sie stehen.
+    fn show_live_controls(self: &Rc<Self>) {
+        let Some(id) = self.current.get() else { return };
+        let paused = self.player.as_ref().is_some_and(|p| p.position().2);
+        let info = {
+            let lib = self.lib.borrow();
+            let Some(ch) = lib.channel(id) else { return };
+            self.channel_info(ch, self.current_stream_of(ch), None)
+        };
+        self.osd
+            .show_channel(&info, if paused { 0 } else { self.overlay_secs() * 2 });
+    }
+
+    /// Taste Ende, Knopf „Live“: zurück auf live.
+    fn go_live(self: &Rc<Self>) {
+        let Some(player) = self.player.clone() else { return };
+        let Some(gap) = self.live_gap.get() else { return };
+        if let Some((_, end, _)) = player.live_window() {
+            player.seek_absolute((end - gap).max(0.0));
+        }
+        player.set_paused(false);
+        self.live_gap.set(None);
         self.show_info();
     }
 
@@ -2064,7 +2251,13 @@ impl App {
             Some(vod) => InfoContent {
                 logo: vod.logo(self),
                 title: vod.title(),
-                meta: vod.info_meta(),
+                meta: {
+                    let mut m = vod.info_meta();
+                    if self.vod_local.get() {
+                        m.push("Aus der Ablage (lokale Datei)".to_string());
+                    }
+                    m
+                },
                 desc: vod.description().trim().to_string(),
                 next: self
                     .vod_next
@@ -2181,6 +2374,18 @@ impl App {
                 return glib::Propagation::Stop;
             }
         }
+        // Zeitversetztes Fernsehen: Bild ↑/↓ spult eine Minute (← → wechseln weiter den Sender).
+        if self.live_gap.get().is_some() && !ctrl {
+            let secs = match key.to_lower() {
+                Key::Page_Up | Key::KP_Page_Up => Some(-60.0),
+                Key::Page_Down | Key::KP_Page_Down => Some(60.0),
+                _ => None,
+            };
+            if let Some(s) = secs {
+                self.live_seek(s);
+                return glib::Propagation::Stop;
+            }
+        }
         match key.to_lower() {
             Key::Return | Key::KP_Enter if !self.digits.borrow().is_empty() => self.commit_digits(),
             Key::Left | Key::KP_Left | Key::Page_Up => self.step(-1),
@@ -2198,6 +2403,10 @@ impl App {
             Key::a => self.cycle_audio(),
             Key::u => self.cycle_subtitles(),
             Key::space => self.toggle_live_pause(),
+            Key::r => {
+                crate::ablage::toggle_record(self);
+                self.show_info();
+            }
             Key::End | Key::KP_End => self.go_live(),
             Key::z => {
                 let (crop, fill) = self.view_mode();

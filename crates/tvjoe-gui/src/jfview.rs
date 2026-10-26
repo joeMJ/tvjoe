@@ -627,6 +627,11 @@ impl JfView {
                 .join(" · "),
             };
             let (tile, poster) = tile(it, &sub);
+            match it.kind.as_str() {
+                "Series" => series_menu(&self.app, &tile, it.id.clone()),
+                "BoxSet" => {}
+                _ => item_menu(&self.app, &tile, it.clone()),
+            }
             self.flow.append(&tile);
             if let (Some(img), Some(url)) =
                 (&self.images, poster_url(&self.server, it, POSTER_H * 3 / 2))
@@ -890,14 +895,16 @@ impl JfView {
             .margin_top(10)
             .build();
         let fill = {
-            let (rows, list) = (rows.clone(), list.clone());
+            let (rows, list, app) = (rows.clone(), list.clone(), self.app.clone());
             move |season: Option<Option<i64>>| {
                 while let Some(c) = rows.first_child() {
                     rows.remove(&c);
                 }
                 for (i, it) in list.iter().enumerate() {
                     if season.is_none_or(|s| it.season_no == s) {
-                        rows.append(&list_row(i, it, series));
+                        let row = list_row(i, it, series);
+                        item_menu(&app, &row, it.clone());
+                        rows.append(&row);
                     }
                 }
             }
@@ -939,6 +946,31 @@ impl JfView {
                         fill(Some(s));
                     }
                 });
+                // Rechtsklick auf den Staffelknopf: diese Staffel oder alle Folgen laden.
+                let (weak, list) = (self.app.clone(), list.clone());
+                crate::ablage::context_menu(&b, move || {
+                    let Some(app) = weak.upgrade() else {
+                        return Vec::new();
+                    };
+                    let season: Vec<Item> =
+                        list.iter().filter(|e| e.season_no == s).cloned().collect();
+                    let all: Vec<Item> = list.to_vec();
+                    let fetch = |items: Vec<Item>| -> Box<dyn Fn()> {
+                        let app = app.clone();
+                        Box::new(move || {
+                            for it in &items {
+                                crate::ablage::fetch_item(&app, it, tvjoe_core::ablage::Art::Download);
+                            }
+                        })
+                    };
+                    vec![
+                        (
+                            format!("Diese Staffel herunterladen ({})", season.len()),
+                            fetch(season),
+                        ),
+                        (format!("Alle Folgen herunterladen ({})", all.len()), fetch(all)),
+                    ]
+                });
                 row.append(&b);
             }
             // Viele Staffeln: waagerecht blättern statt die Seite zu verbreitern.
@@ -972,6 +1004,60 @@ impl JfView {
 }
 
 /// Zeile einer Sammlung bzw. Serie; der Widget-Name trägt die Nummer in der Liste.
+/// Rechtsklick auf Film oder Folge: Herunterladen, Zwischenspeichern oder Abbrechen.
+fn item_menu<W: IsA<gtk::Widget>>(app: &Weak<App>, widget: &W, item: Item) {
+    let weak = app.clone();
+    crate::ablage::context_menu(widget, move || {
+        let Some(app) = weak.upgrade() else {
+            return Vec::new();
+        };
+        let (i1, i2, a2) = (item.clone(), item.clone(), app.clone());
+        crate::ablage::entries_for(
+            "jellyfin",
+            &item.id,
+            move || crate::ablage::fetch_item(&app, &i1, tvjoe_core::ablage::Art::Download),
+            move || crate::ablage::fetch_item(&a2, &i2, tvjoe_core::ablage::Art::Cache),
+        )
+    });
+}
+
+/// Rechtsklick auf eine Serie: alle Folgen oder eine Staffel herunterladen.
+fn series_menu<W: IsA<gtk::Widget>>(app: &Weak<App>, widget: &W, series_id: String) {
+    let weak = app.clone();
+    crate::ablage::context_menu(widget, move || {
+        let mut out: Vec<(String, Box<dyn Fn()>)> = Vec::new();
+        let Some(app) = weak.upgrade() else { return out };
+        let episodes = db().map(|d| d.episodes(&series_id)).unwrap_or_default();
+        let fetch = |list: Vec<Item>| -> Box<dyn Fn()> {
+            let app = app.clone();
+            Box::new(move || {
+                for it in &list {
+                    crate::ablage::fetch_item(&app, it, tvjoe_core::ablage::Art::Download);
+                }
+            })
+        };
+        out.push((
+            format!("Alle Folgen herunterladen ({})", episodes.len()),
+            fetch(episodes.clone()),
+        ));
+        let mut seasons: Vec<i64> = episodes.iter().filter_map(|e| e.season_no).collect();
+        seasons.sort_unstable();
+        seasons.dedup();
+        for season in seasons {
+            let list: Vec<Item> = episodes
+                .iter()
+                .filter(|e| e.season_no == Some(season))
+                .cloned()
+                .collect();
+            out.push((
+                format!("Staffel {season} herunterladen ({})", list.len()),
+                fetch(list),
+            ));
+        }
+        out
+    });
+}
+
 fn list_row(index: usize, it: &Item, series: bool) -> gtk::ListBoxRow {
     let code = gtk::Label::builder()
         .label(if series {
@@ -1025,6 +1111,10 @@ fn list_row(index: usize, it: &Item, series: bool) -> gtk::ListBoxRow {
         .build();
     hbox.append(&code);
     hbox.append(&text);
+    let badge = crate::ablage::badge("jellyfin", &it.id);
+    badge.set_valign(gtk::Align::Center);
+    badge.set_margin_bottom(0);
+    hbox.append(&badge);
     hbox.append(&gtk::Image::from_icon_name(if it.played {
         "object-select-symbolic"
     } else {
@@ -1060,6 +1150,9 @@ fn tile(it: &Item, sub: &str) -> (gtk::Box, gtk::Picture) {
         .height_request(POSTER_H)
         .build();
     frame.add_overlay(&poster);
+    if !matches!(it.kind.as_str(), "Series" | "BoxSet") {
+        frame.add_overlay(&crate::ablage::badge("jellyfin", &it.id));
+    }
     if it.played {
         frame.add_overlay(
             &gtk::Image::builder()

@@ -25,6 +25,8 @@ pub struct VideoState {
     pub position: f64,
     pub duration: f64,
     pub paused: bool,
+    /// Zeitversetztes Fernsehen: Rückstand zu live (Sekunden); Zeit als „−2:15“, Knopf „Live“.
+    pub live: Option<f64>,
 }
 
 /// Bedienung über die Knöpfe der Video-Bauchbinde.
@@ -39,6 +41,10 @@ pub enum VideoAction {
     Audio,
     /// Ganzflächige Info.
     Info,
+    /// Laufenden Sender aufnehmen bzw. Aufnahme beenden.
+    Record,
+    /// Zeitversetztes Fernsehen: zurück auf live.
+    Live,
 }
 
 type ActionHandler = Box<dyn Fn(VideoAction)>;
@@ -73,6 +79,8 @@ pub struct ChannelInfo {
     pub extra: Option<String>,
     /// Mediathek-Video: Fortschrittszeile mit Knöpfen statt „Danach“.
     pub video: Option<VideoState>,
+    /// Laufender Sender: Aufnahmeknopf (`Some(true)` = Aufnahme läuft).
+    pub record: Option<bool>,
     /// Bauchbinde eines Senders: rechts immer Platz für Jetzt, zwei Zeilen Beschreibung und
     /// Danach, auch wenn nicht gefüllt (gleiche Höhe beim Zappen).
     pub full: bool,
@@ -99,6 +107,10 @@ pub struct Osd {
     progress: gtk::ProgressBar,
     time: gtk::Label,
     pause: gtk::Button,
+    /// Spulknöpfe (Hinweise unterscheiden sich zwischen Video und zeitversetztem Fernsehen).
+    seek_buttons: [gtk::Button; 4],
+    live: gtk::Button,
+    rec: gtk::Button,
     on_action: RefCell<Option<ActionHandler>>,
     timer: RefCell<Option<glib::SourceId>>,
 }
@@ -220,6 +232,14 @@ impl Osd {
         progress.set_margin_end(8);
         video_row.append(&progress);
         video_row.append(&time);
+        let live = gtk::Button::builder()
+            .label("Live")
+            .tooltip_text("Zurück auf live (Ende)")
+            .css_classes(["flat", "tvjoe-osd-button"])
+            .valign(gtk::Align::Center)
+            .visible(false)
+            .build();
+        video_row.append(&live);
         video_row.append(&audio);
         video_row.append(&info);
         video_row.set_visible(false);
@@ -255,6 +275,10 @@ impl Osd {
         root.append(&name_slot);
         root.append(&sep_right);
         root.append(&right);
+        let rec = osd_button("media-record-symbolic", "Aufnehmen (R)");
+        rec.add_css_class("tvjoe-rec");
+        rec.set_visible(false);
+        root.append(&rec);
 
         let osd = Rc::new(Self {
             root,
@@ -277,6 +301,9 @@ impl Osd {
             progress: progress.clone(),
             time,
             pause: pause.clone(),
+            seek_buttons: [back_min.clone(), back.clone(), fwd.clone(), fwd_min.clone()],
+            live: live.clone(),
+            rec: rec.clone(),
             on_action: RefCell::new(None),
             timer: RefCell::new(None),
         });
@@ -295,6 +322,8 @@ impl Osd {
         wire(&fwd_min, VideoAction::Seek(60.0));
         wire(&audio, VideoAction::Audio);
         wire(&info, VideoAction::Info);
+        wire(&rec, VideoAction::Record);
+        wire(&live, VideoAction::Live);
         let click = gtk::GestureClick::new();
         let weak = Rc::downgrade(&osd);
         click.connect_pressed(move |g, _, x, _| {
@@ -333,8 +362,34 @@ impl Osd {
             0.0
         };
         self.progress.set_fraction(fraction.clamp(0.0, 1.0));
-        self.time
-            .set_label(&format!("{} / {}", clock(v.position), clock(v.duration)));
+        match v.live {
+            Some(behind) => {
+                let d = behind.round() as u64;
+                self.time.set_label(&format!("−{}:{:02}", d / 60, d % 60));
+            }
+            None => self
+                .time
+                .set_label(&format!("{} / {}", clock(v.position), clock(v.duration))),
+        }
+        self.live.set_visible(v.live.is_some());
+        let tips = if v.live.is_some() {
+            [
+                "1 Minute zurück (Bild ↑)",
+                "10 Sekunden zurück",
+                "10 Sekunden vor",
+                "1 Minute vor (Bild ↓)",
+            ]
+        } else {
+            [
+                "1 Minute zurück (Bild ↑)",
+                "10 Sekunden zurück (←)",
+                "10 Sekunden vor (→)",
+                "1 Minute vor (Bild ↓)",
+            ]
+        };
+        for (b, t) in self.seek_buttons.iter().zip(tips) {
+            b.set_tooltip_text(Some(t));
+        }
         let (icon, tip) = if v.paused {
             ("media-playback-start-symbolic", "Weiter (Leertaste)")
         } else {
@@ -422,6 +477,24 @@ impl Osd {
                 self.video_row.set_visible(false);
                 self.root.set_can_target(false);
             }
+        }
+        // Laufender Sender: roter Aufnahmeknopf; dann nimmt die Anzeige Klicks an.
+        match info.record {
+            Some(on) => {
+                self.rec.set_tooltip_text(Some(if on {
+                    "Aufnahme beenden (R)"
+                } else {
+                    "Aufnehmen bis Sendungsende (R)"
+                }));
+                self.rec.set_icon_name(if on {
+                    "media-playback-stop-symbolic"
+                } else {
+                    "media-record-symbolic"
+                });
+                self.rec.set_visible(true);
+                self.root.set_can_target(true);
+            }
+            None => self.rec.set_visible(false),
         }
         // Aus dem Inhalt bestimmen: `is_visible()` meldet bei noch ausgeblendeter Anzeige immer „nein“.
         let right_visible = info.full

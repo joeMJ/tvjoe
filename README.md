@@ -140,7 +140,9 @@ SAT>IP-Empfänger.
 | U | Untertitel wechseln (Spur 1 … letzte, dann aus) |
 | Z | Bild füllen / einpassen |
 | Leertaste | Fernsehen anhalten / zeitversetzt weiter |
+| Bild ↑ / ↓ (zeitversetzt) | 1 Minute zurück / vor |
 | Ende | zurück auf live |
+| R | laufende Sendung aufnehmen / Aufnahme beenden |
 | G | Programmraster |
 | Strg+E | Sender verwalten |
 | Strg+, | Einstellungen |

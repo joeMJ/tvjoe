@@ -60,6 +60,23 @@ pub struct Settings {
     pub buffer_mb: u32,
     /// Startpuffer (Sekunden), der vor dem Abspielen und nach einem Abriss gefüllt wird.
     pub start_buffer_secs: u32,
+    /// Ablageordner für Heruntergeladenes und Aufnahmen; leer = `Videos/tvjoe`.
+    pub storage_dir: Option<String>,
+    /// Zwischenspeicher höchstens so groß (GB).
+    pub cache_limit_gb: u32,
+    /// Darunter (GB frei) beginnt kein neuer Download und keine Aufnahme; eine laufende endet.
+    pub min_free_gb: u32,
+    /// Qualität beim Herunterladen aus der ÖR-Mediathek (`None` = höchste).
+    pub download_quality: Option<crate::Quality>,
+    /// Jellyfin: Originaldatei herunterladen, sonst vom Server umgerechnet mit `jellyfin_download_kbps`.
+    pub jellyfin_download_original: bool,
+    pub jellyfin_download_kbps: u32,
+    /// Vor- und Nachlauf geplanter Aufnahmen (Minuten).
+    pub record_pre_min: u32,
+    pub record_post_min: u32,
+    /// Gleichzeitige Aufnahmen (0 = ohne Grenze).
+    pub record_max_sat: u32,
+    pub record_max_internet: u32,
     /// XMLTV-Quellen (Dateien oder URLs).
     pub epg_sources: Vec<String>,
     /// EPG aus dem Netz neu laden, wenn der Cache älter ist (Stunden; 0 = nur per Knopf).
@@ -134,6 +151,16 @@ impl Default for Settings {
             fill: false,
             buffer_mb: 512,
             start_buffer_secs: 3,
+            storage_dir: None,
+            cache_limit_gb: 20,
+            min_free_gb: 5,
+            download_quality: None,
+            jellyfin_download_original: true,
+            jellyfin_download_kbps: 4000,
+            record_pre_min: 2,
+            record_post_min: 5,
+            record_max_sat: 2,
+            record_max_internet: 0,
             epg_sources: Vec::new(),
             epg_refresh_hours: 24,
             update_last_check: None,

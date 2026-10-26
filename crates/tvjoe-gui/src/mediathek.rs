@@ -1141,14 +1141,16 @@ impl MtWindow {
             .selection_mode(gtk::SelectionMode::None)
             .build();
         let fill = {
-            let (list, episodes) = (list.clone(), episodes.clone());
+            let (list, episodes, app) = (list.clone(), episodes.clone(), app.clone());
             move |season: Option<u32>| {
                 while let Some(c) = list.first_child() {
                     list.remove(&c);
                 }
                 for (i, g) in episodes.iter().enumerate() {
                     if mediathek::season_episode(&g.main().title).0 == season {
-                        list.append(&episode_row(i, g));
+                        let row = episode_row(i, g);
+                        film_menu(&app, &row, g.main().clone());
+                        list.append(&row);
                     }
                 }
             }
@@ -1189,6 +1191,32 @@ impl MtWindow {
                     if b.is_active() {
                         fill(season);
                     }
+                });
+                // Rechtsklick auf den Staffelknopf: diese Staffel oder alle Folgen laden.
+                let (app, episodes) = (app.clone(), episodes.clone());
+                crate::ablage::context_menu(&b, move || {
+                    let pick = |only: Option<Option<u32>>| -> Vec<Film> {
+                        episodes
+                            .iter()
+                            .filter(|g| {
+                                only.is_none_or(|s| mediathek::season_episode(&g.main().title).0 == s)
+                            })
+                            .map(|g| g.main().clone())
+                            .collect()
+                    };
+                    let fetch = |films: Vec<Film>| -> Box<dyn Fn()> {
+                        let app = app.clone();
+                        Box::new(move || {
+                            for f in &films {
+                                crate::ablage::fetch_film(&app, f, tvjoe_core::ablage::Art::Download);
+                            }
+                        })
+                    };
+                    let (this, all) = (pick(Some(season)), pick(None));
+                    vec![
+                        (format!("Diese Staffel herunterladen ({})", this.len()), fetch(this)),
+                        (format!("Alle Folgen herunterladen ({})", all.len()), fetch(all)),
+                    ]
                 });
                 row.append(&b);
             }
@@ -1243,6 +1271,64 @@ impl MtWindow {
     }
 
     /// Zurück zur Übersicht (an dieselbe Stelle).
+    /// Rechtsklick auf eine Serienkachel: alle Folgen oder eine Staffel herunterladen.
+    fn series_menu(self: &Rc<Self>, tile: &gtk::Box, film: Film) {
+        let weak = Rc::downgrade(self);
+        crate::ablage::context_menu(tile, move || {
+            let mut out: Vec<(String, Box<dyn Fn()>)> = Vec::new();
+            let Some(view) = weak.upgrade() else { return out };
+            let Some(app) = view.app.upgrade() else { return out };
+            let all = view
+                .db
+                .borrow()
+                .as_ref()
+                .map(|db| {
+                    without_trailers(db.topic_films(
+                        &film.sender,
+                        &film.topic,
+                        &filter_of(&app),
+                        epg::now(),
+                    ))
+                })
+                .unwrap_or_default();
+            let mut episodes: Vec<Film> = mediathek::group(all)
+                .into_iter()
+                .map(|g| g.main().clone())
+                .collect();
+            episodes.sort_by_key(episode_key);
+            let fetch = |app: &Rc<App>, list: Vec<Film>| -> Box<dyn Fn()> {
+                let app = app.clone();
+                Box::new(move || {
+                    for f in &list {
+                        crate::ablage::fetch_film(&app, f, tvjoe_core::ablage::Art::Download);
+                    }
+                })
+            };
+            out.push((
+                format!("Alle Folgen herunterladen ({})", episodes.len()),
+                fetch(&app, episodes.clone()),
+            ));
+            let mut seasons: Vec<u32> = episodes
+                .iter()
+                .filter_map(|f| mediathek::season_episode(&f.title).0)
+                .collect();
+            seasons.sort_unstable();
+            seasons.dedup();
+            for season in seasons {
+                let list: Vec<Film> = episodes
+                    .iter()
+                    .filter(|f| mediathek::season_episode(&f.title).0 == Some(season))
+                    .cloned()
+                    .collect();
+                out.push((
+                    format!("Staffel {season} herunterladen ({})", list.len()),
+                    fetch(&app, list),
+                ));
+            }
+            out
+        });
+    }
+
     fn close_detail(&self) {
         self.set_detail(false);
         self.stack.set_visible_child_name("grid");
@@ -1505,7 +1591,13 @@ impl MtWindow {
                 })
             });
             let seen = if series { None } else { seen };
-            let (tile, thumb) = tile(group, logo.as_deref(), seen, count);
+            let badge = (!series).then(|| crate::ablage::badge("oer", &film.url));
+            let (tile, thumb) = tile(group, logo.as_deref(), seen, count, badge.as_ref());
+            if series {
+                self.series_menu(&tile, film.clone());
+            } else {
+                film_menu(&app, &tile, film.clone());
+            }
             self.flow.append(&tile);
             if let (Some(t), Some(site)) = (&self.thumbs, film.website.as_deref()) {
                 self.thumbs_of.borrow_mut().insert(film.id, thumb);
@@ -1523,6 +1615,23 @@ impl MtWindow {
             adj.set_value(0.0);
         }
     }
+}
+
+/// Rechtsklick auf einen Beitrag: Herunterladen, Zwischenspeichern oder Abbrechen.
+fn film_menu<W: IsA<gtk::Widget>>(app: &Rc<App>, widget: &W, film: Film) {
+    let weak = Rc::downgrade(app);
+    crate::ablage::context_menu(widget, move || {
+        let Some(app) = weak.upgrade() else {
+            return Vec::new();
+        };
+        let (f1, f2, a2) = (film.clone(), film.clone(), app.clone());
+        crate::ablage::entries_for(
+            "oer",
+            &film.url,
+            move || crate::ablage::fetch_film(&app, &f1, tvjoe_core::ablage::Art::Download),
+            move || crate::ablage::fetch_film(&a2, &f2, tvjoe_core::ablage::Art::Cache),
+        )
+    });
 }
 
 /// Serienseite und Folgenzahl ohne Trailer (Nutzer, 2026-10-25).
@@ -1628,6 +1737,10 @@ fn episode_row(index: usize, group: &Group) -> gtk::ListBoxRow {
         .build();
     hbox.append(&code);
     hbox.append(&text);
+    let badge = crate::ablage::badge("oer", &group.main().url);
+    badge.set_valign(gtk::Align::Center);
+    badge.set_margin_bottom(0);
+    hbox.append(&badge);
     hbox.append(&gtk::Image::from_icon_name("media-playback-start-symbolic"));
     gtk::ListBoxRow::builder()
         .child(&hbox)
@@ -1643,6 +1756,7 @@ fn tile(
     logo: Option<&Path>,
     seen: Option<f64>,
     series_count: Option<i64>,
+    badge: Option<&gtk::Image>,
 ) -> (gtk::Box, gtk::Picture) {
     let film = group.main();
     let fallback: gtk::Widget = match logo {
@@ -1672,6 +1786,9 @@ fn tile(
         .height_request(THUMB_H)
         .build();
     frame.add_overlay(&thumb);
+    if let Some(b) = badge {
+        frame.add_overlay(b);
+    }
     // Gemerkte Position als Strich am unteren Bildrand.
     if let Some(f) = seen {
         frame.add_overlay(

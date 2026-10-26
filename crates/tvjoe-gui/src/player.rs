@@ -423,15 +423,28 @@ impl Player {
         }
     }
 
-    /// Ans Ende des Vorrats springen (zurück auf live) und weiterspielen.
-    pub fn jump_live(&self) {
-        let _ = self.mpv.set_property("pause", false);
-        let ahead = self.mpv.get_property::<f64>("demuxer-cache-time").unwrap_or(0.0);
-        if ahead > 1.0 {
-            let _ = self
-                .mpv
-                .command("seek", &[&format!("{:.1}", ahead - 1.0), "relative"]);
-        }
+    /// Zeitfenster im Pufferspeicher: ältester noch vorhandener Zeitpunkt, neuester geladener
+    /// und die Abspielstelle (Sekunden in der Zeitrechnung des Streams).
+    pub fn live_window(&self) -> Option<(f64, f64, f64)> {
+        let state = self.mpv.get_property::<String>("demuxer-cache-state").ok()?;
+        let num = |name: &str| -> Option<f64> {
+            let key = format!("\"{name}\":");
+            let rest = &state[state.find(&key)? + key.len()..];
+            let end = rest.find([',', '}']).unwrap_or(rest.len());
+            rest[..end].trim().parse().ok()
+        };
+        let pos = self.mpv.get_property::<f64>("time-pos").ok()?;
+        // „start“ kommt nur in den abspielbaren Bereichen vor (erster Bereich).
+        let start = num("start").unwrap_or(pos).min(pos);
+        let end = num("cache-end").unwrap_or(pos).max(pos);
+        Some((start, end, pos))
+    }
+
+    /// An eine Stelle des Streams springen und weiterspielen bzw. pausiert bleiben.
+    pub fn seek_absolute(&self, secs: f64) {
+        let _ = self
+            .mpv
+            .command("seek", &[&format!("{secs:.2}"), "absolute"]);
     }
 
     /// Wiedergabe beenden (kein Stream).
@@ -456,6 +469,10 @@ impl Player {
     pub fn seek_fraction(&self, fraction: f64) {
         let pct = (fraction.clamp(0.0, 1.0) * 100.0).to_string();
         let _ = self.mpv.command("seek", &[&pct, "absolute-percent"]);
+    }
+
+    pub fn set_paused(&self, paused: bool) {
+        let _ = self.mpv.set_property("pause", paused);
     }
 
     /// Pause umschalten; gibt zurück, ob jetzt pausiert ist.

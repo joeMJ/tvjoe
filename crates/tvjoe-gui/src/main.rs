@@ -3,7 +3,9 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
+mod ablage;
 mod backup;
+mod capture;
 mod crop;
 mod dnd;
 mod gl;
@@ -146,6 +148,7 @@ fn activate(application: &adw::Application, opts: &Options) {
         }
     };
     let app = app::App::new(application, lib, settings, settings_path, player);
+    ablage::init(&app);
     app.start(opts.channel);
     app.window.connect_map(|_| trace("Fenster angezeigt"));
     app.window.present();

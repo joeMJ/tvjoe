@@ -223,6 +223,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     let (p_media, apply_media) = crate::mediathek::prefs_page(app);
     let (p_jellyfin, apply_jellyfin) = crate::jellyfin::prefs_page(app);
     let (p_satip, apply_satip) = crate::satip::prefs_page(app);
+    let (p_ablage, apply_ablage) = crate::ablage::prefs_page(app);
     let p_updates = new_page("updates", "Updates", "software-update-available-symbolic");
     p_updates.add(&updates);
 
@@ -261,6 +262,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         &p_media,
         &p_jellyfin,
         &p_satip,
+        &p_ablage,
         &p_updates,
     ] {
         dialog.add(p);
@@ -322,6 +324,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             apply_media(&mut s);
             apply_jellyfin(&mut s);
             apply_satip(&mut s);
+            apply_ablage(&mut s);
         }
         app.save_settings();
         app.set_view(crop_bars.is_active(), fill.is_active());
