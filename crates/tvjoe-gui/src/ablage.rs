@@ -105,6 +105,7 @@ pub fn init(app: &Rc<App>) {
         }
     };
     index.mark_interrupted();
+    move_into_subdirs(app, &index);
     let (tx, rx) = async_channel::unbounded();
     let a = Rc::new(Ablage {
         app: Rc::downgrade(app),
@@ -143,11 +144,54 @@ pub fn storage_dir(app: &App) -> PathBuf {
         .join("tvjoe")
 }
 
-/// Ordner des Zwischenspeichers.
-fn cache_dir() -> PathBuf {
-    paths::cache_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("zwischenspeicher")
+/// Unterordner der Ablage je Art und Herkunft (Nutzer, 2026-10-26): `cache` (Zwischenspeicher),
+/// `records` (Aufnahmen), `mediathek`, `jellyfin` (Downloads).
+fn sub_dir(app: &App, art: Art, source: &str) -> PathBuf {
+    storage_dir(app).join(match (art, source) {
+        (Art::Cache, _) => "cache",
+        (Art::Recording, _) => "records",
+        (_, "jellyfin") => "jellyfin",
+        _ => "mediathek",
+    })
+}
+
+/// Unterordner anlegen; was noch direkt im Ablageordner liegt (vor den Unterordnern),
+/// vollständig oder teilweise geladen, in seinen Unterordner verschieben und das Verzeichnis
+/// anpassen.
+fn move_into_subdirs(app: &App, index: &Index) {
+    for (art, source) in [
+        (Art::Cache, ""),
+        (Art::Recording, ""),
+        (Art::Download, "oer"),
+        (Art::Download, "jellyfin"),
+    ] {
+        let _ = std::fs::create_dir_all(sub_dir(app, art, source));
+    }
+    let base = storage_dir(app);
+    for e in index.all() {
+        if !matches!(e.state, State::Done | State::Partial)
+            || e.path.parent() != Some(base.as_path())
+        {
+            continue;
+        }
+        let Some(name) = e.path.file_name() else { continue };
+        let target = ablage::unique_path(&sub_dir(app, e.art, &e.source).join(name));
+        // Teilweise Geladenes liegt als `<datei>.part` da.
+        let (from, to) = if e.state == State::Done {
+            (e.path.clone(), target.clone())
+        } else {
+            (ablage::part_path(&e.path), ablage::part_path(&target))
+        };
+        let moved = if from.exists() {
+            std::fs::rename(&from, &to)
+        } else {
+            Ok(())
+        };
+        match moved {
+            Ok(()) => index.set_path(e.id, &target),
+            Err(err) => eprintln!("tvjoe: Ablage: {} nicht verschoben: {err}", from.display()),
+        }
+    }
 }
 
 /// Freier Platz auf dem Datenträger von `dir` (der Ordner muss noch nicht existieren).
@@ -356,11 +400,7 @@ impl Ablage {
             app.message(&format!("Wird schon geladen: {title}"));
             return;
         }
-        let dir = if art == Art::Cache {
-            cache_dir()
-        } else {
-            storage_dir(app)
-        };
+        let dir = sub_dir(app, art, source);
         let min_free = gb(app.settings().min_free_gb);
         if free_bytes(&dir).is_some_and(|f| f < min_free) {
             app.message(&format!(
@@ -833,7 +873,7 @@ impl Ablage {
             ));
             return;
         }
-        let dir = storage_dir(app);
+        let dir = sub_dir(app, Art::Recording, if sat { "sat" } else { "tv" });
         if free_bytes(&dir).is_some_and(|f| f < min_free) {
             app.message(&format!(
                 "Aufnahme nicht gestartet: zu wenig Platz in {}",
@@ -1088,11 +1128,11 @@ pub fn prefs_page(
 
     let place = adw::PreferencesGroup::builder()
         .title("Ablage")
-        .description("Heruntergeladenes und Aufnahmen bleiben, bis Sie sie löschen. Zwischengespeichertes löscht tvjoe wieder, sobald die Grenze erreicht ist (am längsten nicht Gesehenes zuerst).")
+        .description("Im Ordner entstehen Unterordner: mediathek und jellyfin (Heruntergeladenes), records (Aufnahmen), cache (Zwischenspeicher). Heruntergeladenes und Aufnahmen bleiben, bis Sie sie löschen; Zwischengespeichertes löscht tvjoe wieder, sobald die Grenze erreicht ist (am längsten nicht Gesehenes zuerst).")
         .build();
     let dir: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(s.storage_dir.clone()));
     let dir_row = adw::ActionRow::builder()
-        .title("Ordner für Heruntergeladenes und Aufnahmen")
+        .title("Ablageordner")
         .subtitle(storage_dir(app).display().to_string())
         .build();
     let choose = gtk::Button::builder()
