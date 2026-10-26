@@ -378,7 +378,7 @@ impl App {
                 let (Some(app), Some(e)) = (weak.upgrade(), area.error()) else {
                     return;
                 };
-                app.msg.show(&gl_error_text(&e.to_string()), 0);
+                app.msg.show_standing(&gl_error_text(&e.to_string()));
             });
         }
         let weak = Rc::downgrade(&app);

@@ -475,6 +475,9 @@ pub struct MessageBar {
     pub root: gtk::Box,
     text: gtk::Label,
     timer: RefCell<Option<glib::SourceId>>,
+    /// Bleibende Meldung (fehlendes OpenGL): andere Meldungen erscheinen nur vorübergehend,
+    /// danach steht wieder sie da.
+    standing: RefCell<Option<String>>,
 }
 
 impl MessageBar {
@@ -500,21 +503,25 @@ impl MessageBar {
             root,
             text,
             timer: RefCell::new(None),
+            standing: RefCell::new(None),
         })
     }
 
-    /// Zeigt die Meldung für `secs` Sekunden (0 = bis zur nächsten Meldung).
+    /// Bleibende Meldung setzen und zeigen.
+    pub fn show_standing(self: &Rc<Self>, text: &str) {
+        *self.standing.borrow_mut() = Some(text.to_string());
+        self.show(text, 0);
+    }
+
+    /// Zeigt die Meldung für `secs` Sekunden (0 = bis zur nächsten Meldung); gibt es eine
+    /// bleibende Meldung, steht danach wieder sie da.
     pub fn show(self: &Rc<Self>, text: &str, secs: u32) {
-        self.text.set_label(text);
-        // Kurze Meldungen groß (Lautstärke, Ton …), lange in der Schrift der Beschreibung.
-        let long = text.chars().count() > 60;
-        for (class, on) in [("tvjoe-osd-name", !long), ("tvjoe-osd-now", long)] {
-            if on {
-                self.text.add_css_class(class);
-            } else {
-                self.text.remove_css_class(class);
-            }
-        }
+        let secs = if secs == 0 && self.standing.borrow().as_deref().is_some_and(|s| s != text) {
+            5
+        } else {
+            secs
+        };
+        self.set_text(text);
         self.root.set_visible(true);
         if let Some(id) = self.timer.take() {
             id.remove();
@@ -524,10 +531,27 @@ impl MessageBar {
             let id = glib::timeout_add_seconds_local_once(secs, move || {
                 if let Some(bar) = weak.upgrade() {
                     bar.timer.take();
-                    bar.root.set_visible(false);
+                    let standing = bar.standing.borrow().clone();
+                    match standing {
+                        Some(s) => bar.set_text(&s),
+                        None => bar.root.set_visible(false),
+                    }
                 }
             });
             *self.timer.borrow_mut() = Some(id);
+        }
+    }
+
+    fn set_text(&self, text: &str) {
+        self.text.set_label(text);
+        // Kurze Meldungen groß (Lautstärke, Ton …), lange in der Schrift der Beschreibung.
+        let long = text.chars().count() > 60;
+        for (class, on) in [("tvjoe-osd-name", !long), ("tvjoe-osd-now", long)] {
+            if on {
+                self.text.add_css_class(class);
+            } else {
+                self.text.remove_css_class(class);
+            }
         }
     }
 }
