@@ -23,13 +23,16 @@ pub fn heartbeat_path() -> Option<PathBuf> {
 
 /// Läuft der Dienst (Lebenszeichen jünger als 20 s)?
 pub fn alive() -> bool {
+    #[cfg(windows)]
+    return crate::dienst_win::alive();
+    #[cfg(not(windows))]
     heartbeat_path()
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| s.trim().parse::<i64>().ok())
         .is_some_and(|t| ablage::now() - t < 20)
 }
 
-fn index() -> Result<Index, String> {
+pub fn index() -> Result<Index, String> {
     let path = paths::config_dir()
         .map(|d| d.join("ablage.sqlite"))
         .ok_or("kein Konfigurationsordner")?;
@@ -158,36 +161,8 @@ fn record(t: &Timer) -> Result<(), String> {
             || index().ok().is_some_and(|ix| ix.timer(timer_id).is_none())
             || low()
     };
-    let result = if t.sat {
-        let queue = u64::from(s.buffer_mb) << 19;
-        let rec = tvjoe_core::satip::Recorder::start(&url, &path, queue)?;
-        while !should_stop() && rec.error().is_none() {
-            std::thread::sleep(Duration::from_secs(2));
-        }
-        let err = rec.error();
-        match (rec.finish(), err) {
-            (Ok(_), None) => Ok(()),
-            (Ok(_), Some(e)) => Err(e),
-            (Err(e), _) => Err(e),
-        }
-    } else {
-        let progress = Arc::new(Progress::default());
-        let (p, u, pa) = (progress.clone(), url.clone(), path.clone());
-        let worker = std::thread::spawn(move || {
-            let src = crate::capture::Source {
-                url: &u,
-                header: None,
-                max_bitrate: bitrate,
-                live: true,
-            };
-            crate::capture::run(&src, &pa, &p, &AtomicU64::new(0))
-        });
-        while !should_stop() && !worker.is_finished() {
-            std::thread::sleep(Duration::from_secs(2));
-        }
-        progress.cancel.store(true, Ordering::Relaxed);
-        worker.join().unwrap_or_else(|_| Err("Aufnahme abgestürzt".into()))
-    };
+    let queue = u64::from(s.buffer_mb) << 19;
+    let result = record_stream(&url, bitrate, t.sat, &path, queue, &should_stop);
     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     ix.set_size(id, size, size);
     match &result {
@@ -212,11 +187,52 @@ fn record(t: &Timer) -> Result<(), String> {
     result
 }
 
+/// Einen Stream nach `path` aufnehmen, bis `should_stop` zutrifft (SAT: Transportstrom über
+/// eigene Sitzung; Internet: unsichtbares mpv). Gemeinsam für Linux- und Windows-Dienst.
+pub fn record_stream(
+    url: &str,
+    bitrate: Option<u64>,
+    sat: bool,
+    path: &std::path::Path,
+    queue: u64,
+    should_stop: &dyn Fn() -> bool,
+) -> Result<(), String> {
+    if sat {
+        let rec = tvjoe_core::satip::Recorder::start(url, path, queue)?;
+        while !should_stop() && rec.error().is_none() {
+            std::thread::sleep(Duration::from_secs(2));
+        }
+        let err = rec.error();
+        match (rec.finish(), err) {
+            (Ok(_), None) => Ok(()),
+            (Ok(_), Some(e)) => Err(e),
+            (Err(e), _) => Err(e),
+        }
+    } else {
+        let progress = Arc::new(Progress::default());
+        let (p, u, pa) = (progress.clone(), url.to_string(), path.to_path_buf());
+        let worker = std::thread::spawn(move || {
+            let src = crate::capture::Source {
+                url: &u,
+                header: None,
+                max_bitrate: bitrate,
+                live: true,
+            };
+            crate::capture::run(&src, &pa, &p, &AtomicU64::new(0))
+        });
+        while !should_stop() && !worker.is_finished() {
+            std::thread::sleep(Duration::from_secs(2));
+        }
+        progress.cancel.store(true, Ordering::Relaxed);
+        worker.join().unwrap_or_else(|_| Err("Aufnahme abgestürzt".into()))
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Benachrichtigung und Wachhalten
 
 /// Standardbenachrichtigung des Desktops (Linux: freedesktop-Benachrichtigungen über D-Bus).
-fn notify(summary: &str, body: &str) {
+pub fn notify(summary: &str, body: &str) {
     #[cfg(unix)]
     {
         use gtk::gio;
@@ -256,13 +272,13 @@ fn notify(summary: &str, body: &str) {
 
 /// Hält den Rechner wach, solange es lebt (Linux: logind-Sperre „sleep“; Windows:
 /// SetThreadExecutionState).
-struct KeepAwake {
+pub struct KeepAwake {
     #[cfg(unix)]
     _fds: Option<gtk::gio::UnixFDList>,
 }
 
 impl KeepAwake {
-    fn new() -> Self {
+    pub fn new() -> Self {
         #[cfg(unix)]
         {
             use gtk::gio;
@@ -409,43 +425,37 @@ pub fn set_enabled(s: &mut Settings, on: bool) {
     }
     #[cfg(windows)]
     {
-        s.record_service = on;
-        // Einstellung ist noch nicht übernommen: Aufgaben mit dem neuen Stand angleichen.
-        let pre = i64::from(s.record_pre_min) * 60;
-        let now = ablage::now();
-        let timers: Vec<(i64, i64)> = index()
-            .map(|ix| ix.timers())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|t| t.start - pre > now)
-            .map(|t| (t.id, t.start - pre))
-            .collect();
-        crate::dienst_win::sync_tasks(on, &timers);
-        crate::ablage::report(if on {
-            "Geplante Aufnahmen sind jetzt Aufgaben der Aufgabenplanung (laufen bei Anmeldung, auch ohne geöffnetes tvjoe)"
+        let r = if on {
+            crate::dienst_win::install(s)
         } else {
-            "Aufgaben für Aufnahmen entfernt: aufgenommen wird wieder nur bei geöffnetem tvjoe"
-        });
+            crate::dienst_win::uninstall(s)
+        };
+        match r {
+            Ok(()) => {
+                s.record_service = on;
+                crate::ablage::report(if on {
+                    "Aufnahmedienst eingerichtet: geplante Aufnahmen laufen auch ohne Anmeldung"
+                } else {
+                    "Aufnahmedienst entfernt: aufgenommen wird wieder nur bei geöffnetem tvjoe"
+                });
+                // Aufträge schreiben, sobald die Einstellung übernommen ist.
+                gtk::glib::idle_add_local_once(|| {
+                    if let Some(app) = crate::ablage::app() {
+                        sync_tasks(&app);
+                    }
+                });
+            }
+            Err(e) => crate::ablage::report(&format!("Aufnahmedienst: {e}")),
+        }
     }
 }
 
-/// Windows: Aufgaben der Aufgabenplanung an den Plan angleichen (Linux: der Dienst liest den
-/// Plan selbst).
+/// Windows: Aufträge für den Dienst an den Plan angleichen (Linux: der Dienst liest den Plan
+/// selbst).
 pub fn sync_tasks(app: &crate::app::App) {
     #[cfg(windows)]
-    {
-        let s = app.settings();
-        let pre = i64::from(s.record_pre_min) * 60;
-        let now = ablage::now();
-        // Künftige Starts als Aufgabe; was schon begonnen hat, startet `start_now`.
-        let timers: Vec<(i64, i64)> = index()
-            .map(|ix| ix.timers())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|t| t.start - pre > now)
-            .map(|t| (t.id, t.start - pre))
-            .collect();
-        crate::dienst_win::sync_tasks(s.record_service, &timers);
+    if app.settings().record_service {
+        crate::dienst_win::sync_jobs(app);
     }
     #[cfg(not(windows))]
     let _ = app;
@@ -454,8 +464,6 @@ pub fn sync_tasks(app: &crate::app::App) {
 /// Sofortaufnahme an den Dienst übergeben (Windows: eigener Vorgang; Linux: der Dienst liest
 /// den Plan alle 5 s).
 pub fn start_now(timer_id: i64) {
-    #[cfg(windows)]
-    crate::dienst_win::start_now(timer_id);
-    #[cfg(not(windows))]
+    // Windows: der Auftrag geht mit `sync_tasks` hinaus, der Dienst startet ihn binnen 5 s.
     let _ = timer_id;
 }

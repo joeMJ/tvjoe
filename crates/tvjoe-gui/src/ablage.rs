@@ -726,6 +726,13 @@ impl Ablage {
         if t % 15 == 1 {
             self.check_recordings();
         }
+        // Windows-Dienst: seinen Stand übernehmen.
+        #[cfg(windows)]
+        if t % 5 == 0 {
+            if let Some(app) = self.app.upgrade().filter(|a| a.settings().record_service) {
+                crate::dienst_win::import_status(&app);
+            }
+        }
     }
 
     fn refresh_badges(&self) {
@@ -953,6 +960,7 @@ pub fn toggle_record(app: &Rc<App>) {
         match a.index.add_timer(&timer) {
             Ok(id) => {
                 crate::dienst::start_now(id);
+                crate::dienst::sync_tasks(app);
                 app.message(&format!(
                     "Aufnahme an den Aufnahmedienst übergeben: {} (bis {})",
                     timer.title,
@@ -1634,6 +1642,12 @@ pub fn play_entry(app: &Rc<App>, id: i64) {
 }
 
 /// Meldung im Hauptfenster (aus Einstellungen und Dienst-Einrichtung).
+/// Hauptfenster (für Abläufe ohne eigenen Zugriff darauf, z. B. Einrichtung des Windows-Dienstes).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn app() -> Option<Rc<App>> {
+    get().and_then(|a| a.app.upgrade())
+}
+
 /// Erst im nächsten Durchlauf der Hauptschleife: der Aufrufer hält oft die Einstellungen zum
 /// Schreiben (Einstellungsdialog), die Meldung liest sie.
 pub fn report(text: &str) {

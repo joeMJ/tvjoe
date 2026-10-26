@@ -196,6 +196,8 @@ fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--aufnahmedienst") => std::process::exit(dienst::run_service()),
+        #[cfg(windows)]
+        Some("--windows-dienst") => std::process::exit(dienst_win::run_dispatcher()),
         Some("--aufnahme") => {
             let id = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(-1);
             std::process::exit(dienst::run_one(id));
