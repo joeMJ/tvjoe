@@ -4,6 +4,7 @@
 
 mod app;
 mod ablage;
+mod ablageview;
 mod backup;
 mod capture;
 mod crop;

@@ -12,7 +12,7 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use gtk::prelude::*;
+use adw::prelude::*;
 use gtk::{gio, glib};
 use tvjoe_core::ablage::{self, Art, Index, Progress, State, Timer};
 use tvjoe_core::jellyfin_lib::Item;
@@ -86,7 +86,9 @@ pub struct Ablage {
     queue: RefCell<VecDeque<Pending>>,
     jobs: RefCell<Vec<Job>>,
     recs: RefCell<Vec<Rec>>,
-    badges: RefCell<Vec<(String, String, glib::WeakRef<gtk::Image>)>>,
+    badges: RefCell<Vec<(String, String, glib::WeakRef<gtk::Button>)>>,
+    /// Knöpfe „Herunterladen“ auf Infoseiten (Beschriftung je Zustand).
+    store_buttons: RefCell<Vec<(String, String, glib::WeakRef<gtk::Button>)>>,
     done_tx: async_channel::Sender<Done>,
     suspend_cookie: Cell<Option<u32>>,
     ticks: Cell<u32>,
@@ -114,6 +116,7 @@ pub fn init(app: &Rc<App>) {
         jobs: RefCell::new(Vec::new()),
         recs: RefCell::new(Vec::new()),
         badges: RefCell::new(Vec::new()),
+        store_buttons: RefCell::new(Vec::new()),
         done_tx: tx,
         suspend_cookie: Cell::new(None),
         ticks: Cell::new(0),
@@ -323,6 +326,23 @@ pub fn local_file(source: &str, key: &str) -> Option<PathBuf> {
     Some(e.path)
 }
 
+/// Einträge einer Herkunft in der Ablage (ohne Fehlgeschlagene), neueste zuerst; je Kennung
+/// nur einmal (Download vor Zwischenspeicher).
+pub fn stored(source: &str) -> Vec<ablage::Entry> {
+    let Some(a) = get() else { return Vec::new() };
+    let mut seen = std::collections::HashSet::new();
+    let mut all: Vec<ablage::Entry> = a
+        .index
+        .all()
+        .into_iter()
+        .filter(|e| e.source == source && e.state != State::Failed)
+        .collect();
+    all.sort_by_key(|e| (e.art != Art::Download, -e.created));
+    let mut out: Vec<ablage::Entry> = all.into_iter().filter(|e| seen.insert(e.key.clone())).collect();
+    out.sort_by_key(|e| -e.created);
+    out
+}
+
 /// Zustand einer Sendung für Kontextmenü und Kennzeichen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -352,24 +372,138 @@ pub fn status(source: &str, key: &str) -> Status {
 }
 
 /// Kennzeichen für eine Kachel (unten rechts): vollständig, lädt (mit Anteil), teilweise.
-/// Ohne Eintrag unsichtbar; wird jede Sekunde nachgeführt.
-pub fn badge(source: &str, key: &str) -> gtk::Image {
-    let img = gtk::Image::builder()
-        .pixel_size(16)
+/// Ohne Eintrag unsichtbar; wird jede Sekunde nachgeführt. Teilweise geladen: ein Klick setzt
+/// fort (`resume` mit der Art des Abgebrochenen); lädt: ein Klick bricht nach Rückfrage ab;
+/// sonst geht der Klick an die Kachel.
+pub fn badge(source: &str, key: &str, resume: impl Fn(Art) + 'static) -> gtk::Button {
+    let button = gtk::Button::builder()
+        .child(&gtk::Image::builder().pixel_size(16).build())
         .halign(gtk::Align::End)
         .valign(gtk::Align::End)
         .margin_end(6)
         .margin_bottom(8)
-        .css_classes(["tvjoe-store-badge"])
+        .css_classes(["flat", "circular", "tvjoe-store-badge"])
         .visible(false)
         .build();
+    let (s, k) = (source.to_string(), key.to_string());
+    button.connect_clicked(move |b| {
+        let Some(a) = get() else { return };
+        let entries = a.index.find(&s, &k);
+        match status(&s, &k) {
+            Status::Partial => {
+                let art = entries
+                    .iter()
+                    .find(|e| e.state == State::Partial)
+                    .map_or(Art::Download, |e| e.art);
+                resume(art);
+            }
+            Status::Loading => confirm_cancel(b, &s, &k),
+            _ => {}
+        }
+    });
     if let Some(a) = get() {
         a.badges
             .borrow_mut()
-            .push((source.to_string(), key.to_string(), img.downgrade()));
-        a.update_badge(source, key, &img);
+            .push((source.to_string(), key.to_string(), button.downgrade()));
+        a.update_badge(source, key, &button);
     }
-    img
+    button
+}
+
+/// Knopf „Herunterladen“ für Infoseiten: lädt herunter, setzt fort, bricht nach Rückfrage ab
+/// oder zeigt „In der Ablage“; Beschriftung und Anteil werden jede Sekunde nachgeführt.
+pub fn store_button(source: &str, key: &str, fetch: impl Fn(Art) + 'static) -> gtk::Button {
+    let button = gtk::Button::builder()
+        .css_classes(["pill"])
+        .child(&adw::ButtonContent::builder().icon_name("folder-download-symbolic").build())
+        .build();
+    let (s, k) = (source.to_string(), key.to_string());
+    button.connect_clicked(move |b| {
+        let Some(a) = get() else { return };
+        let entries = a.index.find(&s, &k);
+        match status(&s, &k) {
+            Status::None => fetch(Art::Download),
+            Status::Partial => fetch(
+                entries
+                    .iter()
+                    .find(|e| e.state == State::Partial)
+                    .map_or(Art::Download, |e| e.art),
+            ),
+            Status::Loading => confirm_cancel(b, &s, &k),
+            Status::Done => {}
+        }
+        a.refresh_badges();
+    });
+    if let Some(a) = get() {
+        a.store_buttons
+            .borrow_mut()
+            .push((source.to_string(), key.to_string(), button.downgrade()));
+        a.update_store_button(source, key, &button);
+    }
+    button
+}
+
+/// Rückfrage vor dem Abbrechen eines Downloads.
+fn confirm_cancel(parent: &impl IsA<gtk::Widget>, source: &str, key: &str) {
+    let title = get()
+        .and_then(|a| a.index.find(source, key).first().map(|e| e.title.clone()))
+        .unwrap_or_default();
+    let dialog = adw::AlertDialog::builder()
+        .heading("Laden abbrechen?")
+        .body(format!(
+            "„{title}“ wird nicht weiter geladen. Was schon da ist, bleibt; „Fortsetzen“ lädt später den Rest."
+        ))
+        .build();
+    dialog.add_responses(&[("keep", "Weiter laden"), ("cancel", "Abbrechen")]);
+    dialog.set_response_appearance("cancel", adw::ResponseAppearance::Destructive);
+    dialog.set_default_response(Some("keep"));
+    let (s, k) = (source.to_string(), key.to_string());
+    dialog.connect_response(None, move |_, r| {
+        if r == "cancel" {
+            cancel(&s, &k);
+        }
+    });
+    dialog.present(Some(parent));
+}
+
+/// Knopf „Herunterladen“ für einen ÖR-Beitrag.
+pub fn film_store_button(app: &Rc<App>, film: &Film) -> gtk::Button {
+    let (weak, f) = (Rc::downgrade(app), film.clone());
+    store_button("oer", &film.url, move |art| {
+        if let Some(app) = weak.upgrade() {
+            fetch_film(&app, &f, art);
+        }
+    })
+}
+
+/// Knopf „Herunterladen“ für einen Jellyfin-Eintrag.
+pub fn item_store_button(app: &Weak<App>, item: &Item) -> gtk::Button {
+    let (weak, it) = (app.clone(), item.clone());
+    store_button("jellyfin", &item.id, move |art| {
+        if let Some(app) = weak.upgrade() {
+            fetch_item(&app, &it, art);
+        }
+    })
+}
+
+/// Kennzeichen eines ÖR-Beitrags (setzt mit diesem Beitrag fort).
+pub fn film_badge(app: &Rc<App>, film: &Film) -> gtk::Button {
+    let (weak, f) = (Rc::downgrade(app), film.clone());
+    badge("oer", &film.url, move |art| {
+        if let Some(app) = weak.upgrade() {
+            fetch_film(&app, &f, art);
+        }
+    })
+}
+
+/// Kennzeichen eines Jellyfin-Eintrags.
+pub fn item_badge(app: &Weak<App>, item: &Item) -> gtk::Button {
+    let (weak, it) = (app.clone(), item.clone());
+    badge("jellyfin", &item.id, move |art| {
+        if let Some(app) = weak.upgrade() {
+            fetch_item(&app, &it, art);
+        }
+    })
 }
 
 impl Ablage {
@@ -590,7 +724,7 @@ impl Ablage {
     }
 
     fn refresh_badges(&self) {
-        let list: Vec<(String, String, gtk::Image)> = {
+        let list: Vec<(String, String, gtk::Button)> = {
             let mut b = self.badges.borrow_mut();
             b.retain(|(_, _, w)| w.upgrade().is_some());
             b.iter()
@@ -600,9 +734,52 @@ impl Ablage {
         for (s, k, img) in list {
             self.update_badge(&s, &k, &img);
         }
+        let buttons: Vec<(String, String, gtk::Button)> = {
+            let mut b = self.store_buttons.borrow_mut();
+            b.retain(|(_, _, w)| w.upgrade().is_some());
+            b.iter()
+                .filter_map(|(s, k, w)| w.upgrade().map(|i| (s.clone(), k.clone(), i)))
+                .collect()
+        };
+        for (s, k, b) in buttons {
+            self.update_store_button(&s, &k, &b);
+        }
     }
 
-    fn update_badge(&self, source: &str, key: &str, img: &gtk::Image) {
+    fn update_store_button(&self, source: &str, key: &str, button: &gtk::Button) {
+        let Some(content) = button.child().and_downcast::<adw::ButtonContent>() else {
+            return;
+        };
+        let entries = self.index.find(source, key);
+        let running = entries.iter().find_map(|e| {
+            self.jobs
+                .borrow()
+                .iter()
+                .find(|j| j.id == e.id)
+                .map(|j| fraction(j))
+        });
+        let (icon, text, active) = match status(source, key) {
+            Status::Loading => (
+                "process-stop-symbolic",
+                match running.flatten() {
+                    Some(f) => format!("Wird geladen {:.0} % – abbrechen", f * 100.0),
+                    None => "Wird geladen – abbrechen".to_string(),
+                },
+                true,
+            ),
+            Status::Partial => ("folder-download-symbolic", "Herunterladen fortsetzen".into(), true),
+            Status::Done => ("drive-harddisk-symbolic", "In der Ablage".into(), false),
+            Status::None => ("folder-download-symbolic", "Herunterladen".into(), true),
+        };
+        content.set_icon_name(icon);
+        content.set_label(&text);
+        button.set_sensitive(active);
+    }
+
+    fn update_badge(&self, source: &str, key: &str, button: &gtk::Button) {
+        let Some(img) = button.child().and_downcast::<gtk::Image>() else {
+            return;
+        };
         let entries = self.index.find(source, key);
         let running = entries.iter().find_map(|e| {
             self.jobs
@@ -639,12 +816,26 @@ impl Ablage {
                 "Teilweise geladen (Herunterladen setzt fort)".to_string(),
             )
         } else {
-            img.set_visible(false);
+            button.set_visible(false);
             return;
         };
         img.set_icon_name(Some(icon));
-        img.set_tooltip_text(Some(&tip));
-        img.set_visible(true);
+        // Nur Laden und Teilweise nehmen Klicks an (Abbrechen, Fortsetzen); sonst die Kachel.
+        let clickable = icon != "drive-harddisk-symbolic";
+        button.set_can_target(clickable);
+        button.set_tooltip_text(Some(&if clickable {
+            format!(
+                "{tip} – Klick: {}",
+                if icon == "media-playback-pause-symbolic" {
+                    "fortsetzen"
+                } else {
+                    "abbrechen"
+                }
+            )
+        } else {
+            tip
+        }));
+        button.set_visible(true);
     }
 }
 
@@ -1241,4 +1432,121 @@ pub fn prefs_page(
         s.record_max_internet = max_net.value() as u32;
     };
     (page, apply)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Für die Reiter „Geplant“ und „Ablage“ im Programm
+
+/// Alle Einträge, neueste zuerst.
+pub fn all_entries() -> Vec<ablage::Entry> {
+    get().map(|a| a.index.all()).unwrap_or_default()
+}
+
+/// Anteil eines laufenden Downloads: `Some(None)` = lädt, Anteil unbekannt; `None` = läuft nicht.
+pub fn running_fraction(id: i64) -> Option<Option<f64>> {
+    let a = get()?;
+    let jobs = a.jobs.borrow();
+    jobs.iter().find(|j| j.id == id).map(fraction)
+}
+
+/// Laufende Aufnahmen: Eintrag und Ende (mit Nachlauf).
+pub fn running_recordings() -> Vec<(i64, i64)> {
+    get()
+        .map(|a| a.recs.borrow().iter().map(|r| (r.id, r.stop_at)).collect())
+        .unwrap_or_default()
+}
+
+/// Laufende Aufnahme `id` beenden.
+pub fn stop_recording(id: i64) {
+    let Some(a) = get() else { return };
+    let i = a.recs.borrow().iter().position(|r| r.id == id);
+    if let Some(i) = i {
+        a.stop(i);
+    }
+}
+
+/// Geplante Aufnahmen, früheste zuerst.
+pub fn timers() -> Vec<Timer> {
+    get().map(|a| a.index.timers()).unwrap_or_default()
+}
+
+/// Freier Platz am Ablageordner.
+pub fn free_space(app: &App) -> Option<u64> {
+    free_bytes(&storage_dir(app))
+}
+
+/// Eintrag löschen: laufendes Laden abbrechen, Datei und Teildatei entfernen, aus dem
+/// Verzeichnis nehmen. Laufende Aufnahmen werden vorher beendet.
+pub fn delete_entry(id: i64) {
+    let Some(a) = get() else { return };
+    let Some(e) = a.index.get(id) else { return };
+    if a.recs.borrow().iter().any(|r| r.id == id) {
+        stop_recording(id);
+    }
+    a.queue.borrow_mut().retain(|p| p.id != id);
+    if let Some(j) = a.jobs.borrow().iter().find(|j| j.id == id) {
+        j.progress.cancel.store(true, Ordering::Relaxed);
+    }
+    let _ = std::fs::remove_file(&e.path);
+    let _ = std::fs::remove_file(ablage::part_path(&e.path));
+    let _ = std::fs::remove_file(capture::part_path(&e.path));
+    a.index.remove(id);
+    a.refresh_badges();
+}
+
+/// Beitrag der ÖR-Mediathek zu einem Eintrag: aus der Filmliste, sonst aus den Angaben der
+/// Ablage (die Kennung ist die Video-URL).
+fn film_of(e: &ablage::Entry) -> Film {
+    crate::mediathek::film_by_url(&e.key).unwrap_or_else(|| {
+        let (sender, topic) = e
+            .subtitle
+            .split_once(" · ")
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .unwrap_or_default();
+        Film {
+            id: -e.id,
+            sender,
+            topic,
+            title: e.title.clone(),
+            timestamp: e.created,
+            duration: 0,
+            description: String::new(),
+            url: e.key.clone(),
+            url_low: None,
+            url_hd: None,
+            website: None,
+            subtitle: None,
+            kind: tvjoe_core::mediathek::Kind::Other,
+        }
+    })
+}
+
+/// Abgebrochenen Download fortsetzen.
+pub fn resume_entry(app: &Rc<App>, id: i64) {
+    let Some(e) = get().and_then(|a| a.index.get(id)) else {
+        return;
+    };
+    match e.source.as_str() {
+        "oer" => fetch_film(app, &film_of(&e), e.art),
+        "jellyfin" => match crate::jfview::item(&e.key) {
+            Some(it) => fetch_item(app, &it, e.art),
+            None => app.message("Jellyfin: Eintrag nicht mehr in der Bibliothek"),
+        },
+        _ => {}
+    }
+}
+
+/// Eintrag abspielen (aus der lokalen Datei).
+pub fn play_entry(app: &Rc<App>, id: i64) {
+    let Some(e) = get().and_then(|a| a.index.get(id)) else {
+        return;
+    };
+    match e.source.as_str() {
+        "oer" => app.play_film(&film_of(&e), None),
+        "jellyfin" => match crate::jfview::item(&e.key) {
+            Some(it) => app.play_jellyfin(&it, None, Vec::new()),
+            None => app.play_file(&e.title, "Jellyfin", &e.path),
+        },
+        _ => app.play_file(&e.title, &e.subtitle, &e.path),
+    }
 }

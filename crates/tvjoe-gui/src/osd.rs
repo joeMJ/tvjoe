@@ -648,6 +648,8 @@ pub struct InfoContent {
     pub desc: String,
     /// Fußzeile, z. B. „Danach 21:45 Tagesthemen“.
     pub next: Option<String>,
+    /// Fernsehen: REC-Knopf (`Some(true)` = Aufnahme läuft).
+    pub record: Option<bool>,
 }
 
 /// Ganzflächige Info über dem Bild: Logo, Titel, Angaben, volle Beschreibung.
@@ -660,6 +662,8 @@ pub struct InfoPanel {
     meta: gtk::Label,
     desc: gtk::Label,
     next: gtk::Label,
+    rec: gtk::Button,
+    on_record: RefCell<Option<Box<dyn Fn()>>>,
 }
 
 impl InfoPanel {
@@ -694,6 +698,13 @@ impl InfoPanel {
         let head = gtk::Box::new(gtk::Orientation::Horizontal, 24);
         head.append(&logo_slot);
         head.append(&head_text);
+        let rec = gtk::Button::builder()
+            .label("REC")
+            .css_classes(["tvjoe-rec-button"])
+            .valign(gtk::Align::Start)
+            .visible(false)
+            .build();
+        head.append(&rec);
 
         let desc = wrap("tvjoe-info-desc");
         desc.set_valign(gtk::Align::Start);
@@ -731,14 +742,31 @@ impl InfoPanel {
             meta,
             desc,
             next,
+            rec,
+            on_record: RefCell::new(None),
+        });
+        let weak = Rc::downgrade(&panel);
+        panel.rec.connect_clicked(move |_| {
+            if let Some(p) = weak.upgrade() {
+                if let Some(f) = p.on_record.borrow().as_ref() {
+                    f();
+                }
+            }
         });
         let click = gtk::GestureClick::new();
         let weak = Rc::downgrade(&panel);
-        click.connect_pressed(move |g, _, _, _| {
-            g.set_state(gtk::EventSequenceState::Claimed);
-            if let Some(p) = weak.upgrade() {
-                p.hide();
+        click.connect_pressed(move |g, _, x, y| {
+            let Some(p) = weak.upgrade() else { return };
+            // Klick auf den REC-Knopf gehört dem Knopf, sonst schließt ein Klick die Info.
+            let on_rec = g
+                .widget()
+                .and_then(|w| w.pick(x, y, gtk::PickFlags::DEFAULT))
+                .is_some_and(|w| w == p.rec.clone().upcast::<gtk::Widget>() || w.is_ancestor(&p.rec));
+            if on_rec {
+                return;
             }
+            g.set_state(gtk::EventSequenceState::Claimed);
+            p.hide();
         });
         panel.root.add_controller(click);
         panel
@@ -766,10 +794,31 @@ impl InfoPanel {
         });
         self.next.set_label(c.next.as_deref().unwrap_or(""));
         self.next.set_visible(c.next.is_some());
+        match c.record {
+            Some(on) => {
+                self.rec.set_tooltip_text(Some(if on {
+                    "Aufnahme beenden (R)"
+                } else {
+                    "Aufnehmen bis Sendungsende (R)"
+                }));
+                if on {
+                    self.rec.add_css_class("tvjoe-rec-on");
+                } else {
+                    self.rec.remove_css_class("tvjoe-rec-on");
+                }
+                self.rec.set_visible(true);
+            }
+            None => self.rec.set_visible(false),
+        }
         self.root.set_visible(true);
     }
 
     pub fn hide(&self) {
         self.root.set_visible(false);
+    }
+
+    /// Empfänger für den REC-Knopf.
+    pub fn set_record_handler(&self, f: impl Fn() + 'static) {
+        *self.on_record.borrow_mut() = Some(Box::new(f));
     }
 }

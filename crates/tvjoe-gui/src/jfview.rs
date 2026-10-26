@@ -33,6 +33,8 @@ enum Tab {
     Collections,
     Series,
     Search,
+    /// In der Ablage.
+    Stored,
 }
 
 thread_local! {
@@ -199,7 +201,7 @@ struct JfView {
     header_start: gtk::Box,
     header_center: gtk::Widget,
     header_end: gtk::Box,
-    tabs: [gtk::ToggleButton; 4],
+    tabs: [gtk::ToggleButton; 5],
     search: gtk::SearchEntry,
     search_bar: gtk::Box,
     libbar: gtk::Box,
@@ -215,6 +217,11 @@ struct JfView {
     images: Option<Images>,
     server: String,
     detail_open: Cell<bool>,
+}
+
+/// Jellyfin-Eintrag aus der Bibliothek (Ablage).
+pub fn item(id: &str) -> Option<Item> {
+    db()?.item(id)
 }
 
 fn db() -> Option<JellyfinLibrary> {
@@ -298,7 +305,13 @@ impl crate::layer::View for JfView {
 impl JfView {
     fn new(app: &Rc<App>) -> Rc<Self> {
         let tab = |l: &str| gtk::ToggleButton::builder().label(l).build();
-        let tabs = [tab("Filme"), tab("Sammlungen"), tab("Serien"), tab("Suche")];
+        let tabs = [
+            tab("Filme"),
+            tab("Sammlungen"),
+            tab("Serien"),
+            tab("Suche"),
+            tab("Heruntergeladen"),
+        ];
         for t in &tabs[1..] {
             t.set_group(Some(&tabs[0]));
         }
@@ -430,7 +443,7 @@ impl JfView {
                 }
             });
         }
-        for (i, t) in [Tab::Movies, Tab::Collections, Tab::Series, Tab::Search]
+        for (i, t) in [Tab::Movies, Tab::Collections, Tab::Series, Tab::Search, Tab::Stored]
             .into_iter()
             .enumerate()
         {
@@ -597,6 +610,10 @@ impl JfView {
                 }
                 db.search(text.trim(), &hidden, 300)
             }
+            Tab::Stored => crate::ablage::stored("jellyfin")
+                .into_iter()
+                .filter_map(|e| db.item(&e.key))
+                .collect(),
         };
         while let Some(c) = self.flow.first_child() {
             self.flow.remove(&c);
@@ -626,7 +643,9 @@ impl JfView {
                 .collect::<Vec<_>>()
                 .join(" · "),
             };
-            let (tile, poster) = tile(it, &sub);
+            let badge = (!matches!(it.kind.as_str(), "Series" | "BoxSet"))
+                .then(|| crate::ablage::item_badge(&self.app, it));
+            let (tile, poster) = tile(it, &sub, badge.as_ref());
             match it.kind.as_str() {
                 "Series" => series_menu(&self.app, &tile, it.id.clone()),
                 "BoxSet" => {}
@@ -805,6 +824,7 @@ impl JfView {
             None,
             Vec::new(),
         ));
+        buttons.append(&crate::ablage::item_store_button(&self.app, it));
         right.append(&buttons);
         let desc = label(it.overview.trim(), "tvjoe-mt-detail-desc");
         desc.set_margin_top(10);
@@ -894,15 +914,43 @@ impl JfView {
             .selection_mode(gtk::SelectionMode::None)
             .margin_top(10)
             .build();
+        // Serie: gewählte Staffel herunterladen (Beschriftung folgt der Staffelwahl).
+        let current: Rc<Cell<Option<Option<i64>>>> = Rc::new(Cell::new(None));
+        let download = gtk::Button::builder()
+            .css_classes(["pill"])
+            .halign(gtk::Align::Start)
+            .margin_top(10)
+            .visible(series)
+            .child(
+                &adw::ButtonContent::builder()
+                    .icon_name("folder-download-symbolic")
+                    .build(),
+            )
+            .build();
+        {
+            let (app, list, current) = (self.app.clone(), list.clone(), current.clone());
+            download.connect_clicked(move |_| {
+                let Some(app) = app.upgrade() else { return };
+                let season = current.get();
+                for it in list.iter().filter(|it| season.is_none_or(|s| it.season_no == s)) {
+                    crate::ablage::fetch_item(&app, it, tvjoe_core::ablage::Art::Download);
+                }
+            });
+        }
         let fill = {
             let (rows, list, app) = (rows.clone(), list.clone(), self.app.clone());
+            let (current, download) = (current.clone(), download.clone());
             move |season: Option<Option<i64>>| {
+                current.set(season);
+                if let Some(c) = download.child().and_downcast::<adw::ButtonContent>() {
+                    c.set_label(&jf_season_label(&list, season));
+                }
                 while let Some(c) = rows.first_child() {
                     rows.remove(&c);
                 }
                 for (i, it) in list.iter().enumerate() {
                     if season.is_none_or(|s| it.season_no == s) {
-                        let row = list_row(i, it, series);
+                        let row = list_row(i, it, series, crate::ablage::item_badge(&app, it));
                         item_menu(&app, &row, it.clone());
                         rows.append(&row);
                     }
@@ -984,6 +1032,7 @@ impl JfView {
         } else {
             fill(None);
         }
+        right.append(&download);
         right.append(&rows);
         let weak = Rc::downgrade(self);
         let l = list.clone();
@@ -1004,6 +1053,20 @@ impl JfView {
 }
 
 /// Zeile einer Sammlung bzw. Serie; der Widget-Name trägt die Nummer in der Liste.
+/// „Staffel 2 herunterladen (10)“, „Extras herunterladen (3)“; ohne Wahl alle Folgen.
+fn jf_season_label(list: &[Item], season: Option<Option<i64>>) -> String {
+    let n = list
+        .iter()
+        .filter(|it| season.is_none_or(|s| it.season_no == s))
+        .count();
+    match season {
+        None => format!("Alle Folgen herunterladen ({n})"),
+        Some(Some(0)) => format!("Extras herunterladen ({n})"),
+        Some(Some(k)) => format!("Staffel {k} herunterladen ({n})"),
+        Some(None) => format!("Weitere herunterladen ({n})"),
+    }
+}
+
 /// Rechtsklick auf Film oder Folge: Herunterladen, Zwischenspeichern oder Abbrechen.
 fn item_menu<W: IsA<gtk::Widget>>(app: &Weak<App>, widget: &W, item: Item) {
     let weak = app.clone();
@@ -1058,7 +1121,7 @@ fn series_menu<W: IsA<gtk::Widget>>(app: &Weak<App>, widget: &W, series_id: Stri
     });
 }
 
-fn list_row(index: usize, it: &Item, series: bool) -> gtk::ListBoxRow {
+fn list_row(index: usize, it: &Item, series: bool, badge: gtk::Button) -> gtk::ListBoxRow {
     let code = gtk::Label::builder()
         .label(if series {
             episode_code(it)
@@ -1111,7 +1174,6 @@ fn list_row(index: usize, it: &Item, series: bool) -> gtk::ListBoxRow {
         .build();
     hbox.append(&code);
     hbox.append(&text);
-    let badge = crate::ablage::badge("jellyfin", &it.id);
     badge.set_valign(gtk::Align::Center);
     badge.set_margin_bottom(0);
     hbox.append(&badge);
@@ -1129,7 +1191,7 @@ fn list_row(index: usize, it: &Item, series: bool) -> gtk::ListBoxRow {
 
 /// Kachel mit Plakat (bis es da ist: Titel), Titel und Zeile darunter; gesehen = Haken,
 /// angefangen = Strich am unteren Rand.
-fn tile(it: &Item, sub: &str) -> (gtk::Box, gtk::Picture) {
+fn tile(it: &Item, sub: &str, badge: Option<&gtk::Button>) -> (gtk::Box, gtk::Picture) {
     let fallback = gtk::Label::builder()
         .label(&it.name)
         .css_classes(["tvjoe-name"])
@@ -1150,8 +1212,8 @@ fn tile(it: &Item, sub: &str) -> (gtk::Box, gtk::Picture) {
         .height_request(POSTER_H)
         .build();
     frame.add_overlay(&poster);
-    if !matches!(it.kind.as_str(), "Series" | "BoxSet") {
-        frame.add_overlay(&crate::ablage::badge("jellyfin", &it.id));
+    if let Some(b) = badge {
+        frame.add_overlay(b);
     }
     if it.played {
         frame.add_overlay(

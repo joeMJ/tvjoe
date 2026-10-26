@@ -18,7 +18,9 @@ const MIN_SIZE: (i32, i32) = (850, 500);
 
 struct Grid {
     title: String,
-    body: gtk::ScrolledWindow,
+    body: gtk::Stack,
+    /// Reiter Programm · Geplant · Ablage (Nutzer, 2026-10-26: kein weiterer Menüknopf).
+    tabs: gtk::Box,
 }
 
 impl crate::layer::View for Grid {
@@ -30,6 +32,9 @@ impl crate::layer::View for Grid {
     }
     fn body(&self) -> gtk::Widget {
         self.body.clone().upcast()
+    }
+    fn header_center(&self) -> Option<gtk::Widget> {
+        Some(self.tabs.clone().upcast())
     }
 }
 
@@ -238,9 +243,35 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
         .vexpand(true)
         .child(&rows)
         .build();
+    let stack = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .build();
+    stack.add_named(&scroller, Some("programm"));
+    stack.add_named(&crate::ablageview::planned_page(app), Some("geplant"));
+    stack.add_named(&crate::ablageview::overview_page(app), Some("ablage"));
+    let tabs = gtk::Box::builder().css_classes(["linked"]).build();
+    let mut first: Option<gtk::ToggleButton> = None;
+    for (name, text) in [("programm", "Programm"), ("geplant", "Geplant"), ("ablage", "Ablage")] {
+        let b = gtk::ToggleButton::builder()
+            .label(text)
+            .active(first.is_none())
+            .build();
+        match &first {
+            Some(g) => b.set_group(Some(g)),
+            None => first = Some(b.clone()),
+        }
+        let stack = stack.clone();
+        b.connect_toggled(move |b| {
+            if b.is_active() {
+                stack.set_visible_child_name(name);
+            }
+        });
+        tabs.append(&b);
+    }
     let grid = Rc::new(Grid {
         title: format!("Programm {} bis {} Uhr", hm(from), hm(to)),
-        body: scroller,
+        body: stack,
+        tabs,
     });
     // Die Knöpfe halten die Ansicht nur schwach (zum Schließen nach dem Umschalten).
     let _ = me_slot.set(Rc::downgrade(&grid));

@@ -16,6 +16,16 @@ use crate::app::App;
 pub enum Vod {
     Oer(Film),
     Jelly(JellyVod),
+    /// Datei aus der Ablage ohne Mediathek-Eintrag (Aufnahme).
+    File(FileVod),
+}
+
+/// Aufnahme bzw. Datei aus der Ablage: Titel, Sender, Datei.
+#[derive(Debug, Clone)]
+pub struct FileVod {
+    pub title: String,
+    pub name: String,
+    pub path: PathBuf,
 }
 
 /// Laufender Jellyfin-Eintrag; `playback` ist gesetzt, sobald der Server die Quelle genannt hat.
@@ -53,6 +63,7 @@ impl Vod {
                 Some(c) => format!("{c} · {}", j.item.name),
                 None => j.item.name.clone(),
             },
+            Vod::File(f) => f.title.clone(),
         }
     }
 
@@ -61,6 +72,7 @@ impl Vod {
         match self {
             Vod::Oer(f) => f.duration as f64,
             Vod::Jelly(j) => j.item.runtime_secs as f64,
+            Vod::File(_) => 0.0,
         }
     }
 
@@ -73,6 +85,7 @@ impl Vod {
                 .series_name
                 .clone()
                 .unwrap_or_else(|| "Jellyfin".to_string()),
+            Vod::File(f) => f.name.clone(),
         }
     }
 
@@ -90,6 +103,7 @@ impl Vod {
                 }
                 parts.join(" · ")
             }
+            Vod::File(_) => "Aufnahme".to_string(),
         }
     }
 
@@ -99,6 +113,7 @@ impl Vod {
             Vod::Oer(f) if f.description.is_empty() => f.topic.clone(),
             Vod::Oer(f) => f.description.clone(),
             Vod::Jelly(j) => j.item.overview.clone(),
+            Vod::File(_) => String::new(),
         }
     }
 
@@ -138,6 +153,7 @@ impl Vod {
                 }
                 lines
             }
+            Vod::File(f) => vec![f.name.clone(), f.path.display().to_string()],
         }
     }
 
@@ -146,6 +162,7 @@ impl Vod {
         match self {
             Vod::Oer(f) => crate::mediathek::sender_logo(app, &f.sender),
             Vod::Jelly(_) => crate::jellyfin::white_logo_path().filter(|p| p.exists()),
+            Vod::File(_) => None,
         }
     }
 }

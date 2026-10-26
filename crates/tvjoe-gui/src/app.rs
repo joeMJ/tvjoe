@@ -103,6 +103,9 @@ pub struct App {
     mediathek_button: gtk::Button,
     jellyfin_button: gtk::Button,
     jellyfin_logo: gtk::Image,
+    /// „<“ in der Kopfleiste, solange eine Ebene offen ist: zurück bzw. schließen (Nutzer,
+    /// 2026-10-26: die Meldungsleiste überdeckte das Kreuz der Ebene).
+    pub layer_back: gtk::Button,
     crop_button: gtk::Button,
     fill_button: gtk::Button,
     sat_button: gtk::Button,
@@ -219,6 +222,12 @@ impl App {
             .tooltip_text("Sender verwalten (Strg+E)")
             .build();
         header.pack_start(&manage_button);
+        let layer_back = gtk::Button::builder()
+            .icon_name("go-previous-symbolic")
+            .tooltip_text("Schließen (Esc)")
+            .visible(false)
+            .build();
+        header.pack_start(&layer_back);
         // Rechts (pack_end von außen nach innen): Bildgruppe Vollbild | Balken abschneiden |
         // Bild füllen (eingeschaltet mit weißer Linie wie beim Quellenumschalter), Einstellungen,
         // Programm, Info, davor abgesetzt der Quellenumschalter TV | Mediathek | Jellyfin
@@ -334,6 +343,7 @@ impl App {
             mediathek_button: mediathek_button.clone(),
             jellyfin_button: jellyfin_button.clone(),
             jellyfin_logo,
+            layer_back: layer_back.clone(),
             crop_button: crop_button.clone(),
             fill_button: fill_button.clone(),
             sat_button: sat_button.clone(),
@@ -367,9 +377,24 @@ impl App {
             vod_local: Cell::new(false),
         });
         let weak = Rc::downgrade(&app);
+        app.layer_back.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                crate::layer::back_or_close(&app);
+            }
+        });
+        let weak = Rc::downgrade(&app);
         app.osd.set_action_handler(move |a| {
             if let Some(app) = weak.upgrade() {
                 app.video_action(a);
+            }
+        });
+        // REC in der Info (Taste I): aufnehmen bzw. beenden, Info mit neuem Stand zeigen.
+        let weak = Rc::downgrade(&app);
+        app.info.set_record_handler(move || {
+            if let Some(app) = weak.upgrade() {
+                crate::ablage::toggle_record(&app);
+                app.info.hide();
+                app.toggle_info();
             }
         });
 
@@ -647,7 +672,7 @@ impl App {
         let (oer, jelly) = match self.vod.borrow().as_ref() {
             Some(Vod::Oer(_)) => (true, false),
             Some(Vod::Jelly(_)) => (false, true),
-            None => (false, false),
+            Some(Vod::File(_)) | None => (false, false),
         };
         for (b, on) in [
             (&self.tv_button, live && !self.sat.get()),
@@ -1484,6 +1509,16 @@ impl App {
         self.play_vod(Vod::Jelly(JellyVod::new(item.clone())), start, rest);
     }
 
+    /// Datei aus der Ablage abspielen (Aufnahme).
+    pub fn play_file(self: &Rc<Self>, title: &str, name: &str, path: &Path) {
+        let vod = Vod::File(crate::vod::FileVod {
+            title: title.to_string(),
+            name: name.to_string(),
+            path: path.to_path_buf(),
+        });
+        self.play_vod(vod, None, Vec::new());
+    }
+
     fn play_vod(self: &Rc<Self>, vod: Vod, start: Option<f64>, rest: Vec<Vod>) {
         *self.vod_next.borrow_mut() = rest;
         self.start_vod(vod, start);
@@ -1499,6 +1534,7 @@ impl App {
         let local = match &vod {
             Vod::Oer(film) => crate::ablage::local_file("oer", &film.url),
             Vod::Jelly(j) => crate::ablage::local_file("jellyfin", &j.item.id),
+            Vod::File(f) => Some(f.path.clone()),
         };
         self.vod_local.set(local.is_some());
         match (&vod, local) {
@@ -1512,6 +1548,7 @@ impl App {
                 trace(&format!("lade Mediathek {} ({url})", film.display_title()));
             }
             (Vod::Jelly(j), None) => self.load_jellyfin(j, start),
+            (Vod::File(_), None) => {}
         }
         if let Some(s) = start {
             self.msg.show(
@@ -1630,6 +1667,7 @@ impl App {
         match vod {
             Vod::Oer(film) => crate::mediathek::save_progress(&film, pos, dur),
             Vod::Jelly(j) => crate::jellyfin::report_position(&j, pos, dur, paused, stop),
+            Vod::File(_) => {}
         }
     }
 
@@ -1775,6 +1813,7 @@ impl App {
                     match &vod {
                         Vod::Oer(f) => crate::mediathek::save_progress(f, d, d),
                         Vod::Jelly(j) => crate::jellyfin::report_position(j, d, d, false, true),
+                        Vod::File(_) => {}
                     }
                 }
                 let next = {
@@ -2270,6 +2309,7 @@ impl App {
                     .borrow()
                     .first()
                     .map(|n| format!("Danach: {}", n.title())),
+                record: None,
             },
             None => {
                 let Some(id) = self.current.get() else { return };
@@ -2306,6 +2346,7 @@ impl App {
                             meta,
                             desc: p.desc.clone().unwrap_or_default().trim().to_string(),
                             next: nxt.map(|n| format!("Danach {}  {}", hm(n.start), n.title)),
+                            record: Some(crate::ablage::is_recording(id, self.sat.get())),
                         }
                     }
                     None => InfoContent {
@@ -2314,6 +2355,7 @@ impl App {
                         meta: vec!["Kein Programm (EPG) für diesen Sender".to_string()],
                         desc: String::new(),
                         next: None,
+                        record: Some(crate::ablage::is_recording(id, self.sat.get())),
                     },
                 }
             }

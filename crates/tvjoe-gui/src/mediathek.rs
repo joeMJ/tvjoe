@@ -52,6 +52,8 @@ enum Mode {
     Episodes,
     Films,
     Search,
+    /// In der Ablage (heruntergeladen, zwischengespeichert, teilweise).
+    Stored,
 }
 
 thread_local! {
@@ -89,6 +91,12 @@ pub fn start_background(app: &Rc<App>) {
         }
         None => glib::ControlFlow::Break,
     });
+}
+
+/// Beitrag zu einer Video-URL aus der Filmliste (Ablage), falls er noch darin steht.
+pub fn film_by_url(url: &str) -> Option<Film> {
+    let path = paths::mediathek_db().filter(|p| p.exists())?;
+    Mediathek::open(&path).ok()?.film_by_url(url)
 }
 
 fn maybe_update(app: &Rc<App>) {
@@ -450,7 +458,7 @@ struct MtWindow {
     header_start: gtk::Box,
     header_center: gtk::Widget,
     header_end: gtk::Box,
-    tabs: [gtk::ToggleButton; 3],
+    tabs: [gtk::ToggleButton; 4],
     search: gtk::SearchEntry,
     search_bar: gtk::Box,
     senders: gtk::Box,
@@ -570,9 +578,10 @@ const MIN_SIZE: (i32, i32) = (900, 600);
 impl MtWindow {
     fn new(app: &Rc<App>) -> Rc<Self> {
         let tab = |label: &str| gtk::ToggleButton::builder().label(label).build();
-        let tabs = [tab("Episoden"), tab("Filme"), tab("Suche")];
-        tabs[1].set_group(Some(&tabs[0]));
-        tabs[2].set_group(Some(&tabs[0]));
+        let tabs = [tab("Episoden"), tab("Filme"), tab("Suche"), tab("Heruntergeladen")];
+        for t in &tabs[1..] {
+            t.set_group(Some(&tabs[0]));
+        }
         tabs[0].set_active(true);
         let tab_box = gtk::Box::builder().css_classes(["linked"]).build();
         for t in &tabs {
@@ -711,7 +720,7 @@ impl MtWindow {
             });
         }
 
-        for (i, mode) in [Mode::Episodes, Mode::Films, Mode::Search]
+        for (i, mode) in [Mode::Episodes, Mode::Films, Mode::Search, Mode::Stored]
             .into_iter()
             .enumerate()
         {
@@ -938,6 +947,9 @@ impl MtWindow {
             .build();
         buttons.append(&resume);
         buttons.append(&play);
+        if let Some(app) = self.app.upgrade() {
+            buttons.append(&crate::ablage::film_store_button(&app, main));
+        }
         right.append(&buttons);
         for (b, from_start) in [(&resume, false), (&play, true)] {
             let (films, chosen) = (films.clone(), chosen.clone());
@@ -1140,15 +1152,19 @@ impl MtWindow {
             .css_classes(["boxed-list"])
             .selection_mode(gtk::SelectionMode::None)
             .build();
+        // Gewählte Staffel (für „Staffel herunterladen“).
+        let current: Rc<Cell<Option<u32>>> = Rc::new(Cell::new(None));
         let fill = {
-            let (list, episodes, app) = (list.clone(), episodes.clone(), app.clone());
+            let (list, episodes, app, current) =
+                (list.clone(), episodes.clone(), app.clone(), current.clone());
             move |season: Option<u32>| {
+                current.set(season);
                 while let Some(c) = list.first_child() {
                     list.remove(&c);
                 }
                 for (i, g) in episodes.iter().enumerate() {
                     if mediathek::season_episode(&g.main().title).0 == season {
-                        let row = episode_row(i, g);
+                        let row = episode_row(i, g, crate::ablage::film_badge(&app, g.main()));
                         film_menu(&app, &row, g.main().clone());
                         list.append(&row);
                     }
@@ -1168,6 +1184,30 @@ impl MtWindow {
             .margin_bottom(32)
             .build();
         body.append(&head);
+        // Gewählte Staffel herunterladen (ohne Staffeln: alle Folgen); die Beschriftung folgt
+        // der Staffelwahl.
+        let download = gtk::Button::builder()
+            .css_classes(["pill"])
+            .halign(gtk::Align::Start)
+            .child(
+                &adw::ButtonContent::builder()
+                    .icon_name("folder-download-symbolic")
+                    .label(season_download_label(&episodes, target_season))
+                    .build(),
+            )
+            .build();
+        {
+            let (app, episodes, current) = (app.clone(), episodes.clone(), current.clone());
+            download.connect_clicked(move |_| {
+                let s = current.get();
+                for g in episodes
+                    .iter()
+                    .filter(|g| mediathek::season_episode(&g.main().title).0 == s)
+                {
+                    crate::ablage::fetch_film(&app, g.main(), tvjoe_core::ablage::Art::Download);
+                }
+            });
+        }
         if seasons.len() > 1 {
             let row = gtk::Box::builder()
                 .css_classes(["linked"])
@@ -1186,10 +1226,13 @@ impl MtWindow {
                     Some(g) => b.set_group(Some(g)),
                     None => first = Some(b.clone()),
                 }
-                let fill = fill.clone();
+                let (fill, download, eps) = (fill.clone(), download.clone(), episodes.clone());
                 b.connect_toggled(move |b| {
                     if b.is_active() {
                         fill(season);
+                        if let Some(c) = download.child().and_downcast::<adw::ButtonContent>() {
+                            c.set_label(&season_download_label(&eps, season));
+                        }
                     }
                 });
                 // Rechtsklick auf den Staffelknopf: diese Staffel oder alle Folgen laden.
@@ -1222,6 +1265,7 @@ impl MtWindow {
             }
             body.append(&row);
         }
+        body.append(&download);
         body.append(&list);
 
         let play_from = {
@@ -1524,6 +1568,36 @@ impl MtWindow {
                     }
                     db.search_filtered(text.trim(), sender.as_deref(), &filter, FETCH)
                 }
+                // Aus der Ablage; was nicht mehr in der Filmliste steht, aus den Angaben der
+                // Ablage (spielt dann aus der lokalen Datei).
+                Mode::Stored => crate::ablage::stored("oer")
+                    .into_iter()
+                    .map(|e| {
+                        db.film_by_url(&e.key).unwrap_or_else(|| {
+                            let (sender, topic) = e
+                                .subtitle
+                                .split_once(" · ")
+                                .map(|(a, b)| (a.to_string(), b.to_string()))
+                                .unwrap_or_default();
+                            Film {
+                                id: -e.id,
+                                sender,
+                                topic,
+                                title: e.title.clone(),
+                                timestamp: e.created,
+                                duration: 0,
+                                description: String::new(),
+                                url: e.key.clone(),
+                                url_low: None,
+                                url_hd: None,
+                                website: None,
+                                subtitle: None,
+                                kind: Kind::Other,
+                            }
+                        })
+                    })
+                    .filter(|f| sender.as_deref().is_none_or(|s| f.sender == s))
+                    .collect(),
             }
         };
         // Episoden: eine Kachel je Serie (Sender + Thema, neueste Folge vorn), ohne Sport.
@@ -1591,7 +1665,7 @@ impl MtWindow {
                 })
             });
             let seen = if series { None } else { seen };
-            let badge = (!series).then(|| crate::ablage::badge("oer", &film.url));
+            let badge = (!series).then(|| crate::ablage::film_badge(&app, film));
             let (tile, thumb) = tile(group, logo.as_deref(), seen, count, badge.as_ref());
             if series {
                 self.series_menu(&tile, film.clone());
@@ -1614,6 +1688,19 @@ impl MtWindow {
         {
             adj.set_value(0.0);
         }
+    }
+}
+
+/// „Staffel 2 herunterladen (10)“; ohne Staffelangaben „Alle Folgen herunterladen (n)“.
+fn season_download_label(episodes: &[Group], season: Option<u32>) -> String {
+    let n = episodes
+        .iter()
+        .filter(|g| mediathek::season_episode(&g.main().title).0 == season)
+        .count();
+    match season {
+        Some(k) => format!("Staffel {k} herunterladen ({n})"),
+        None if n == episodes.len() => format!("Alle Folgen herunterladen ({n})"),
+        None => format!("Weitere herunterladen ({n})"),
     }
 }
 
@@ -1682,7 +1769,7 @@ fn episode_title(f: &Film) -> String {
 }
 
 /// Zeile der Folgenliste; der Widget-Name trägt die Nummer in der Folgenliste.
-fn episode_row(index: usize, group: &Group) -> gtk::ListBoxRow {
+fn episode_row(index: usize, group: &Group, badge: gtk::Button) -> gtk::ListBoxRow {
     let film = group.main();
     let code = gtk::Label::builder()
         .label(episode_code(film))
@@ -1737,7 +1824,6 @@ fn episode_row(index: usize, group: &Group) -> gtk::ListBoxRow {
         .build();
     hbox.append(&code);
     hbox.append(&text);
-    let badge = crate::ablage::badge("oer", &group.main().url);
     badge.set_valign(gtk::Align::Center);
     badge.set_margin_bottom(0);
     hbox.append(&badge);
@@ -1756,7 +1842,7 @@ fn tile(
     logo: Option<&Path>,
     seen: Option<f64>,
     series_count: Option<i64>,
-    badge: Option<&gtk::Image>,
+    badge: Option<&gtk::Button>,
 ) -> (gtk::Box, gtk::Picture) {
     let film = group.main();
     let fallback: gtk::Widget = match logo {

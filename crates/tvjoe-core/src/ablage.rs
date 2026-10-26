@@ -478,16 +478,41 @@ pub fn download(
     path: &Path,
     progress: &Progress,
 ) -> Result<(), String> {
+    // Jede Anfrage hat eine Zeitgrenze für den ganzen Empfang (ureq kennt keine für eine
+    // stockende Verbindung). Bricht sie ab, nachdem etwas angekommen ist, geht es mit `Range`
+    // weiter; kam bei einem Versuch nichts an, ist die Verbindung gestört.
+    loop {
+        let before = std::fs::metadata(part_path(path)).map(|m| m.len()).unwrap_or(0);
+        match download_once(url, header, path, progress) {
+            Ok(()) => return Ok(()),
+            Err(e) if progress.cancelled() => return Err(e),
+            Err(e) => {
+                let after = std::fs::metadata(part_path(path)).map(|m| m.len()).unwrap_or(0);
+                if after <= before {
+                    return Err(e);
+                }
+            }
+        }
+    }
+}
+
+/// Ein Versuch von [`download`] (höchstens zehn Minuten Empfang).
+fn download_once(
+    url: &str,
+    header: Option<&str>,
+    path: &Path,
+    progress: &Progress,
+) -> Result<(), String> {
     use std::io::{Read, Write};
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let part = part_path(path);
     let have = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
-    // Keine Gesamtzeitgrenze (große Dateien), aber eine für stockende Verbindungen.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(15)))
-        .timeout_recv_body(Some(Duration::from_secs(60)))
+        .timeout_recv_response(Some(Duration::from_secs(60)))
+        .timeout_recv_body(Some(Duration::from_secs(600)))
         .http_status_as_error(false)
         .build()
         .into();

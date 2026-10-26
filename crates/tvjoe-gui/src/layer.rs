@@ -68,6 +68,8 @@ impl Layer {
         let title = gtk::Label::builder().css_classes(["tvjoe-name"]).build();
         let start = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let left = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        // Zurück/Schließen sitzt als „<“ in der Kopfleiste des Hauptfensters.
+        button.set_visible(false);
         left.append(&button);
         left.append(&title);
         left.append(&start);
@@ -206,10 +208,14 @@ fn show_in_window(app: &Rc<App>, view: Rc<dyn View>) {
         detach(&e);
         header.pack_end(&e);
     }
+    // „<“ immer da: zurück, auf der obersten Seite schließt er das Fenster.
     let back = gtk::Button::builder()
         .icon_name("go-previous-symbolic")
-        .tooltip_text("Zurück (Esc)")
-        .visible(view.can_go_back())
+        .tooltip_text(if view.can_go_back() {
+            "Zurück (Esc)"
+        } else {
+            "Schließen (Esc)"
+        })
         .build();
     header.pack_start(&back);
     if let Some(s) = view.header_start() {
@@ -228,11 +234,16 @@ fn show_in_window(app: &Rc<App>, view: Rc<dyn View>) {
         .default_height((mh * 5 / 4).max(560))
         .content(&tv)
         .build();
-    let v = view.clone();
-    let b = back.clone();
+    let (v, b, w) = (view.clone(), back.clone(), win.clone());
     back.connect_clicked(move |_| {
-        v.back();
-        b.set_visible(v.can_go_back());
+        if !v.back() {
+            w.close();
+        }
+        b.set_tooltip_text(Some(if v.can_go_back() {
+            "Zurück (Esc)"
+        } else {
+            "Schließen (Esc)"
+        }));
     });
     let keys = gtk::EventControllerKey::new();
     let (v, b, w) = (view.clone(), back.clone(), win.clone());
@@ -243,7 +254,11 @@ fn show_in_window(app: &Rc<App>, view: Rc<dyn View>) {
         if !v.back() {
             w.close();
         }
-        b.set_visible(v.can_go_back());
+        b.set_tooltip_text(Some(if v.can_go_back() {
+            "Zurück (Esc)"
+        } else {
+            "Schließen (Esc)"
+        }));
         glib::Propagation::Stop
     });
     win.add_controller(keys);
@@ -270,18 +285,16 @@ fn show_in_window(app: &Rc<App>, view: Rc<dyn View>) {
 /// Kopfzeile nach dem Zustand der Ansicht (Kreuz oder Pfeil zurück).
 pub fn update_header(app: &App) {
     let layer = &app.layer;
-    if let Some(cur) = layer.current.borrow().as_ref() {
-        let back = cur.can_go_back();
-        layer.button.set_icon_name(if back {
-            "go-previous-symbolic"
-        } else {
-            "window-close-symbolic"
-        });
-        layer.button.set_tooltip_text(Some(if back {
-            "Zurück (Esc)"
-        } else {
-            "Schließen (Esc)"
-        }));
+    match layer.current.borrow().as_ref() {
+        Some(cur) => {
+            app.layer_back.set_tooltip_text(Some(if cur.can_go_back() {
+                "Zurück (Esc)"
+            } else {
+                "Schließen (Esc)"
+            }));
+            app.layer_back.set_visible(true);
+        }
+        None => app.layer_back.set_visible(false),
     }
     // Fenster: Zurück-Knopf in deren Kopfleiste nachziehen.
     for (v, w) in layer.windows.borrow().iter() {
@@ -290,7 +303,11 @@ pub fn update_header(app: &App) {
             .and_downcast::<adw::ToolbarView>()
             .and_then(|tv| find_back_button(&tv))
         {
-            b.set_visible(v.can_go_back());
+            b.set_tooltip_text(Some(if v.can_go_back() {
+                "Zurück (Esc)"
+            } else {
+                "Schließen (Esc)"
+            }));
         }
     }
 }
@@ -347,6 +364,7 @@ pub fn close_layer(app: &Rc<App>) {
         }
     }
     layer.root.set_visible(false);
+    app.layer_back.set_visible(false);
     app.set_layer_active(false);
     cur.closed();
 }

@@ -876,6 +876,18 @@ impl Mediathek {
         .unwrap_or_default()
     }
 
+    /// Beitrag zu einer Video-URL (Kennung in der Ablage); `None`, wenn er nicht mehr in der
+    /// Filmliste steht.
+    pub fn film_by_url(&self, url: &str) -> Option<Film> {
+        self.conn
+            .query_row(
+                &format!("SELECT {COLUMNS} FROM films WHERE url = ?1 LIMIT 1"),
+                [url],
+                row_to_film,
+            )
+            .ok()
+    }
+
     /// Volltextsuche in Titel, Thema und Beschreibung (alle Wörter, Wortanfänge genügen).
     pub fn search(&self, text: &str, sender: Option<&str>, limit: usize) -> Vec<Film> {
         self.search_filtered(text, sender, &Filter::ALL, limit)
