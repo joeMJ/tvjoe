@@ -2732,7 +2732,9 @@ msgstr ""
 #: crates/tvjoe-gui/src/satip.rs:166
 #, no-c-format
 msgid "{n} Tuner"
-msgstr ""
+msgid_plural "{n} Tuner"
+msgstr[0] ""
+msgstr[1] ""
 
 #: crates/tvjoe-gui/src/satip.rs:171
 #, no-c-format
@@ -2822,7 +2824,9 @@ msgstr ""
 #: crates/tvjoe-gui/src/satip.rs:299
 #, no-c-format
 msgid "{n} Sender gespeichert"
-msgstr ""
+msgid_plural "{n} Sender gespeichert"
+msgstr[0] ""
+msgstr[1] ""
 
 #: crates/tvjoe-gui/src/satip.rs:31
 msgid "SAT-Quelle verwenden"

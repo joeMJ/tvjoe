@@ -8,7 +8,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::glib;
 use tvjoe_core::satip::{self, CheckResult, ScanProgress};
-use tvjoe_core::{Library, Settings, paths, tf, tr};
+use tvjoe_core::{Library, Settings, paths, tf, tr, trn};
 
 use crate::app::App;
 
@@ -163,7 +163,7 @@ fn show_result(
     }
     add(adw::ActionRow::builder()
         .title(&name)
-        .subtitle(tf!("{n} Tuner", n = r.tuners))
+        .subtitle(trn("{n} Tuner", "{n} Tuner", u64::from(r.tuners)))
         .build()
         .upcast());
     for t in &r.status {
@@ -296,7 +296,7 @@ fn list_summary() -> String {
         .unwrap_or_default();
     match lib.channels.iter().filter(|c| !c.missing).count() {
         0 => tr("Noch keine Sender gespeichert").to_string(),
-        n => tf!("{n} Sender gespeichert", n = n),
+        n => trn("{n} Sender gespeichert", "{n} Sender gespeichert", n as u64),
     }
 }
 

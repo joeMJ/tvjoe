@@ -4,77 +4,81 @@
 
 # tvjoe
 
-> **Schlanker Streaming-Client für Live-TV unter Linux und Windows.**
-> Fernsehen aus eigenen M3U-Listen, Satellit über einen SAT>IP-Empfänger im Heimnetz, die Mediathek
-> der öffentlich-rechtlichen Sender und der eigene Jellyfin-Server – in einem Fenster.
+[Deutsch](README.de.md) · **English**
+
+> **Lightweight streaming client for live TV on Linux and Windows.**
+> TV from your own M3U lists, satellite through a SAT>IP receiver on your home network, the
+> Mediathek of the German public broadcasters and your own Jellyfin server – in one window.
 
 <p align="center">
-  <a href="https://www.johnlose.de/unterstutzung-fur-john-joe-lose/"><img src="docs/knoepfe/danke.svg" alt="Danke sagen an John" width="300"></a>
+  <a href="https://www.johnlose.de/unterstutzung-fur-john-joe-lose/"><img src="docs/knoepfe/danke.svg" alt="Say thanks to John" width="300"></a>
 </p>
 <p align="center">
-  <a href="docs/INSTALLATION.md#installation-windows"><img src="docs/knoepfe/windows.svg" alt="Auf Windows installieren" width="260"></a>
+  <a href="docs/INSTALLATION.md#installation-windows"><img src="docs/knoepfe/windows.svg" alt="Install on Windows" width="260"></a>
   &nbsp;
-  <a href="docs/INSTALLATION.md#installation-ubuntu"><img src="docs/knoepfe/ubuntu.svg" alt="Auf Ubuntu installieren" width="260"></a>
+  <a href="docs/INSTALLATION.md#installation-ubuntu"><img src="docs/knoepfe/ubuntu.svg" alt="Install on Ubuntu" width="260"></a>
 </p>
 
-tvjoe liefert keine Senderlisten mit; die Sender kommen aus eigenen Listen oder vom eigenen
-SAT>IP-Empfänger.
+tvjoe does not ship any channel lists; channels come from your own lists or from your own SAT>IP
+receiver.
 
-- **Schnell und sparsam:** Rust, GTK4/libadwaita und libmpv mit Hardware-Decoding. Live-TV in
-  1080p50 braucht gemessen 6–9 % eines Prozessorkerns.
-- **Vier Quellen, ein Umschalter:** TV | SAT | Mediathek | Jellyfin in der Kopfleiste. Programm,
-  Mediathek und Verwaltung liegen als Ebene über dem Bild, der Ton läuft weiter.
-- **Fernsehen wie gewohnt:** Ziffernblock, Senderliste mit laufender Sendung, Einblendung mit
-  Jetzt/Danach, Programmraster aus XMLTV.
+- **Fast and frugal:** Rust, GTK4/libadwaita and libmpv with hardware decoding. Live TV in 1080p50
+  uses 6–9 % of one CPU core (measured).
+- **Four sources, one switch:** TV | SAT | Mediathek | Jellyfin in the header bar. Guide,
+  Mediathek and channel management open as a layer over the picture; the sound keeps playing.
+- **TV as you know it:** number pad, channel list with the current show, banner with Now/Next,
+  guide grid from XMLTV.
 
-## Dokumentation
+The user interface is available in German and English (Settings → Controls → Language).
 
-- [`docs/INSTALLATION.md`](docs/INSTALLATION.md) – Installation unter Ubuntu und Windows
-- [`docs/ERSTE-SCHRITTE.md`](docs/ERSTE-SCHRITTE.md) – Senderliste übernehmen, Programm eintragen, sortieren, sichern
-- [`docs/SAT-IP.md`](docs/SAT-IP.md) – SAT>IP-Empfänger einrichten, Suchlauf, Firewall, unterwegs per WireGuard
-- [`docs/MEDIATHEK.md`](docs/MEDIATHEK.md) – Mediathek der öffentlich-rechtlichen Sender und Jellyfin
-- [`docs/DATENSCHUTZ.md`](docs/DATENSCHUTZ.md) – alle Netzzugriffe
-- [`docs/BAUEN.md`](docs/BAUEN.md) – selbst bauen, Kommandozeile
-- [`THIRD_PARTY.md`](THIRD_PARTY.md) – verwendete Bibliotheken Dritter mit Lizenzen
+## Documentation
+
+The detailed documentation is in German:
+
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md) – installation on Ubuntu and Windows
+- [`docs/ERSTE-SCHRITTE.md`](docs/ERSTE-SCHRITTE.md) – first steps: import a channel list, add a guide, sort, back up
+- [`docs/SAT-IP.md`](docs/SAT-IP.md) – set up a SAT>IP receiver, channel scan, firewall, on the road via WireGuard
+- [`docs/MEDIATHEK.md`](docs/MEDIATHEK.md) – Mediathek of the public broadcasters and Jellyfin
+- [`docs/DATENSCHUTZ.md`](docs/DATENSCHUTZ.md) – privacy: every network access
+- [`docs/BAUEN.md`](docs/BAUEN.md) – building it yourself, command line
+- [`THIRD_PARTY.md`](THIRD_PARTY.md) – third-party libraries and their licences
 
 > [!WARNING]
-> **Privates Hobbyprojekt – nicht gepflegt / unmaintained.**
-> Dieses Repository ist für meinen eigenen Gebrauch gedacht und wird nur aus Bequemlichkeit öffentlich bereitgestellt.
+> **Private hobby project – unmaintained.**
+> This repository is meant for my own use and is only public for convenience.
 >
-> * **Keine Unterstützung zugesagt:** Pull Requests werden nicht bearbeitet, Feature-Wünsche nicht zugesagt. Fehler und Wünsche können gemeldet werden (siehe [Fehler melden und Wünsche](#fehler-melden-und-wünsche)) – es kann aber dauern, bis sie bearbeitet werden.
-> * **Keine Garantie, Haftung:** Das Programm wird unentgeltlich als Privatprojekt „wie besehen“ bereitgestellt. Es besteht kein Anspruch auf Verfügbarkeit, Fehlerfreiheit, Aktualisierungen oder Support. Für Schäden aus der Nutzung hafte ich nur bei Vorsatz, grober Fahrlässigkeit sowie bei Verletzung von Leben, Körper oder Gesundheit; im Übrigen nur nach den gesetzlichen Vorschriften.
-> * **Eigene Umgebung:** Entwickelt und getestet nur auf meinen eigenen Rechnern (Ubuntu 24.04 und 26.04, Windows 10). Die Windows-Fassung ist neu. Auf anderen Systemen kann es fehlschlagen.
-> * **Netzwerk:** Das Programm läuft mit den Rechten deines Benutzerkontos und verbindet sich mit den Quellen, die du einträgst. Welche Zugriffe es sonst gibt, steht in [`docs/DATENSCHUTZ.md`](docs/DATENSCHUTZ.md). **Lies den Code, bevor du ihn installierst.**
-> * **Keine Updates zugesichert:** Es kann jederzeit ohne Ankündigung Änderungen, Brüche oder die Löschung des Repos geben.
->
-> *Private hobby project, unmaintained, provided as-is. No guaranteed support, no warranty.*
+> * **No support promised:** Pull requests are not handled, feature requests are not promised. Bugs and requests can be reported (see [Reporting bugs and requests](#reporting-bugs-and-requests)) – but it may take a while until they are dealt with.
+> * **No warranty, liability:** The program is provided free of charge as a private project “as is”. There is no claim to availability, freedom from errors, updates or support. I am liable for damage from its use only in cases of intent, gross negligence and injury to life, body or health; otherwise only according to the statutory provisions.
+> * **Own environment:** Developed and tested only on my own computers (Ubuntu 24.04 and 26.04, Windows 10). The Windows version is new. It may fail on other systems.
+> * **Network:** The program runs with the rights of your user account and connects to the sources you enter. Which other accesses there are is listed in [`docs/DATENSCHUTZ.md`](docs/DATENSCHUTZ.md). **Read the code before you install it.**
+> * **No updates guaranteed:** There may be changes, breakage or deletion of the repository at any time without notice.
 
 <p align="center">
-  <img src="docs/screenshots/senderliste.webp" alt="Hauptfenster: Senderliste mit laufender Sendung über dem Bild" width="760">
+  <img src="docs/screenshots/senderliste.webp" alt="Main window: channel list with the current show over the picture" width="760">
   <br>
-  <em>Senderliste über dem Bild (L blendet sie ein und aus)</em>
+  <em>Channel list over the picture (L shows and hides it)</em>
   <br><br>
-  <img src="docs/screenshots/info.webp" alt="Info über das ganze Bild mit Sendung, Beschreibung und Empfang" width="760">
+  <img src="docs/screenshots/info.webp" alt="Full-screen info with show, description and reception" width="760">
   <br>
-  <em>Info über das ganze Bild (Taste I), hier ein SAT-Sender mit Empfangsanzeige</em>
+  <em>Full-screen info (key I), here a SAT channel with reception display</em>
   <br><br>
-  <img src="docs/screenshots/programm.webp" alt="Programmraster mit laufenden Sendungen" width="760">
+  <img src="docs/screenshots/programm.webp" alt="Guide grid with current shows" width="760">
   <br>
-  <em>Programmraster (G)</em>
+  <em>Guide grid (G)</em>
   <br><br>
-  <img src="docs/screenshots/mediathek.webp" alt="Mediathek der öffentlich-rechtlichen Sender: Serien mit Vorschaubildern" width="760">
+  <img src="docs/screenshots/mediathek.webp" alt="Mediathek of the public broadcasters: series with preview images" width="760">
   <br>
-  <em>Mediathek der öffentlich-rechtlichen Sender (Filmliste von MediathekView)</em>
+  <em>Mediathek of the public broadcasters (film list from MediathekView)</em>
 </p>
 
 ---
 
-## Plattform-Übersicht
+## Platforms
 
-| Plattform | Status | Hinweis |
+| Platform | Status | Note |
 | :--- | :--- | :--- |
-| **Linux (Ubuntu 24.04 / 26.04)** | Aktiv | Paket je Ubuntu-Version, Installation per Skript ([Installation](docs/INSTALLATION.md#installation-ubuntu)) |
-| **Windows 10/11** | Neu | MSI pro Benutzer ohne Administratorrechte ([Installation](docs/INSTALLATION.md#installation-windows)); OpenGL vom Grafiktreiber nötig |
+| **Linux (Ubuntu 24.04 / 26.04)** | Active | One package per Ubuntu version, installed by script ([Installation](docs/INSTALLATION.md#installation-ubuntu)) |
+| **Windows 10/11** | New | Per-user MSI without administrator rights ([Installation](docs/INSTALLATION.md#installation-windows)); needs OpenGL from the graphics driver |
 
 ## Installation
 
@@ -84,113 +88,113 @@ SAT>IP-Empfänger.
   curl -fsSL https://raw.githubusercontent.com/joeMJ/tvjoe/main/install.sh | bash
   ```
 
-- **Windows 10/11:** MSI von der [Release-Seite](https://github.com/joeMJ/tvjoe/releases/latest) –
+- **Windows 10/11:** MSI from the [release page](https://github.com/joeMJ/tvjoe/releases/latest) –
   [Installation (Windows)](docs/INSTALLATION.md#installation-windows).
 
 > [!IMPORTANT]
-> **Windows: vor der ersten Installation das Zertifikat des Herausgebers eintragen.** Die MSI ist mit einem selbst
-> ausgestellten Zertifikat signiert; ohne eingetragenes Zertifikat meldet Windows einen „unbekannten Herausgeber“.
-> Befehl, Fingerabdruck und Erklärung: [Zertifikat des Herausgebers](docs/INSTALLATION.md#zertifikat-des-herausgebers).
+> **Windows: add the publisher's certificate before the first installation.** The MSI is signed with a
+> self-issued certificate; without the certificate Windows reports an “unknown publisher”.
+> Command, fingerprint and explanation: [Publisher certificate](docs/INSTALLATION.md#zertifikat-des-herausgebers) (German).
 
 ---
 
-## Was das Programm kann
+## What it can do
 
-- **Senderliste** mit Nummern, Logos und laufender Sendung; Einblendung beim Umschalten (Nummer,
-  Name, Qualität, Jetzt/Danach, bei SAT der Empfang); Info über das ganze Bild (I).
-- **Umschalten** per Ziffernblock, Pfeiltasten oder Klick; Qualitätsstufen SD/720p/1080p/UHD mit
-  Ausweichen bei Störungen.
-- **M3U-Import** aus Datei oder URL mit Vorschau, Prüfung und Erreichbarkeitstest; Teilimport.
-- **Senderverwaltung:** Umbenennen, Nummern, Reihenfolge (Ziehen mit Mitlaufen am Rand, an den
-  Anfang, ans Ende), Aktiv/Favorit, Export als M3U8. Inaktive Sender zählen bei den Nummern nicht
-  mit; neue Sender aus Import oder Suchlauf kommen inaktiv ans Ende und stören die Sortierung nicht.
-- **SAT-Quelle** über einen SAT>IP-Empfänger (z. B. EyeTV Netstream 4Sat, Astra 19,2° Ost):
-  Prüfen von Gerät und Empfang, Suchlauf in eine eigene SAT-Senderliste, Empfangsanzeige,
-  Programm über die vorhandene XMLTV-Quelle – siehe [`docs/SAT-IP.md`](docs/SAT-IP.md).
-- **Programmführer** aus XMLTV (auch `.xml.gz`), Programmraster.
-- **Mediathek** der öffentlich-rechtlichen Sender: Serien mit Staffeln, Filme, Suche; Fassungen
-  zusammengefasst; Weitersehen, nächste Folge automatisch.
-- **Jellyfin** als zweite Mediathek: Anmeldung per Quick Connect (ohne Passwort in tvjoe),
-  Gesehen-Stand mit Jellyfin abgeglichen, Bandbreitengrenze mit Umrechnung auf dem Server.
-- **Zeilensprung entfernen** gegen Kammstreifen bei 576i/1080i (abschaltbar).
-- **Logos** für Internet- und SAT-Sender getrennt ein- und ausschaltbar.
-- **Sicherung:** Einstellungen und beide Senderlisten in eine Datei exportieren und wieder
-  importieren (ohne Jellyfin-Anmeldung).
-- **Updateprüfung** über die Releases dieses Repositorys (standardmäßig aus).
+- **Channel list** with numbers, logos and the current show; banner when switching (number, name,
+  quality, Now/Next, reception for SAT); full-screen info (I).
+- **Switching** by number pad, arrow keys or click; quality levels SD/720p/1080p/UHD with
+  fallback on disturbances.
+- **M3U import** from file or URL with preview, check and reachability test; partial import.
+- **Channel management:** rename, numbers, order (drag with auto-scroll at the edge, to the top, to
+  the end), active/favourite, export as M3U8. Inactive channels do not count for the numbers; new
+  channels from an import or scan are added inactive at the end and do not disturb the order.
+- **SAT source** through a SAT>IP receiver (e.g. EyeTV Netstream 4Sat, Astra 19.2° East): check of
+  device and reception, scan into a separate SAT channel list, reception display, guide through
+  the existing XMLTV source – see [`docs/SAT-IP.md`](docs/SAT-IP.md).
+- **Programme guide** from XMLTV (also `.xml.gz`), guide grid.
+- **Mediathek** of the public broadcasters: series with seasons, films, search; versions merged;
+  continue watching, next episode automatically.
+- **Jellyfin** as a second Mediathek: sign-in via Quick Connect (no password in tvjoe), watched
+  state synchronised with Jellyfin, bandwidth limit with transcoding on the server.
+- **Deinterlacing** against combing on 576i/1080i (can be switched off).
+- **Logos** for internet and SAT channels, switchable separately.
+- **Backup:** export settings and both channel lists to one file and import them again (without the
+  Jellyfin sign-in).
+- **Update check** via the releases of this repository (off by default).
 
 <p align="center">
-  <img src="docs/screenshots/verwaltung.webp" alt="Senderverwaltung mit Nummern, Logos, Gruppen, Qualitäten und Programmzuordnung" width="760">
+  <img src="docs/screenshots/verwaltung.webp" alt="Channel management with numbers, logos, groups, qualities and guide assignment" width="760">
   <br>
-  <em>Senderverwaltung (Strg+E)</em>
+  <em>Channel management (Ctrl+E)</em>
 </p>
 
-## Tasten
+## Keys
 
-| Taste | Wirkung |
+| Key | Action |
 |---|---|
-| Ziffern, Enter | Sender wählen (Pause einstellbar) |
-| ← / →, Bild ↑ / ↓ | Sender wechseln |
-| ↑ / ↓, + / −, Mausrad | Lautstärke |
-| Q | Qualität eine Stufe höher |
-| F, Doppelklick / Esc | Vollbild / Vollbild aus |
-| M | Ton aus/an |
-| L | Senderliste ein/aus |
-| I, Esc | Info über das ganze Bild ein / aus |
-| A | Tonspur wechseln |
-| U | Untertitel wechseln (Spur 1 … letzte, dann aus) |
-| Z | Bild füllen / einpassen |
-| Leertaste | Fernsehen anhalten / zeitversetzt weiter |
-| Bild ↑ / ↓ (zeitversetzt) | 1 Minute zurück / vor |
-| Ende | zurück auf live |
-| R | laufende Sendung aufnehmen / Aufnahme beenden |
-| G | Programmraster |
-| Strg+E | Sender verwalten |
-| Strg+, | Einstellungen |
-| Strg+Q | Beenden |
+| Digits, Enter | Choose a channel (pause adjustable) |
+| ← / →, Page Up / Down | Change channel |
+| ↑ / ↓, + / −, mouse wheel | Volume |
+| Q | Quality one level higher |
+| F, double-click / Esc | Fullscreen / leave fullscreen |
+| M | Mute / unmute |
+| L | Channel list on/off |
+| I, Esc | Full-screen info on / off |
+| A | Change audio track |
+| U | Change subtitles (track 1 … last, then off) |
+| Z | Fill picture / fit |
+| Space | Pause live TV / continue time-shifted |
+| Page Up / Down (time-shifted) | 1 minute back / forward |
+| End | Back to live |
+| R | Record the current show / stop recording |
+| G | Guide grid |
+| Ctrl+E | Manage channels |
+| Ctrl+, | Settings |
+| Ctrl+Q | Quit |
 
-Beim Abspielen aus der Mediathek oder von Jellyfin:
+When playing from the Mediathek or from Jellyfin:
 
-| Taste | Wirkung |
+| Key | Action |
 |---|---|
-| Leertaste | Pause / weiter |
-| ← / → | 10 Sekunden zurück / vor |
-| Bild ↑ / ↓ | 1 Minute zurück / vor |
-| Ziffern, Senderliste | zurück zum Fernsehen |
+| Space | Pause / continue |
+| ← / → | 10 seconds back / forward |
+| Page Up / Down | 1 minute back / forward |
+| Digits, channel list | Back to TV |
 
-## Datenschutz
+## Privacy
 
-tvjoe sendet keine Nutzungsdaten und hat keine Telemetrie. Es verbindet sich mit den Quellen, die
-du einträgst; alle Netzzugriffe im Einzelnen: [`docs/DATENSCHUTZ.md`](docs/DATENSCHUTZ.md).
+tvjoe sends no usage data and has no telemetry. It connects to the sources you enter; every
+network access in detail: [`docs/DATENSCHUTZ.md`](docs/DATENSCHUTZ.md) (German).
 
-## Mediathek und MediathekView
+## Mediathek and MediathekView
 
-Die Mediathek nutzt die Filmliste von [MediathekView](https://mediathekview.de/), einem
-ehrenamtlichen Projekt, das die Mediatheken der öffentlich-rechtlichen Sender verzeichnet. tvjoe
-lädt die Liste höchstens einmal täglich; die Videos kommen direkt von den Sendern.
-MediathekView finanziert die Server über Spenden – wer die Mediathek in tvjoe nutzt, kann das
-Projekt hier unterstützen: [mediathekview.de/spenden](https://mediathekview.de/spenden/).
+The Mediathek uses the film list of [MediathekView](https://mediathekview.de/), a volunteer
+project that indexes the Mediatheken of the German public broadcasters. tvjoe downloads the list
+at most once a day; the videos come directly from the broadcasters.
+MediathekView funds its servers through donations – if you use the Mediathek in tvjoe, you can
+support the project here: [mediathekview.de/spenden](https://mediathekview.de/spenden/).
 
-## Fehler melden und Wünsche
+## Reporting bugs and requests
 
-Am einfachsten über **Einstellungen → Updates → „Fehler melden / Wunsch“**: Das öffnet die
-[Issues bei GitHub](https://github.com/joeMJ/tvjoe/issues) im Browser (GitHub-Konto nötig). Es
-kann dauern, bis ein Issue bearbeitet wird.
+The easiest way is **Settings → Updates → “Report a bug / request a feature”**: it opens the
+[issues on GitHub](https://github.com/joeMJ/tvjoe/issues) in the browser (GitHub account required).
+It may take a while until an issue is dealt with.
 
-Hilfreich sind:
+Helpful are:
 
-- Version (**Einstellungen → Updates → Über tvjoe**) und System (z. B. Ubuntu 26.04)
-- Quelle (TV, SAT, Mediathek, Jellyfin) und was genau passiert
-- Schritte, mit denen sich der Fehler wiederholen lässt, und der Wortlaut einer Meldung
+- Version (**Settings → Updates → About tvjoe**) and system (e.g. Ubuntu 26.04)
+- Source (TV, SAT, Mediathek, Jellyfin) and what exactly happens
+- Steps that reproduce the bug, and the exact wording of a message
 
-**Nie mitschicken:** den Zugangsschlüssel für Jellyfin (`~/.config/tvjoe/jellyfin.toml`) und
-Senderlisten mit Zugangsdaten in den Adressen. Interne Adressen und Namen in Bildschirmfotos bitte
-unkenntlich machen.
+**Never include:** the access key for Jellyfin (`~/.config/tvjoe/jellyfin.toml`) and channel lists
+with credentials in their addresses. Please make internal addresses and names in screenshots
+unrecognisable.
 
-## Lizenz
+## Licence
 
-Apache-2.0, siehe [LICENSE](LICENSE). Bibliotheken Dritter und ihre Lizenzen:
+Apache-2.0, see [LICENSE](LICENSE). Third-party libraries and their licences:
 [THIRD_PARTY.md](THIRD_PARTY.md).
 
-Die Ubuntu-Pakete von libmpv stehen laut deren copyright-Datei unter GPL-3+ (gelinkt gegen
-libsmbclient). Für die ausgelieferten tvjoe-Binärpakete gelten diese Bedingungen zusätzlich;
-Apache-2.0 ist mit GPL-3 verträglich.
+According to their copyright file, the Ubuntu packages of libmpv are under GPL-3+ (linked against
+libsmbclient). These terms apply additionally to the distributed tvjoe binary packages;
+Apache-2.0 is compatible with GPL-3.
