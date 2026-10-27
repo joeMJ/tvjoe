@@ -25,9 +25,9 @@ umgeschaltet wird mit dem Schüssel-Knopf im Quellenumschalter der Kopfleiste.
    Radio, Platzhalter und Testdienste bleiben weg.
 
 <p align="center">
-  <img src="screenshots/einstellungen-sat.webp" alt="Einstellungen, Reiter SAT>IP mit Adresse, Prüfen und Suchlauf" width="760">
+  <img src="screenshots/einstellungen-sat.webp" alt="Einstellungen → Empfang, Seite der Netstream 4Sat mit Adresse, Prüfen und Suchlauf" width="760">
   <br>
-  <em>Einrichtung des SAT>IP-Geräts (Beispieladresse; Bild aus einer älteren Fassung mit eigenem Reiter „SAT>IP“)</em>
+  <em>Einstellungen → Empfang → EyeTV Netstream 4Sat (Beispieladresse)</em>
 </p>
 
 Ein erneuter Suchlauf behält Nummern, eigene Namen, Favoriten und den Aktiv-Zustand. Neu
