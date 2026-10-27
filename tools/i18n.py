@@ -19,7 +19,7 @@ POT = PO / "tvjoe.pot"
 
 STR = r'"((?:[^"\\]|\\.)*)"'
 PATTERNS = [
-    ("tr", re.compile(r"\btr\(\s*" + STR + r"\s*\)", re.S)),
+    ("tr", re.compile(r"\btr\(\s*" + STR + r"\s*,?\s*\)", re.S)),
     ("tf", re.compile(r"\btf!\(\s*" + STR, re.S)),
     ("trn", re.compile(r"\btrn\(\s*" + STR + r"\s*,\s*" + STR, re.S)),
 ]

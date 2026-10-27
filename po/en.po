@@ -643,10 +643,11 @@ msgid ""
 "Einstellungen: Dann fragt Windows nach Administratorrechten, die Einrichtung "
 "dauert einige Sekunden; eine Meldung oben sagt, wann sie fertig ist"
 msgstr ""
-"Sets up the Windows service “tvjoe Aufnahmedienst” (tvjoe recording service), which records even "
-"without anyone signed in and wakes the computer for it. Takes effect when "
-"you close Settings: Windows then asks for administrator rights, and setup "
-"takes a few seconds; a message at the top says when it is done"
+"Sets up the Windows service “tvjoe Aufnahmedienst” (tvjoe recording "
+"service), which records even without anyone signed in and wakes the computer "
+"for it. Takes effect when you close Settings: Windows then asks for "
+"administrator rights, and setup takes a few seconds; a message at the top "
+"says when it is done"
 
 #: crates/tvjoe-gui/src/ablage.rs:1526
 msgid ""
@@ -1044,6 +1045,13 @@ msgstr "{name} – tvjoe"
 msgid "SAT>IP: {error}"
 msgstr "SAT>IP: {error}"
 
+#: crates/tvjoe-gui/src/app.rs:1567
+msgid ""
+"Kein Datenstrom vom SAT>IP-Gerät (UDP). Firewall: Einstellungen → SAT>IP → "
+"Prüfen. Über WireGuard: Masquerade im Tunnel verhindert den Rückweg (docs/"
+"SAT-IP.md)"
+msgstr "No data stream from the SAT>IP device (UDP). Firewall: Settings → SAT>IP → Check. Over WireGuard: masquerading in the tunnel blocks the way back (docs/SAT-IP.md)"
+
 #: crates/tvjoe-gui/src/app.rs:1640
 #, no-c-format
 msgid "Weiter ab {time}"
@@ -1240,6 +1248,13 @@ msgstr "Satellite (SAT>IP)"
 #: crates/tvjoe-gui/src/app.rs:38
 msgid "Qualität unbekannt"
 msgstr "Quality unknown"
+
+#: crates/tvjoe-gui/src/app.rs:58
+msgid ""
+"In einer Remotedesktop-Sitzung, in einer VM ohne 3D-Beschleunigung oder ohne "
+"Grafiktreiber stellt Windows kein taugliches OpenGL bereit; tvjoe bitte "
+"direkt am Rechner starten."
+msgstr "In a Remote Desktop session, in a VM without 3D acceleration or without a graphics driver, Windows provides no usable OpenGL; please start tvjoe directly on the computer."
 
 #: crates/tvjoe-gui/src/app.rs:62
 msgid "Grafiktreiber bzw. Mesa prüfen (tvjoe --check)."
@@ -2796,6 +2811,22 @@ msgstr "Seconds the channel name and guide stay visible"
 msgid "Letzten Sender beim Start"
 msgstr "Last channel at start"
 
+#: crates/tvjoe-gui/src/prefs.rs:401
+msgid ""
+"Streaming-Client für Live-TV und die Mediatheken der öffentlich-rechtlichen "
+"Sender.\n"
+"\n"
+"Die Filmliste der Mediathek stammt von MediathekView (mediathekview.de); die "
+"Videos kommen direkt von den Sendern.\n"
+"\n"
+"Privates Hobbyprojekt – nicht gepflegt."
+msgstr ""
+"Streaming client for live TV and the Mediatheken of the German public broadcasters.\n"
+"\n"
+"The Mediathek film list comes from MediathekView (mediathekview.de); the videos come directly from the broadcasters.\n"
+"\n"
+"Private hobby project – unmaintained."
+
 #: crates/tvjoe-gui/src/prefs.rs:408
 msgid "README bei GitHub"
 msgstr "README on GitHub"
@@ -2815,6 +2846,13 @@ msgstr "GTK 4 and libadwaita"
 #: crates/tvjoe-gui/src/prefs.rs:423
 msgid "mpv-Entwickler"
 msgstr "mpv developers"
+
+#: crates/tvjoe-gui/src/prefs.rs:425
+msgid ""
+"Quelltext GPL-2+ bzw. LGPL-2.1+. Die Ubuntu-Pakete von libmpv stehen laut "
+"deren copyright-Datei unter GPL-3+ (gelinkt gegen libsmbclient); für die "
+"tvjoe-Pakete gelten diese Bedingungen zusätzlich."
+msgstr "Source code GPL-2+ or LGPL-2.1+. According to their copyright file, the Ubuntu packages of libmpv are under GPL-3+ (linked against libsmbclient); these terms apply additionally to the tvjoe packages."
 
 #: crates/tvjoe-gui/src/prefs.rs:43
 msgid "Bildschirmsperre auch im Fenster verhindern"
@@ -3094,6 +3132,12 @@ msgstr "Device"
 #: crates/tvjoe-gui/src/satip.rs:252
 msgid "Eintragen"
 msgstr "Add"
+
+#: crates/tvjoe-gui/src/satip.rs:26
+msgid ""
+"SAT>IP-Empfänger im Netz (z. B. EyeTV Netstream 4Sat); Satellit Astra 19,2° "
+"Ost"
+msgstr "SAT>IP receiver on the network (e.g. EyeTV Netstream 4Sat); satellite Astra 19.2° East"
 
 #: crates/tvjoe-gui/src/satip.rs:281
 msgid "Freigabe nicht eingetragen"
