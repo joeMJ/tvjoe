@@ -5,6 +5,7 @@
 //! - zusätzlich `TVJOE_SELFTEST_IMPORT=/liste.m3u`: Verwaltung und Import mit Vorschau.
 //! - zusätzlich `TVJOE_SELFTEST_MEDIATHEK=1`: Mediathek (lädt beim ersten Mal die Filmliste).
 //! - `TVJOE_SELFTEST_BAUCHBINDE=1` (nur diese Schritte): Höhe der Bauchbinde in allen Lagen.
+//! - `TVJOE_SELFTEST_UMZUG=/ziel` (nur diese Schritte, nur mit Testordnern): Ablage verschieben.
 //! - `TVJOE_SELFTEST_ABLAGE=1` (nur diese Schritte): Reiter „Ablage“, Gruppe, Prüfen, Seite „Über“.
 //! - `TVJOE_SELFTEST_EMPFANG=1` (nur diese Schritte): Reiter „Empfang“ und Seiten der Quellen.
 //! - `TVJOE_SELFTEST_README=1` (nur diese Schritte): Bilder für das README; mit neutralen Daten
@@ -455,6 +456,21 @@ const ABLAGE_STEPS: &[Step] = &[
     ),
 ];
 
+/// Ablage verschieben (`TVJOE_SELFTEST_UMZUG=<Zielordner>`, nur diese Schritte; nur mit
+/// eigenem Testordner für Konfiguration und Ablage starten).
+const UMZUG_STEPS: &[Step] = &[
+    ("85-start", main_window, 3000),
+    (
+        "86-umzug",
+        |p| {
+            let target = std::env::var("TVJOE_SELFTEST_UMZUG").unwrap_or_default();
+            crate::umzug::probe(p.app.window.upcast_ref(), std::path::Path::new(&target));
+            main_window(p)
+        },
+        4000,
+    ),
+];
+
 /// Ebene (`TVJOE_SELFTEST_EBENE=1`, nur diese Schritte): Bild, Programm als Ebene (Bild nicht
 /// gezeichnet, Ton läuft), Ebene wieder zu. Für Lastmessung von außen je 15 s.
 const EBENE_STEPS: &[Step] = &[
@@ -891,6 +907,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         SEITE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_GROESSE").is_some() {
         GROESSE_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_UMZUG").is_some() {
+        UMZUG_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_ABLAGE").is_some() {
         ABLAGE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_JELLYFIN").is_some() {

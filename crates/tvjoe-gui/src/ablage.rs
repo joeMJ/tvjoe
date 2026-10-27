@@ -1502,6 +1502,22 @@ pub fn prefs_page(
         .valign(gtk::Align::Center)
         .build();
     dir_row.add_suffix(&choose);
+    // Vorhandenes mitnehmen: Dateien verschieben, Verzeichnis nachtragen (Nutzer, 2026-10-27).
+    let relocate = gtk::Button::builder()
+        .label(tr("Verschieben nach …"))
+        .valign(gtk::Align::Center)
+        .build();
+    dir_row.add_suffix(&relocate);
+    {
+        let (dir, row) = (dir.clone(), dir_row.clone());
+        relocate.connect_clicked(move |b| {
+            let (dir, row) = (dir.clone(), row.clone());
+            crate::umzug::start(b, move |new| {
+                row.set_subtitle(&new.display().to_string());
+                *dir.borrow_mut() = Some(new.to_string_lossy().to_string());
+            });
+        });
+    }
     {
         let (dir, row) = (dir.clone(), dir_row.clone());
         choose.connect_clicked(move |b| {
@@ -1645,6 +1661,40 @@ pub fn timers() -> Vec<Timer> {
     get().map(|a| a.index.timers()).unwrap_or_default()
 }
 
+/// Hindernis für das Verschieben der Ablage: laufende Downloads und Aufnahmen; mit
+/// Aufnahmedienst auch eine Aufnahme, die läuft oder in den nächsten 15 Minuten beginnt.
+pub fn move_blocker() -> Option<String> {
+    let a = get()?;
+    let mut parts = Vec::new();
+    let recs = a.recs.borrow().len();
+    if recs > 0 {
+        parts.push(trn("{n} Aufnahme läuft", "{n} Aufnahmen laufen", recs as u64));
+    }
+    let loads = a.jobs.borrow().len() + a.queue.borrow().len();
+    if loads > 0 {
+        parts.push(trn("{n} Download läuft", "{n} Downloads laufen", loads as u64));
+    }
+    let service = a.app.upgrade().is_some_and(|app| app.settings().record_service);
+    let now = ablage::now();
+    if service
+        && a
+            .index
+            .timers()
+            .iter()
+            .any(|t| t.start <= now + 15 * 60 && t.stop > now)
+    {
+        parts.push(tr("der Aufnahmedienst nimmt gleich auf").to_string());
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
+/// Neuer Ort einer Datei nach dem Verschieben der Ablage.
+pub fn set_entry_path(id: i64, path: &Path) {
+    if let Some(a) = get() {
+        a.index.set_path(id, path);
+    }
+}
+
 /// Freier Platz am Ablageordner.
 pub fn free_space(app: &App) -> Option<u64> {
     free_bytes(&storage_dir(app))
@@ -1727,8 +1777,8 @@ pub fn play_entry(app: &Rc<App>, id: i64) {
 }
 
 /// Meldung im Hauptfenster (aus Einstellungen und Dienst-Einrichtung).
-/// Hauptfenster (für Abläufe ohne eigenen Zugriff darauf, z. B. Einrichtung des Windows-Dienstes).
-#[cfg_attr(not(windows), allow(dead_code))]
+/// Hauptfenster (für Abläufe ohne eigenen Zugriff darauf, z. B. Einrichtung des Windows-Dienstes,
+/// Verschieben der Ablage).
 pub fn app() -> Option<Rc<App>> {
     get().and_then(|a| a.app.upgrade())
 }

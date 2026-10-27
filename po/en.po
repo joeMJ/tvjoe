@@ -46,7 +46,7 @@ msgstr "Unknown modulation “{mtype}”"
 msgid "Coderate „{fec}“ unbekannt"
 msgstr "Unknown code rate “{fec}”"
 
-#: crates/tvjoe-core/src/adapter.rs:227
+#: crates/tvjoe-core/src/adapter.rs:227 crates/tvjoe-gui/src/umzug.rs:255
 #, no-c-format
 msgid "{file}: {error}"
 msgstr "{file}: {error}"
@@ -530,7 +530,7 @@ msgstr "Recording not scheduled: {e}"
 msgid "Planung gelöscht: {title}"
 msgstr "Schedule deleted: {title}"
 
-#: crates/tvjoe-gui/src/ablage.rs:1136
+#: crates/tvjoe-gui/src/ablage.rs:1136 crates/tvjoe-gui/src/ablage.rs:1671
 #, no-c-format
 msgid "{n} Aufnahme läuft"
 msgid_plural "{n} Aufnahmen laufen"
@@ -544,7 +544,7 @@ msgid_plural "{n} Aufnahmen geplant"
 msgstr[0] "{n} recording scheduled"
 msgstr[1] "{n} recordings scheduled"
 
-#: crates/tvjoe-gui/src/ablage.rs:1142
+#: crates/tvjoe-gui/src/ablage.rs:1142 crates/tvjoe-gui/src/ablage.rs:1675
 #, no-c-format
 msgid "{n} Download läuft"
 msgid_plural "{n} Downloads laufen"
@@ -601,7 +601,7 @@ msgstr "Recording: {title} (until {end})"
 msgid "Aufnahme beendet: zu wenig Platz auf der Platte"
 msgstr "Recording ended: not enough space on the disk"
 
-#: crates/tvjoe-gui/src/ablage.rs:1388 crates/tvjoe-gui/src/ablageview.rs:605
+#: crates/tvjoe-gui/src/ablage.rs:1388 crates/tvjoe-gui/src/ablageview.rs:606
 #: crates/tvjoe-gui/src/dienst.rs:151 crates/tvjoe-gui/src/dienst.rs:315
 #: crates/tvjoe-gui/src/dienst_win.rs:532
 msgid "Aufnahme läuft"
@@ -616,7 +616,7 @@ msgid "Zwischenspeichern"
 msgstr "Cache"
 
 #: crates/tvjoe-gui/src/ablage.rs:1487 crates/tvjoe-gui/src/ablage.rs:1492
-#: crates/tvjoe-gui/src/grid.rs:266
+#: crates/tvjoe-gui/src/grid.rs:266 crates/tvjoe-gui/src/selftest.rs:413
 msgid "Ablage"
 msgstr "Storage"
 
@@ -640,70 +640,74 @@ msgstr "Storage folder"
 msgid "Ändern …"
 msgstr "Change …"
 
-#: crates/tvjoe-gui/src/ablage.rs:1509
+#: crates/tvjoe-gui/src/ablage.rs:1507
+msgid "Verschieben nach …"
+msgstr "Move to …"
+
+#: crates/tvjoe-gui/src/ablage.rs:1525
 msgid "Ordner für die Ablage"
 msgstr "Folder for storage"
 
-#: crates/tvjoe-gui/src/ablage.rs:1523
+#: crates/tvjoe-gui/src/ablage.rs:1539
 msgid "Zwischenspeicher höchstens"
 msgstr "Cache at most"
 
-#: crates/tvjoe-gui/src/ablage.rs:1524
+#: crates/tvjoe-gui/src/ablage.rs:1540
 msgid "GB"
 msgstr "GB"
 
-#: crates/tvjoe-gui/src/ablage.rs:1527
+#: crates/tvjoe-gui/src/ablage.rs:1543
 msgid "Mindestens frei lassen"
 msgstr "Keep at least free"
 
-#: crates/tvjoe-gui/src/ablage.rs:1528
+#: crates/tvjoe-gui/src/ablage.rs:1544
 msgid ""
 "GB; darunter beginnt kein Download und keine Aufnahme, eine laufende "
 "Aufnahme endet"
 msgstr ""
 "GB; below this no download or recording starts, and a running recording ends"
 
-#: crates/tvjoe-gui/src/ablage.rs:1536
+#: crates/tvjoe-gui/src/ablage.rs:1552
 msgid ""
 "Rechtsklick auf eine Kachel: Herunterladen, Zwischenspeichern, bei Serien "
 "eine Staffel oder alle Folgen"
 msgstr ""
 "Right-click a tile: Download, Cache, and for series a season or all episodes"
 
-#: crates/tvjoe-gui/src/ablage.rs:1540
+#: crates/tvjoe-gui/src/ablage.rs:1556
 msgid "ÖR-Mediathek: Qualität"
 msgstr "Public broadcaster Mediathek: quality"
 
-#: crates/tvjoe-gui/src/ablage.rs:1541
+#: crates/tvjoe-gui/src/ablage.rs:1557
 msgid "Zwischenspeichern nimmt die Qualität der Wiedergabe"
 msgstr "Caching uses the playback quality"
 
-#: crates/tvjoe-gui/src/ablage.rs:1542 crates/tvjoe-gui/src/prefs.rs:120
+#: crates/tvjoe-gui/src/ablage.rs:1558 crates/tvjoe-gui/src/prefs.rs:120
 msgid "Höchste"
 msgstr "Highest"
 
-#: crates/tvjoe-gui/src/ablage.rs:1551
+#: crates/tvjoe-gui/src/ablage.rs:1567
 msgid "Jellyfin: Originaldatei"
 msgstr "Jellyfin: original file"
 
-#: crates/tvjoe-gui/src/ablage.rs:1552
+#: crates/tvjoe-gui/src/ablage.rs:1568
 msgid "Aus: vom Server umgerechnet mit der Bitrate darunter (kleinere Datei)"
 msgstr "Off: transcoded by the server at the bitrate below (smaller file)"
 
-#: crates/tvjoe-gui/src/ablage.rs:1556
+#: crates/tvjoe-gui/src/ablage.rs:1572
 msgid "Jellyfin: Bitrate beim Umrechnen"
 msgstr "Jellyfin: transcoding bitrate"
 
-#: crates/tvjoe-gui/src/ablage.rs:1557
+#: crates/tvjoe-gui/src/ablage.rs:1573
 msgid "kbit/s"
 msgstr "kbit/s"
 
-#: crates/tvjoe-gui/src/ablage.rs:1564 crates/tvjoe-gui/src/empfang.rs:470
+#: crates/tvjoe-gui/src/ablage.rs:1580 crates/tvjoe-gui/src/empfang.rs:470
 #: crates/tvjoe-gui/src/vod.rs:110
 msgid "Aufnahme"
 msgstr "Recording"
 
-#: crates/tvjoe-gui/src/ablage.rs:1565
+#: crates/tvjoe-gui/src/ablage.rs:1581
 msgid ""
 "Taste R oder der rote Knopf in der Senderanzeige nimmt die laufende Sendung "
 "auf; im Programm per Rechtsklick planen. Aufgenommen wird nur, solange tvjoe "
@@ -713,27 +717,27 @@ msgstr ""
 "schedule from the guide with a right-click. Recording only happens while "
 "tvjoe is running."
 
-#: crates/tvjoe-gui/src/ablage.rs:1568
+#: crates/tvjoe-gui/src/ablage.rs:1584
 msgid "Vorlauf"
 msgstr "Lead time"
 
-#: crates/tvjoe-gui/src/ablage.rs:1569
+#: crates/tvjoe-gui/src/ablage.rs:1585
 msgid "Minuten vor Beginn laut Programm"
 msgstr "Minutes before the start according to the guide"
 
-#: crates/tvjoe-gui/src/ablage.rs:1572
+#: crates/tvjoe-gui/src/ablage.rs:1588
 msgid "Nachlauf"
 msgstr "Overrun"
 
-#: crates/tvjoe-gui/src/ablage.rs:1573
+#: crates/tvjoe-gui/src/ablage.rs:1589
 msgid "Minuten nach Ende laut Programm"
 msgstr "Minutes after the end according to the guide"
 
-#: crates/tvjoe-gui/src/ablage.rs:1580
+#: crates/tvjoe-gui/src/ablage.rs:1596
 msgid "Aufnahmen auch ohne geöffnetes tvjoe"
 msgstr "Record even when tvjoe is not open"
 
-#: crates/tvjoe-gui/src/ablage.rs:1582
+#: crates/tvjoe-gui/src/ablage.rs:1598
 msgid ""
 "Richtet den Windows-Dienst „tvjoe Aufnahmedienst“ ein, der auch ohne "
 "Anmeldung aufnimmt und den Rechner dafür weckt. Wirkt beim Schließen der "
@@ -746,7 +750,7 @@ msgstr ""
 "administrator rights, and setup takes a few seconds; a message at the top "
 "says when it is done"
 
-#: crates/tvjoe-gui/src/ablage.rs:1584
+#: crates/tvjoe-gui/src/ablage.rs:1600
 msgid ""
 "Richtet einen Hintergrunddienst ein (systemd-Benutzerdienst), der auch ohne "
 "Anmeldung aufnimmt; wirkt beim Schließen der Einstellungen"
@@ -754,7 +758,11 @@ msgstr ""
 "Sets up a background service (systemd user service) that records even "
 "without anyone signed in; takes effect when you close Settings"
 
-#: crates/tvjoe-gui/src/ablage.rs:1708
+#: crates/tvjoe-gui/src/ablage.rs:1686
+msgid "der Aufnahmedienst nimmt gleich auf"
+msgstr "the recording service is about to record"
+
+#: crates/tvjoe-gui/src/ablage.rs:1758
 msgid "Jellyfin: Eintrag nicht mehr in der Bibliothek"
 msgstr "Jellyfin: item no longer in the library"
 
@@ -780,13 +788,14 @@ msgstr ""
 "“{title}” will not be downloaded any further. What is already there stays; "
 "“Resume download” fetches the rest later."
 
-#: crates/tvjoe-gui/src/ablage.rs:539 crates/tvjoe-gui/src/ablageview.rs:658
+#: crates/tvjoe-gui/src/ablage.rs:539 crates/tvjoe-gui/src/ablageview.rs:659
 #: crates/tvjoe-gui/src/backup.rs:149 crates/tvjoe-gui/src/empfang.rs:509
 #: crates/tvjoe-gui/src/empfang.rs:635 crates/tvjoe-gui/src/empfang.rs:772
 #: crates/tvjoe-gui/src/import.rs:76 crates/tvjoe-gui/src/import.rs:157
 #: crates/tvjoe-gui/src/jellyfin.rs:440 crates/tvjoe-gui/src/manage.rs:613
 #: crates/tvjoe-gui/src/manage.rs:909 crates/tvjoe-gui/src/prefs.rs:596
 #: crates/tvjoe-gui/src/prefs.rs:620 crates/tvjoe-gui/src/satip.rs:315
+#: crates/tvjoe-gui/src/umzug.rs:93 crates/tvjoe-gui/src/umzug.rs:200
 msgid "Abbrechen"
 msgstr "Cancel"
 
@@ -867,7 +876,7 @@ msgid "In der Ablage"
 msgstr "In storage"
 
 #: crates/tvjoe-gui/src/ablage.rs:857 crates/tvjoe-gui/src/ablage.rs:1465
-#: crates/tvjoe-gui/src/ablage.rs:1535
+#: crates/tvjoe-gui/src/ablage.rs:1551
 msgid "Herunterladen"
 msgstr "Download"
 
@@ -876,8 +885,8 @@ msgstr "Download"
 msgid "Wird geladen: {percent} %"
 msgstr "Downloading: {percent}%"
 
-#: crates/tvjoe-gui/src/ablage.rs:881 crates/tvjoe-gui/src/ablageview.rs:607
-#: crates/tvjoe-gui/src/ablageview.rs:613
+#: crates/tvjoe-gui/src/ablage.rs:881 crates/tvjoe-gui/src/ablageview.rs:608
+#: crates/tvjoe-gui/src/ablageview.rs:614
 msgid "Wird geladen"
 msgstr "Downloading"
 
@@ -1009,7 +1018,7 @@ msgid "{title} · Staffel {nr}"
 msgstr "{title} · Season {nr}"
 
 #: crates/tvjoe-gui/src/ablageview.rs:349
-#: crates/tvjoe-gui/src/ablageview.rs:406 crates/tvjoe-gui/src/jfview.rs:990
+#: crates/tvjoe-gui/src/ablageview.rs:379 crates/tvjoe-gui/src/jfview.rs:990
 #: crates/tvjoe-gui/src/mediathek.rs:1149
 #: crates/tvjoe-gui/src/mediathek.rs:2044
 #, no-c-format
@@ -1023,96 +1032,100 @@ msgstr[1] "{n} episodes"
 msgid "{have} von {all} Folgen der Staffel"
 msgstr "{have} of {all} episodes of the season"
 
-#: crates/tvjoe-gui/src/ablageview.rs:377
-#, no-c-format
-msgid "{done} von {all} · {percent} %"
-msgstr "{done} of {all} · {percent} %"
-
-#: crates/tvjoe-gui/src/ablageview.rs:386 crates/tvjoe-gui/src/empfang.rs:822
-#: crates/tvjoe-gui/src/empfang.rs:826 crates/tvjoe-gui/src/prefs.rs:216
-#: crates/tvjoe-gui/src/satip.rs:42 crates/tvjoe-gui/src/satip.rs:46
-msgid "Prüfen"
-msgstr "Check"
-
-#: crates/tvjoe-gui/src/ablageview.rs:395
+#: crates/tvjoe-gui/src/ablageview.rs:368
 msgid "Alle Folgen löschen"
 msgstr "Delete all episodes"
 
-#: crates/tvjoe-gui/src/ablageview.rs:403
+#: crates/tvjoe-gui/src/ablageview.rs:376
 msgid "Alle Folgen löschen?"
 msgstr "Delete all episodes?"
 
-#: crates/tvjoe-gui/src/ablageview.rs:404
+#: crates/tvjoe-gui/src/ablageview.rs:377
 #, no-c-format
 msgid ""
 "{folgen} von „{title}“ werden von der Platte gelöscht. Das lässt sich nicht "
 "rückgängig machen."
-msgstr "{folgen} of “{title}” will be deleted from disk. This cannot be undone."
+msgstr ""
+"{folgen} of “{title}” will be deleted from disk. This cannot be undone."
 
-#: crates/tvjoe-gui/src/ablageview.rs:410
-#: crates/tvjoe-gui/src/ablageview.rs:488
-#: crates/tvjoe-gui/src/ablageview.rs:678
+#: crates/tvjoe-gui/src/ablageview.rs:383
+#: crates/tvjoe-gui/src/ablageview.rs:489
+#: crates/tvjoe-gui/src/ablageview.rs:679
 msgid "Behalten"
 msgstr "Keep"
 
-#: crates/tvjoe-gui/src/ablageview.rs:410
-#: crates/tvjoe-gui/src/ablageview.rs:665
-#: crates/tvjoe-gui/src/ablageview.rs:678 crates/tvjoe-gui/src/manage.rs:843
+#: crates/tvjoe-gui/src/ablageview.rs:383
+#: crates/tvjoe-gui/src/ablageview.rs:666
+#: crates/tvjoe-gui/src/ablageview.rs:679 crates/tvjoe-gui/src/manage.rs:843
 msgid "Löschen"
 msgstr "Delete"
 
-#: crates/tvjoe-gui/src/ablageview.rs:451
+#: crates/tvjoe-gui/src/ablageview.rs:398 crates/tvjoe-gui/src/empfang.rs:822
+#: crates/tvjoe-gui/src/empfang.rs:826 crates/tvjoe-gui/src/prefs.rs:216
+#: crates/tvjoe-gui/src/satip.rs:42 crates/tvjoe-gui/src/satip.rs:46
+#: crates/tvjoe-gui/src/selftest.rs:444
+msgid "Prüfen"
+msgstr "Check"
+
+#: crates/tvjoe-gui/src/ablageview.rs:417
+#, no-c-format
+msgid "{done} von {all} · {percent} %"
+msgstr "{done} of {all} · {percent} %"
+
+#: crates/tvjoe-gui/src/ablageview.rs:452
 #, no-c-format
 msgid "Alle {n} Dateien von „{title}“ liegen auf der Platte."
 msgstr "All {n} files of “{title}” are on disk."
 
-#: crates/tvjoe-gui/src/ablageview.rs:458
+#: crates/tvjoe-gui/src/ablageview.rs:459
 #, no-c-format
 msgid ""
 "{missing} von {all} Dateien fehlen:\n"
 "{names}"
-msgstr "{missing} of {all} files are missing:\n{names}"
+msgstr ""
+"{missing} of {all} files are missing:\n"
+"{names}"
 
-#: crates/tvjoe-gui/src/ablageview.rs:468
+#: crates/tvjoe-gui/src/ablageview.rs:469
 #, no-c-format
 msgid "Alle {n} Folgen der Staffel sind geladen."
 msgstr "All {n} episodes of the season are downloaded."
 
-#: crates/tvjoe-gui/src/ablageview.rs:470
+#: crates/tvjoe-gui/src/ablageview.rs:471
 #, no-c-format
 msgid "Geladen sind {have} von {all} Folgen der Staffel in Jellyfin."
 msgstr "{have} of {all} episodes of the season in Jellyfin are downloaded."
 
-#: crates/tvjoe-gui/src/ablageview.rs:479
+#: crates/tvjoe-gui/src/ablageview.rs:480
 msgid "Alles da"
 msgstr "All there"
 
-#: crates/tvjoe-gui/src/ablageview.rs:481
+#: crates/tvjoe-gui/src/ablageview.rs:482
 msgid "Dateien fehlen"
 msgstr "Files missing"
 
-#: crates/tvjoe-gui/src/ablageview.rs:486 crates/tvjoe-gui/src/import.rs:143
+#: crates/tvjoe-gui/src/ablageview.rs:487 crates/tvjoe-gui/src/import.rs:143
 #: crates/tvjoe-gui/src/prefs.rs:531 crates/tvjoe-gui/src/prefs.rs:535
 #: crates/tvjoe-gui/src/prefs.rs:577 crates/tvjoe-gui/src/prefs.rs:606
-#: crates/tvjoe-gui/src/prefs.rs:647
+#: crates/tvjoe-gui/src/prefs.rs:647 crates/tvjoe-gui/src/umzug.rs:365
 msgid "OK"
 msgstr "OK"
 
-#: crates/tvjoe-gui/src/ablageview.rs:488
+#: crates/tvjoe-gui/src/ablageview.rs:489
 msgid "Einträge entfernen"
 msgstr "Remove entries"
 
-#: crates/tvjoe-gui/src/ablageview.rs:545
+#: crates/tvjoe-gui/src/ablageview.rs:546
 #, no-c-format
 msgid "Belegt {used} · {free} frei"
 msgstr "Used {used} · {free} free"
 
-#: crates/tvjoe-gui/src/ablageview.rs:546
+#: crates/tvjoe-gui/src/ablageview.rs:547
 #, no-c-format
 msgid "Belegt {used}"
 msgstr "Used {used}"
 
-#: crates/tvjoe-gui/src/ablageview.rs:591
+#: crates/tvjoe-gui/src/ablageview.rs:592
 msgid ""
 "Noch nichts in der Ablage. Rechtsklick auf eine Kachel in der Mediathek lädt "
 "herunter, Taste R nimmt die laufende Sendung auf."
@@ -1120,45 +1133,45 @@ msgstr ""
 "Nothing in Storage yet. Right-click a tile in the Mediathek to download it, "
 "or press key R to record the current show."
 
-#: crates/tvjoe-gui/src/ablageview.rs:610
+#: crates/tvjoe-gui/src/ablageview.rs:611
 msgid "Vollständig"
 msgstr "Complete"
 
-#: crates/tvjoe-gui/src/ablageview.rs:611
+#: crates/tvjoe-gui/src/ablageview.rs:612
 msgid "Teilweise"
 msgstr "Partial"
 
-#: crates/tvjoe-gui/src/ablageview.rs:612
+#: crates/tvjoe-gui/src/ablageview.rs:613
 msgid "Wartet"
 msgstr "Waiting"
 
-#: crates/tvjoe-gui/src/ablageview.rs:614
+#: crates/tvjoe-gui/src/ablageview.rs:615
 msgid "Fehlgeschlagen"
 msgstr "Failed"
 
-#: crates/tvjoe-gui/src/ablageview.rs:632
+#: crates/tvjoe-gui/src/ablageview.rs:633
 #, no-c-format
 msgid "{percent} %"
 msgstr "{percent} %"
 
-#: crates/tvjoe-gui/src/ablageview.rs:633
+#: crates/tvjoe-gui/src/ablageview.rs:634
 msgid "lädt"
 msgstr "downloading"
 
-#: crates/tvjoe-gui/src/ablageview.rs:643 crates/tvjoe-gui/src/jfview.rs:934
+#: crates/tvjoe-gui/src/ablageview.rs:644 crates/tvjoe-gui/src/jfview.rs:934
 #: crates/tvjoe-gui/src/mediathek.rs:914 crates/tvjoe-gui/src/mediathek.rs:944
 msgid "Abspielen"
 msgstr "Play"
 
-#: crates/tvjoe-gui/src/ablageview.rs:652
+#: crates/tvjoe-gui/src/ablageview.rs:653
 msgid "Fortsetzen"
 msgstr "Resume"
 
-#: crates/tvjoe-gui/src/ablageview.rs:672
+#: crates/tvjoe-gui/src/ablageview.rs:673
 msgid "Wirklich löschen?"
 msgstr "Really delete?"
 
-#: crates/tvjoe-gui/src/ablageview.rs:673
+#: crates/tvjoe-gui/src/ablageview.rs:674
 #, no-c-format
 msgid ""
 "„{title}“ wird von der Platte gelöscht. Das lässt sich nicht rückgängig "
@@ -1799,7 +1812,7 @@ msgstr ""
 msgid "Suchlauf über"
 msgstr "Scan over"
 
-#: crates/tvjoe-gui/src/dvbcard.rs:85 crates/tvjoe-gui/src/selftest.rs:291
+#: crates/tvjoe-gui/src/dvbcard.rs:85 crates/tvjoe-gui/src/selftest.rs:293
 msgid "Radiosender übernehmen"
 msgstr "Include radio channels"
 
@@ -1808,7 +1821,7 @@ msgid "Suchlauf"
 msgstr "Scan"
 
 #: crates/tvjoe-gui/src/dvbcard.rs:92 crates/tvjoe-gui/src/satip.rs:89
-#: crates/tvjoe-gui/src/selftest.rs:292
+#: crates/tvjoe-gui/src/selftest.rs:294
 msgid "Suchlauf starten"
 msgstr "Start scan"
 
@@ -1958,7 +1971,7 @@ msgstr ""
 msgid "Aufnahmen; 0 = ohne Grenze"
 msgstr "recordings; 0 = no limit"
 
-#: crates/tvjoe-gui/src/empfang.rs:49 crates/tvjoe-gui/src/selftest.rs:183
+#: crates/tvjoe-gui/src/empfang.rs:49 crates/tvjoe-gui/src/selftest.rs:185
 msgid "Internet-TV"
 msgstr "Internet TV"
 
@@ -2160,7 +2173,7 @@ msgid "Senderliste nicht geholt: {error}"
 msgstr "Channel list not fetched: {error}"
 
 #: crates/tvjoe-gui/src/empfang.rs:94 crates/tvjoe-gui/src/empfang.rs:200
-#: crates/tvjoe-gui/src/selftest.rs:359
+#: crates/tvjoe-gui/src/selftest.rs:361
 msgid "Empfangsquelle hinzufügen"
 msgstr "Add reception source"
 
@@ -3887,6 +3900,121 @@ msgid ""
 msgstr ""
 "Free-to-air TV channels; encrypted channels and radio are left out. A new "
 "scan keeps numbers and your own names."
+
+#: crates/tvjoe-gui/src/umzug.rs:127
+msgid "Das ist schon der Ablageordner."
+msgstr "This already is the storage folder."
+
+#: crates/tvjoe-gui/src/umzug.rs:130
+msgid "Das Ziel liegt innerhalb der bisherigen Ablage."
+msgstr "The target lies inside the current storage folder."
+
+#: crates/tvjoe-gui/src/umzug.rs:134
+#, no-c-format
+msgid "Am Ziel lässt sich nicht schreiben: {error}"
+msgstr "Cannot write to the target: {error}"
+
+#: crates/tvjoe-gui/src/umzug.rs:192
+#, no-c-format
+msgid "0 von {size}"
+msgstr "0 of {size}"
+
+#: crates/tvjoe-gui/src/umzug.rs:195
+msgid "Ablage wird verschoben"
+msgstr "Moving storage"
+
+#: crates/tvjoe-gui/src/umzug.rs:196
+msgid "Bitte tvjoe offen lassen."
+msgstr "Please keep tvjoe open."
+
+#: crates/tvjoe-gui/src/umzug.rs:206
+msgid "Wird nach der laufenden Datei angehalten …"
+msgstr "Stopping after the current file …"
+
+#: crates/tvjoe-gui/src/umzug.rs:223
+#, no-c-format
+msgid "{done} von {size}"
+msgstr "{done} of {size}"
+
+#: crates/tvjoe-gui/src/umzug.rs:300
+msgid "Größe nach dem Kopieren abweichend"
+msgstr "Size differs after copying"
+
+#: crates/tvjoe-gui/src/umzug.rs:337
+msgid "Ablage verschoben"
+msgstr "Storage moved"
+
+#: crates/tvjoe-gui/src/umzug.rs:338
+#, no-c-format
+msgid ""
+"{n} Einträge liegen jetzt in\n"
+"{new}"
+msgstr "{n} entries are now in\n{new}"
+
+#: crates/tvjoe-gui/src/umzug.rs:345
+msgid "Verschieben fehlgeschlagen"
+msgstr "Moving failed"
+
+#: crates/tvjoe-gui/src/umzug.rs:346
+#, no-c-format
+msgid ""
+"{n} Einträge wurden verschoben, dann trat ein Fehler auf:\n"
+"{error}\n"
+"\n"
+"Das Verzeichnis passt zu den Dateien; der Ablageordner bleibt der alte."
+msgstr "{n} entries were moved, then an error occurred:\n{error}\n\nThe index matches the files; the storage folder stays the old one."
+
+#: crates/tvjoe-gui/src/umzug.rs:353
+msgid "Verschieben angehalten"
+msgstr "Moving stopped"
+
+#: crates/tvjoe-gui/src/umzug.rs:354
+#, no-c-format
+msgid ""
+"{n} Einträge wurden verschoben, der Rest liegt noch am alten Ort. Das "
+"Verzeichnis passt zu den Dateien; der Ablageordner bleibt der alte."
+msgstr "{n} entries were moved, the rest is still in the old place. The index matches the files; the storage folder stays the old one."
+
+#: crates/tvjoe-gui/src/umzug.rs:43 crates/tvjoe-gui/src/umzug.rs:59
+#: crates/tvjoe-gui/src/umzug.rs:111
+msgid "Verschieben nicht möglich"
+msgstr "Cannot move"
+
+#: crates/tvjoe-gui/src/umzug.rs:44
+#, no-c-format
+msgid "Gerade läuft etwas: {why}. Bitte danach erneut versuchen."
+msgstr "Something is running: {why}. Please try again afterwards."
+
+#: crates/tvjoe-gui/src/umzug.rs:50
+msgid "Ablage verschieben nach"
+msgstr "Move storage to"
+
+#: crates/tvjoe-gui/src/umzug.rs:73
+msgid "Zu wenig Platz am Ziel"
+msgstr "Not enough space at the target"
+
+#: crates/tvjoe-gui/src/umzug.rs:74
+#, no-c-format
+msgid "Zu verschieben sind {size}, am Ziel sind nur {free} frei."
+msgstr "{size} need to be moved, only {free} are free at the target."
+
+#: crates/tvjoe-gui/src/umzug.rs:84
+msgid "Ablage verschieben?"
+msgstr "Move storage?"
+
+#: crates/tvjoe-gui/src/umzug.rs:85
+#, no-c-format
+msgid ""
+"{files} Dateien ({size}) von\n"
+"{old}\n"
+"nach\n"
+"{new}\n"
+"verschieben. Danach legt tvjoe Neues dort ab."
+msgstr "Move {files} files ({size}) from\n{old}\nto\n{new}?\ntvjoe then stores new items there."
+
+#: crates/tvjoe-gui/src/umzug.rs:93
+msgid "Verschieben"
+msgstr "Move"
 
 #: crates/tvjoe-gui/src/vod.rs:106
 msgid "umgerechnet"

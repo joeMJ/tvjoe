@@ -30,6 +30,7 @@ mod player;
 mod prefs;
 mod satepg;
 mod satip;
+mod umzug;
 mod selftest;
 mod vod;
 
