@@ -372,7 +372,7 @@ fn fill_lists(app: &Rc<App>, group: &adw::PreferencesGroup, rows: &Rc<RefCell<Ve
             .iter()
             .map(|s| {
                 let n = lib.channels.iter().filter(|c| c.source == s.id).count();
-                (s.id, s.name.clone(), s.location.clone(), n)
+                (s.id, s.name.clone(), paths::plain_location(&s.location), n)
             })
             .collect::<Vec<_>>()
     });

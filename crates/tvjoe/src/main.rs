@@ -323,11 +323,12 @@ fn import(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let location = std::fs::canonicalize(file)
-        .unwrap_or_else(|_| PathBuf::from(file))
-        .to_string_lossy()
-        .into_owned();
-    let source = match lib.sources.iter().find(|s| s.location == location) {
+    let location = paths::file_location(std::path::Path::new(file));
+    let source = match lib
+        .sources
+        .iter()
+        .find(|s| paths::plain_location(&s.location) == location)
+    {
         Some(s) => s.id,
         None => {
             let stem = Path::new(file)

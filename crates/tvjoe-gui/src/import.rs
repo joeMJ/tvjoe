@@ -53,10 +53,7 @@ pub fn from_file(mgr: &Rc<Manager>) {
             let Some(path) = file.path() else { return };
             match std::fs::read(&path) {
                 Ok(bytes) => {
-                    let location = std::fs::canonicalize(&path)
-                        .unwrap_or(path.clone())
-                        .to_string_lossy()
-                        .into_owned();
+                    let location = tvjoe_core::paths::file_location(&path);
                     let name = path
                         .file_stem()
                         .map(|s| s.to_string_lossy().into_owned())
@@ -153,7 +150,7 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
         .library()
         .sources
         .iter()
-        .find(|s| s.location == location)
+        .find(|s| tvjoe_core::paths::plain_location(&s.location) == location)
         .map(|s| s.name.clone());
 
     let title = tf!("Importieren – {name}", name = name);
@@ -397,10 +394,7 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
 /// Öffnet die Vorschau für eine Datei ohne Dateiauswahl (Selbstprobe).
 pub fn preview_path(mgr: &Rc<Manager>, path: &std::path::Path) -> Option<Rc<Preview>> {
     let bytes = std::fs::read(path).ok()?;
-    let location = std::fs::canonicalize(path)
-        .unwrap_or(path.to_path_buf())
-        .to_string_lossy()
-        .into_owned();
+    let location = tvjoe_core::paths::file_location(path);
     let name = path.file_stem()?.to_string_lossy().into_owned();
     preview(mgr, &bytes, location, name)
 }
@@ -541,8 +535,14 @@ impl Preview {
         let all = selected.len() == self.playlist.entries.len();
         let outcome = {
             let mut lib = self.mgr.app.library_mut();
-            let source = match lib.sources.iter_mut().find(|s| s.location == self.location) {
+            let source = match lib
+                .sources
+                .iter_mut()
+                .find(|s| tvjoe_core::paths::plain_location(&s.location) == self.location)
+            {
                 Some(s) => {
+                    // Älter gespeichert mit Windows-Präfix: lesbar machen.
+                    s.location = self.location.clone();
                     if !name.is_empty() {
                         s.name = name.clone();
                     }

@@ -1,7 +1,7 @@
 //! Ablageorte für Konfiguration und Cache (Linux: XDG, Windows: `%APPDATA%`/`%LOCALAPPDATA%`).
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Konfigurationsordner, z. B. `~/.config/tvjoe`. `TVJOE_CONFIG_DIR` überschreibt (Tests, Messungen).
 pub fn config_dir() -> Option<PathBuf> {
@@ -36,6 +36,24 @@ pub fn jellyfin_db() -> Option<PathBuf> {
 /// Zugang zum Jellyfin-Server (nur für den Nutzer lesbar).
 pub fn jellyfin_account_path() -> Option<PathBuf> {
     config_dir().map(|d| d.join("jellyfin.toml"))
+}
+
+/// Ort einer Datei ohne das Windows-Präfix `\\?\` (Langform aus `canonicalize`), damit
+/// gespeicherte Orte lesbar bleiben und gleiche Dateien gleich heißen.
+pub fn plain_location(location: &str) -> String {
+    if let Some(rest) = location.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = location.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        location.to_string()
+    }
+}
+
+/// Vollständiger Ort einer Datei (ohne Windows-Präfix `\\?\`).
+pub fn file_location(path: &Path) -> String {
+    let full = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    plain_location(&full.to_string_lossy())
 }
 
 pub fn logo_cache_dir() -> Option<PathBuf> {
