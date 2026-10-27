@@ -400,6 +400,18 @@ pub fn uninstall(undo_linger: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Ist der Aufnahmedienst eingerichtet (Linux: Dienstdatei, Windows: Dienst in Program Files)?
+/// Der Schalter richtet sich danach, nicht nur nach der Einstellung (die eine ältere Fassung
+/// beim Speichern verlieren kann).
+pub fn installed() -> bool {
+    #[cfg(target_os = "linux")]
+    return unit_path().is_some_and(|p| p.exists());
+    #[cfg(windows)]
+    return crate::dienst_win::installed_config().is_some();
+    #[allow(unreachable_code)]
+    false
+}
+
 /// Schalter „Aufnahmen auch ohne geöffnetes tvjoe“ umgelegt: im Hintergrund einrichten bzw.
 /// entfernen (unter Windows mit Administrator-Bestätigung), damit das Fenster bedienbar bleibt.
 /// Die Einstellung gilt erst, wenn es geklappt hat.

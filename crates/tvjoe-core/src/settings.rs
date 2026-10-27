@@ -27,9 +27,13 @@ pub enum Strategy {
     Highest,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Einträge, die diese Fassung nicht kennt (aus einer neueren): beim Speichern unverändert
+    /// zurückschreiben, damit ein Wechsel zwischen Fassungen keine Einstellungen löscht.
+    #[serde(flatten, skip_serializing)]
+    pub unknown: toml::Table,
     /// Pause nach der letzten Ziffer, bevor umgeschaltet wird.
     pub numpad_pause_ms: u32,
     pub fallback: Fallback,
@@ -143,6 +147,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            unknown: toml::Table::new(),
             numpad_pause_ms: 1500,
             fallback: Fallback::Down,
             strategy: Strategy::Keep,
@@ -217,7 +222,11 @@ impl Settings {
     }
 
     pub fn save(&self, path: &Path) -> Result<(), StoreError> {
-        save_toml(path, self)
+        let mut table = toml::Table::try_from(self).map_err(|e| StoreError::Parse(e.to_string()))?;
+        for (k, v) in &self.unknown {
+            table.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        save_toml(path, &table)
     }
 }
 
@@ -243,6 +252,22 @@ mod tests {
         assert_eq!(s.numpad_pause_ms, 900);
         assert_eq!(s.quality, Some(Quality::P720));
         assert_eq!(s.overlay_secs, 4);
+    }
+
+    #[test]
+    fn unbekannte_eintraege_bleiben() {
+        let dir = std::env::temp_dir().join(format!("tvjoe-settings-u-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("settings.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "volume = 80\nkuenftig_neu = 42\n[kuenftig_tabelle]\na = 1\n").unwrap();
+        let s = Settings::load(&path).unwrap();
+        assert_eq!(s.volume, 80);
+        s.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("kuenftig_neu = 42"), "{text}");
+        assert!(text.contains("[kuenftig_tabelle]"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -108,6 +108,12 @@ pub fn init(app: &Rc<App>) {
     };
     index.mark_interrupted();
     move_into_subdirs(app, &index);
+    // Einstellung an den tatsächlichen Zustand des Aufnahmedienstes angleichen.
+    let installed = crate::dienst::installed();
+    if app.settings().record_service != installed {
+        app.settings_mut().record_service = installed;
+        app.save_settings();
+    }
     let (tx, rx) = async_channel::unbounded();
     let a = Rc::new(Ablage {
         app: Rc::downgrade(app),
@@ -1525,7 +1531,7 @@ pub fn prefs_page(
         } else {
             "Richtet einen Hintergrunddienst ein (systemd-Benutzerdienst), der auch ohne Anmeldung aufnimmt; wirkt beim Schließen der Einstellungen"
         })
-        .active(s.record_service)
+        .active(crate::dienst::installed())
         .build();
     record.add(&service);
 
