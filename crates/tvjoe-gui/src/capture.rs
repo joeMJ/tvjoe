@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use libmpv2::Mpv;
 use tvjoe_core::ablage::Progress;
+use tvjoe_core::tr;
 
 /// Zahl hinter `"name":` in einer JSON-Ausgabe von mpv.
 fn json_number(text: &str, name: &str) -> Option<f64> {
@@ -81,11 +82,11 @@ pub fn run(src: &Source<'_>, path: &Path, progress: &Progress, position_ms: &std
         .map_err(|e| format!("mpv stream-record: {e:?}"))?;
     mpv.command("loadfile", &[src.url])
         .map_err(|e| format!("mpv loadfile: {e:?}"))?;
-    let mut result: Result<(), String> = Err("abgebrochen".into());
+    let mut result: Result<(), String> = Err(tr("abgebrochen").into());
     loop {
         if progress.cancelled() {
             // Live-Aufnahme regulär beenden: Datei bleibt gültig.
-            result = if live { Ok(()) } else { Err("abgebrochen".into()) };
+            result = if live { Ok(()) } else { Err(tr("abgebrochen").into()) };
             let _ = mpv.command("stop", &[]);
             break;
         }
@@ -95,7 +96,7 @@ pub fn run(src: &Source<'_>, path: &Path, progress: &Progress, position_ms: &std
                 break;
             }
             Some(Ok(Event::EndFile(r))) if r == Error => {
-                result = Err("Stream ließ sich nicht öffnen oder brach ab".into());
+                result = Err(tr("Stream ließ sich nicht öffnen oder brach ab").into());
                 break;
             }
             Some(Ok(Event::Shutdown)) => break,

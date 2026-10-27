@@ -14,7 +14,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::glib;
 use tvjoe_core::jellyfin_lib::{Item, JellyfinLibrary};
-use tvjoe_core::{net, paths};
+use tvjoe_core::{net, paths, tf, tr};
 
 use crate::app::App;
 use crate::trace;
@@ -126,9 +126,9 @@ fn runtime(secs: i64) -> String {
     }
     let m = (secs + 30) / 60;
     if m >= 60 {
-        format!("{} h {} min", m / 60, m % 60)
+        tf!("{h} h {min} min", h = m / 60, min = m % 60)
     } else {
-        format!("{m} min")
+        tf!("{min} min", min = m)
     }
 }
 
@@ -136,7 +136,7 @@ fn runtime(secs: i64) -> String {
 fn episode_code(it: &Item) -> String {
     match (it.season_no, it.episode_no) {
         (Some(s), Some(e)) => format!("S{s:02}E{e:02}"),
-        (None, Some(e)) => format!("Folge {e}"),
+        (None, Some(e)) => tf!("Folge {nr}", nr = e),
         _ => String::new(),
     }
 }
@@ -306,11 +306,11 @@ impl JfView {
     fn new(app: &Rc<App>) -> Rc<Self> {
         let tab = |l: &str| gtk::ToggleButton::builder().label(l).build();
         let tabs = [
-            tab("Filme"),
-            tab("Sammlungen"),
-            tab("Serien"),
-            tab("Suche"),
-            tab("Heruntergeladen"),
+            tab(tr("Filme")),
+            tab(tr("Sammlungen")),
+            tab(tr("Serien")),
+            tab(tr("Suche")),
+            tab(tr("Heruntergeladen")),
         ];
         for t in &tabs[1..] {
             t.set_group(Some(&tabs[0]));
@@ -324,7 +324,7 @@ impl JfView {
         let header_start = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         header_start.append(&status);
 
-        let newest = gtk::ToggleButton::builder().label("Neueste").build();
+        let newest = gtk::ToggleButton::builder().label(tr("Neueste")).build();
         let az = gtk::ToggleButton::builder()
             .label("A–Z")
             .group(&newest)
@@ -342,14 +342,14 @@ impl JfView {
         sort_box.append(&az);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
-            .tooltip_text("Einstellungen von Jellyfin")
+            .tooltip_text(tr("Einstellungen von Jellyfin"))
             .build();
         let header_end = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         header_end.append(&sort_box);
         header_end.append(&prefs_button);
 
         let search = gtk::SearchEntry::builder()
-            .placeholder_text("Titel, Serie oder Beschreibung")
+            .placeholder_text(tr("Titel, Serie oder Beschreibung"))
             .hexpand(true)
             .build();
         let search_bar = gtk::Box::builder()
@@ -535,7 +535,7 @@ impl JfView {
             self.library.replace(None);
         }
         let all = gtk::ToggleButton::builder()
-            .label("Alle")
+            .label(tr("Alle"))
             .css_classes(["tvjoe-mt-sender"])
             .active(self.library.borrow().is_none())
             .build();
@@ -569,14 +569,21 @@ impl JfView {
         let when = db
             .last_sync()
             .and_then(|t| glib::DateTime::from_unix_local(t).ok())
-            .and_then(|d| d.format("%d.%m. %H:%M").ok())
-            .map(|s| format!("Stand {s} · "))
-            .unwrap_or_default();
-        self.status.set_label(&format!(
-            "{when}{} Filme · {} Serien",
-            db.count("Movie"),
-            db.count("Series")
-        ));
+            .and_then(|d| d.format("%d.%m. %H:%M").ok());
+        let (movies, series) = (db.count("Movie"), db.count("Series"));
+        self.status.set_label(&match when {
+            Some(when) => tf!(
+                "Stand {when} · {filme} Filme · {serien} Serien",
+                when = when,
+                filme = movies,
+                serien = series
+            ),
+            None => tf!(
+                "{filme} Filme · {serien} Serien",
+                filme = movies,
+                serien = series
+            ),
+        });
     }
 
     fn show_empty(&self, title: &str, text: &str) {
@@ -590,8 +597,8 @@ impl JfView {
         let Some(db) = db() else {
             self.items.borrow_mut().clear();
             self.show_empty(
-                "Bibliothek wird abgeglichen",
-                "Der erste Abgleich mit dem Jellyfin-Server dauert etwa eine halbe Minute.",
+                tr("Bibliothek wird abgeglichen"),
+                tr("Der erste Abgleich mit dem Jellyfin-Server dauert etwa eine halbe Minute."),
             );
             return;
         };
@@ -605,7 +612,7 @@ impl JfView {
                 let text = self.search.text();
                 if text.trim().chars().count() < 2 {
                     self.items.borrow_mut().clear();
-                    self.show_empty("Suche", "Mindestens zwei Zeichen eingeben.");
+                    self.show_empty(tr("Suche"), tr("Mindestens zwei Zeichen eingeben."));
                     return;
                 }
                 db.search(text.trim(), &hidden, 300)
@@ -621,14 +628,20 @@ impl JfView {
         self.posters.borrow_mut().clear();
         if items.is_empty() {
             self.items.borrow_mut().clear();
-            self.show_empty("Keine Einträge", "Für diese Auswahl gibt es nichts.");
+            self.show_empty(
+                tr("Keine Einträge"),
+                tr("Für diese Auswahl gibt es nichts."),
+            );
             return;
         }
         let generation = self.images.as_ref().map_or(0, Images::next_generation);
         for it in &items {
             let sub = match it.kind.as_str() {
-                "BoxSet" => format!("Sammlung · {} Filme", db.collection_count(&it.id)),
-                "Series" => format!("Serie · {} Folgen", db.episode_count(&it.id)),
+                "BoxSet" => tf!(
+                    "Sammlung · {n} Filme",
+                    n = db.collection_count(&it.id)
+                ),
+                "Series" => tf!("Serie · {n} Folgen", n = db.episode_count(&it.id)),
                 "Episode" => format!(
                     "{} · {}",
                     it.series_name.clone().unwrap_or_default(),
@@ -789,7 +802,7 @@ impl JfView {
             runtime(it.runtime_secs),
             it.genres.clone(),
             if it.played {
-                "gesehen".to_string()
+                tr("gesehen").to_string()
             } else {
                 String::new()
             },
@@ -806,7 +819,7 @@ impl JfView {
         let resume = seen_fraction(it).map(|_| it.position_secs);
         if let Some(pos) = resume {
             buttons.append(&self.play_button(
-                &format!("Weitersehen ab {}", crate::osd::clock(pos)),
+                &tf!("Weitersehen ab {zeit}", zeit = crate::osd::clock(pos)),
                 true,
                 it,
                 Some(pos),
@@ -815,9 +828,9 @@ impl JfView {
         }
         buttons.append(&self.play_button(
             if resume.is_some() {
-                "Von vorn"
+                tr("Von vorn")
             } else {
-                "Abspielen"
+                tr("Abspielen")
             },
             resume.is_none(),
             it,
@@ -873,9 +886,9 @@ impl JfView {
         right.set_hexpand(true);
         right.append(&label(&head.name, "tvjoe-mt-detail-title"));
         let count = if series {
-            format!("{} Folgen", list.len())
+            tf!("{n} Folgen", n = list.len())
         } else {
-            format!("{} Filme", list.len())
+            tf!("{n} Filme", n = list.len())
         };
         let mut meta = vec![count];
         if !head.genres.is_empty() {
@@ -890,11 +903,15 @@ impl JfView {
                 target.name.clone()
             };
             let text = match start {
-                Some(p) => format!("Weitersehen: {what} ab {}", crate::osd::clock(p)),
+                Some(p) => tf!(
+                    "Weitersehen: {was} ab {zeit}",
+                    was = what,
+                    zeit = crate::osd::clock(p)
+                ),
                 None if list.iter().any(|x| x.played || x.position_secs > 0.0) => {
-                    format!("Weitersehen: {what}")
+                    tf!("Weitersehen: {was}", was = what)
                 }
-                None => format!("Ansehen ab {what}"),
+                None => tf!("Ansehen ab {was}", was = what),
             };
             let b = self.play_button(&text, true, target, start, list[i + 1..].to_vec());
             b.set_halign(gtk::Align::Start);
@@ -978,9 +995,9 @@ impl JfView {
             for s in seasons {
                 let b = gtk::ToggleButton::builder()
                     .label(match s {
-                        Some(0) => "Extras".to_string(),
-                        Some(n) => format!("Staffel {n}"),
-                        None => "Weitere".to_string(),
+                        Some(0) => tr("Extras").to_string(),
+                        Some(n) => tf!("Staffel {nr}", nr = n),
+                        None => tr("Weitere").to_string(),
                     })
                     .active(Some(s) == start_season)
                     .build();
@@ -1013,10 +1030,13 @@ impl JfView {
                     };
                     vec![
                         (
-                            format!("Diese Staffel herunterladen ({})", season.len()),
+                            tf!("Diese Staffel herunterladen ({n})", n = season.len()),
                             fetch(season),
                         ),
-                        (format!("Alle Folgen herunterladen ({})", all.len()), fetch(all)),
+                        (
+                            tf!("Alle Folgen herunterladen ({n})", n = all.len()),
+                            fetch(all),
+                        ),
                     ]
                 });
                 row.append(&b);
@@ -1060,10 +1080,10 @@ fn jf_season_label(list: &[Item], season: Option<Option<i64>>) -> String {
         .filter(|it| season.is_none_or(|s| it.season_no == s))
         .count();
     match season {
-        None => format!("Alle Folgen herunterladen ({n})"),
-        Some(Some(0)) => format!("Extras herunterladen ({n})"),
-        Some(Some(k)) => format!("Staffel {k} herunterladen ({n})"),
-        Some(None) => format!("Weitere herunterladen ({n})"),
+        None => tf!("Alle Folgen herunterladen ({n})", n = n),
+        Some(Some(0)) => tf!("Extras herunterladen ({n})", n = n),
+        Some(Some(k)) => tf!("Staffel {k} herunterladen ({n})", k = k, n = n),
+        Some(None) => tf!("Weitere herunterladen ({n})", n = n),
     }
 }
 
@@ -1100,7 +1120,7 @@ fn series_menu<W: IsA<gtk::Widget>>(app: &Weak<App>, widget: &W, series_id: Stri
             })
         };
         out.push((
-            format!("Alle Folgen herunterladen ({})", episodes.len()),
+            tf!("Alle Folgen herunterladen ({n})", n = episodes.len()),
             fetch(episodes.clone()),
         ));
         let mut seasons: Vec<i64> = episodes.iter().filter_map(|e| e.season_no).collect();
@@ -1113,7 +1133,11 @@ fn series_menu<W: IsA<gtk::Widget>>(app: &Weak<App>, widget: &W, series_id: Stri
                 .cloned()
                 .collect();
             out.push((
-                format!("Staffel {season} herunterladen ({})", list.len()),
+                tf!(
+                    "Staffel {k} herunterladen ({n})",
+                    k = season,
+                    n = list.len()
+                ),
                 fetch(list),
             ));
         }
@@ -1140,7 +1164,7 @@ fn list_row(index: usize, it: &Item, series: bool, badge: gtk::Button) -> gtk::L
         .build();
     let mut meta = vec![runtime(it.runtime_secs)];
     if it.played {
-        meta.push("gesehen".into());
+        meta.push(tr("gesehen").into());
     }
     let sub = gtk::Label::builder()
         .label(

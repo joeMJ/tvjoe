@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tvjoe_core::ablage::{self, Art, Index, Progress, State, Timer};
-use tvjoe_core::{Library, Settings, paths};
+use tvjoe_core::{Library, Settings, paths, tf, tr};
 
 /// Lebenszeichen des Dienstes (Zeitstempel); das Fenster zeigt damit „Dienst läuft“.
 pub fn heartbeat_path() -> Option<PathBuf> {
@@ -35,7 +35,7 @@ pub fn alive() -> bool {
 pub fn index() -> Result<Index, String> {
     let path = paths::config_dir()
         .map(|d| d.join("ablage.sqlite"))
-        .ok_or("kein Konfigurationsordner")?;
+        .ok_or(tr("kein Konfigurationsordner"))?;
     Index::open(&path)
 }
 
@@ -119,17 +119,17 @@ fn record(t: &Timer) -> Result<(), String> {
     };
     let lib = lib_path
         .and_then(|p| Library::load(&p).ok())
-        .ok_or("Senderliste nicht lesbar")?;
-    let ch = lib.channel(t.channel_id).ok_or("Sender nicht gefunden")?;
+        .ok_or(tr("Senderliste nicht lesbar"))?;
+    let ch = lib.channel(t.channel_id).ok_or(tr("Sender nicht gefunden"))?;
     let stream = ch
         .pick_stream_capped(s.quality, s.fallback, s.quality_cap)
-        .ok_or("kein Stream")?;
+        .ok_or(tr("kein Stream"))?;
     let (url, bitrate) = (stream.url.clone(), stream.max_bitrate);
     let name = ch.display_name().to_string();
     let dir = crate::ablage::storage_dir_for(&s).join("records");
     let min_free = u64::from(s.min_free_gb) << 30;
     if crate::ablage::free_bytes(&dir).is_some_and(|f| f < min_free) {
-        return Err("zu wenig Platz".into());
+        return Err(tr("zu wenig Platz").into());
     }
     let now = ablage::now();
     let path = ablage::unique_path(&dir.join(ablage::show_name(
@@ -149,7 +149,10 @@ fn record(t: &Timer) -> Result<(), String> {
         &path,
     )?;
     ix.set_state(id, State::Loading, None);
-    notify("Aufnahme läuft", &format!("{} – {name}", t.title));
+    notify(
+        tr("Aufnahme läuft"),
+        &tf!("{titel} – {sender}", titel = t.title, sender = name),
+    );
     let _awake = KeepAwake::new();
     let end = t.stop + i64::from(s.record_post_min) * 60;
     let timer_id = t.id;
@@ -175,13 +178,18 @@ fn record(t: &Timer) -> Result<(), String> {
     }
     notify(
         if result.is_ok() {
-            "Aufnahme beendet"
+            tr("Aufnahme beendet")
         } else {
-            "Aufnahme abgebrochen"
+            tr("Aufnahme abgebrochen")
         },
         &match &result {
-            Ok(()) => format!("{} – {name}", t.title),
-            Err(e) => format!("{} – {name}: {e}", t.title),
+            Ok(()) => tf!("{titel} – {sender}", titel = t.title, sender = name),
+            Err(e) => tf!(
+                "{titel} – {sender}: {fehler}",
+                titel = t.title,
+                sender = name,
+                fehler = e
+            ),
         },
     );
     result
@@ -224,7 +232,7 @@ pub fn record_stream(
             std::thread::sleep(Duration::from_secs(2));
         }
         progress.cancel.store(true, Ordering::Relaxed);
-        worker.join().unwrap_or_else(|_| Err("Aufnahme abgestürzt".into()))
+        worker.join().unwrap_or_else(|_| Err(tr("Aufnahme abgestürzt").into()))
     }
 }
 
@@ -291,7 +299,7 @@ impl KeepAwake {
                         "/org/freedesktop/login1",
                         "org.freedesktop.login1.Manager",
                         "Inhibit",
-                        Some(&("sleep", "tvjoe", "Aufnahme läuft", "block").to_variant()),
+                        Some(&("sleep", "tvjoe", tr("Aufnahme läuft"), "block").to_variant()),
                         None,
                         gio::DBusCallFlags::NONE,
                         5000,
@@ -356,7 +364,7 @@ fn run_cmd(cmd: &str, args: &[&str]) -> Result<(), String> {
 #[cfg(target_os = "linux")]
 pub fn install(linger: bool) -> Result<bool, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let path = unit_path().ok_or("kein Konfigurationsordner")?;
+    let path = unit_path().ok_or(tr("kein Konfigurationsordner"))?;
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
@@ -419,14 +427,14 @@ pub fn set_enabled(s: &mut Settings, on: bool) {
     let snapshot = s.clone();
     crate::ablage::report(if on {
         if cfg!(windows) {
-            "Aufnahmedienst wird eingerichtet – bitte die Administrator-Bestätigung beantworten"
+            tr("Aufnahmedienst wird eingerichtet – bitte die Administrator-Bestätigung beantworten")
         } else {
-            "Aufnahmedienst wird eingerichtet …"
+            tr("Aufnahmedienst wird eingerichtet …")
         }
     } else if cfg!(windows) {
-        "Aufnahmedienst wird entfernt – bitte die Administrator-Bestätigung beantworten"
+        tr("Aufnahmedienst wird entfernt – bitte die Administrator-Bestätigung beantworten")
     } else {
-        "Aufnahmedienst wird entfernt …"
+        tr("Aufnahmedienst wird entfernt …")
     });
     let (tx, rx) = async_channel::bounded::<Result<bool, String>>(1);
     std::thread::spawn(move || {
@@ -445,13 +453,13 @@ pub fn set_enabled(s: &mut Settings, on: bool) {
                 }
                 app.save_settings();
                 app.message(if on {
-                    "Aufnahmedienst eingerichtet: geplante Aufnahmen laufen auch ohne geöffnetes tvjoe"
+                    tr("Aufnahmedienst eingerichtet: geplante Aufnahmen laufen auch ohne geöffnetes tvjoe")
                 } else {
-                    "Aufnahmedienst entfernt: aufgenommen wird wieder nur bei geöffnetem tvjoe"
+                    tr("Aufnahmedienst entfernt: aufgenommen wird wieder nur bei geöffnetem tvjoe")
                 });
                 sync_tasks(&app);
             }
-            Err(e) => app.message(&format!("Aufnahmedienst: {e}")),
+            Err(e) => app.message(&tf!("Aufnahmedienst: {fehler}", fehler = e)),
         }
     });
 }

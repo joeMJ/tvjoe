@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use adw::prelude::*;
 use gtk::{gio, glib};
 use tvjoe_core::net::{self, Probe, Variant};
-use tvjoe_core::{FindingKind, Playlist, Quality, Severity};
+use tvjoe_core::{FindingKind, Playlist, Quality, Severity, tf, tr};
 
 use crate::manage::Manager;
 
@@ -32,14 +32,14 @@ pub fn groups_of(e: &tvjoe_core::Entry) -> impl Iterator<Item = &str> {
 
 pub fn from_file(mgr: &Rc<Manager>) {
     let filter = gtk::FileFilter::new();
-    filter.set_name(Some("M3U-Listen"));
+    filter.set_name(Some(tr("M3U-Listen")));
     for p in ["*.m3u", "*.m3u8", "*.M3U", "*.M3U8"] {
         filter.add_pattern(p);
     }
     let filters = gio::ListStore::new::<gtk::FileFilter>();
     filters.append(&filter);
     let dialog = gtk::FileDialog::builder()
-        .title("M3U importieren")
+        .title(tr("M3U importieren"))
         .modal(true)
         .filters(&filters)
         .default_filter(&filter)
@@ -63,7 +63,7 @@ pub fn from_file(mgr: &Rc<Manager>) {
                         .unwrap_or_else(|| location.clone());
                     preview(&m, &bytes, location, name);
                 }
-                Err(e) => m.toast(&format!("{}: {e}", path.display())),
+                Err(e) => m.toast(&tf!("{path}: {error}", path = path.display(), error = e)),
             }
         },
     );
@@ -71,13 +71,13 @@ pub fn from_file(mgr: &Rc<Manager>) {
 
 pub fn from_url(mgr: &Rc<Manager>) {
     let entry = gtk::Entry::builder()
-        .placeholder_text("https://…/liste.m3u")
+        .placeholder_text(tr("https://…/liste.m3u"))
         .activates_default(true)
         .input_purpose(gtk::InputPurpose::Url)
         .build();
-    let d = adw::AlertDialog::new(Some("M3U von URL laden"), Some("Adresse der Liste:"));
-    d.add_response("cancel", "Abbrechen");
-    d.add_response("ok", "Laden");
+    let d = adw::AlertDialog::new(Some(tr("M3U von URL laden")), Some(tr("Adresse der Liste:")));
+    d.add_response("cancel", tr("Abbrechen"));
+    d.add_response("ok", tr("Laden"));
     d.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
     d.set_default_response(Some("ok"));
     d.set_close_response("cancel");
@@ -88,7 +88,7 @@ pub fn from_url(mgr: &Rc<Manager>) {
         if url.is_empty() {
             return;
         }
-        m.toast("Lade Liste …");
+        m.toast(tr("Lade Liste …"));
         let (tx, rx) = async_channel::bounded(1);
         let u = url.clone();
         std::thread::spawn(move || {
@@ -104,11 +104,11 @@ pub fn from_url(mgr: &Rc<Manager>) {
                         .next()
                         .and_then(|f| f.split('.').next())
                         .filter(|s| !s.is_empty())
-                        .unwrap_or("Liste")
+                        .unwrap_or(tr("Liste"))
                         .to_string();
                     preview(&m, &bytes, url, name);
                 }
-                Ok(Err(e)) => m.toast(&format!("Laden fehlgeschlagen: {e}")),
+                Ok(Err(e)) => m.toast(&tf!("Laden fehlgeschlagen: {error}", error = e)),
                 Err(_) => {}
             }
         });
@@ -142,8 +142,8 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
     let playlist = match Playlist::parse(bytes) {
         Ok(p) => p,
         Err(e) => {
-            let d = adw::AlertDialog::new(Some("Liste nicht übernehmbar"), Some(&e.to_string()));
-            d.add_response("ok", "OK");
+            let d = adw::AlertDialog::new(Some(tr("Liste nicht übernehmbar")), Some(&e.to_string()));
+            d.add_response("ok", tr("OK"));
             d.present(Some(&mgr.body));
             return None;
         }
@@ -156,9 +156,9 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
         .find(|s| s.location == location)
         .map(|s| s.name.clone());
 
-    let title = format!("Importieren – {name}");
-    let cancel_button = gtk::Button::with_label("Abbrechen");
-    let import_button = gtk::Button::with_label("Übernehmen");
+    let title = tf!("Importieren – {name}", name = name);
+    let cancel_button = gtk::Button::with_label(tr("Abbrechen"));
+    let import_button = gtk::Button::with_label(tr("Übernehmen"));
     import_button.add_css_class("suggested-action");
 
     let errors = playlist
@@ -166,17 +166,23 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
         .iter()
         .filter(|f| f.kind.severity() == Severity::Error)
         .count();
+    let summary_text = if existing.is_some() {
+        tf!(
+            "{entries} Einträge · {findings} Befunde, davon {errors} Fehler · Quelle ist schon vorhanden und wird aktualisiert",
+            entries = playlist.entries.len(),
+            findings = playlist.findings.len(),
+            errors = errors
+        )
+    } else {
+        tf!(
+            "{entries} Einträge · {findings} Befunde, davon {errors} Fehler",
+            entries = playlist.entries.len(),
+            findings = playlist.findings.len(),
+            errors = errors
+        )
+    };
     let summary = gtk::Label::builder()
-        .label(format!(
-            "{} Einträge · {} Befunde, davon {errors} Fehler{}",
-            playlist.entries.len(),
-            playlist.findings.len(),
-            if existing.is_some() {
-                " · Quelle ist schon vorhanden und wird aktualisiert"
-            } else {
-                ""
-            }
-        ))
+        .label(summary_text)
         .css_classes(["tvjoe-name"])
         .xalign(0.0)
         .build();
@@ -192,15 +198,15 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
     let group_list: Vec<String> = groups.into_iter().collect();
     let group_refs: Vec<&str> = group_list.iter().map(String::as_str).collect();
     let group_drop = gtk::DropDown::from_strings(&group_refs);
-    let all = gtk::Button::with_label("Alle");
-    let none = gtk::Button::with_label("Keine");
-    let group_on = gtk::Button::with_label("Gruppe wählen");
-    let group_off = gtk::Button::with_label("Gruppe abwählen");
+    let all = gtk::Button::with_label(tr("Alle"));
+    let none = gtk::Button::with_label(tr("Keine"));
+    let group_on = gtk::Button::with_label(tr("Gruppe wählen"));
+    let group_off = gtk::Button::with_label(tr("Gruppe abwählen"));
     let status = gtk::Label::builder()
         .css_classes(["tvjoe-sub"])
         .xalign(0.0)
         .build();
-    let stop = gtk::Button::with_label("Prüfung abbrechen");
+    let stop = gtk::Button::with_label(tr("Prüfung abbrechen"));
 
     let top = gtk::Box::new(gtk::Orientation::Vertical, 8);
     top.set_margin_start(16);
@@ -208,14 +214,14 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
     top.set_margin_top(10);
     top.append(&summary);
     let line1 = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    line1.append(&gtk::Label::new(Some("Name der Quelle:")));
+    line1.append(&gtk::Label::new(Some(tr("Name der Quelle:"))));
     line1.append(&source_name);
     top.append(&line1);
     let line2 = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     line2.append(&all);
     line2.append(&none);
     if !group_list.is_empty() {
-        line2.append(&gtk::Label::new(Some("Gruppe:")));
+        line2.append(&gtk::Label::new(Some(tr("Gruppe:"))));
         line2.append(&group_drop);
         line2.append(&group_on);
         line2.append(&group_off);
@@ -295,11 +301,11 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
                     .flatten()
                     .collect();
                 match g.match_parts(None, e.tvg_id(), &names) {
-                    Some((id, _)) => format!("EPG: ✔ {id}"),
-                    None => "EPG: ✖ keine Zuordnung".into(),
+                    Some((id, _)) => tf!("EPG: ✔ {id}", id = id),
+                    None => tr("EPG: ✖ keine Zuordnung").into(),
                 }
             }
-            None => "EPG: –".into(),
+            None => tr("EPG: –").into(),
         };
         hbox.append(&label(&epg_text, 200, "tvjoe-sub"));
         list.append(&hbox);
@@ -411,7 +417,7 @@ impl Preview {
 
     fn update_count(&self) {
         let n = self.selected().len();
-        self.import_button.set_label(&format!("Übernehmen ({n})"));
+        self.import_button.set_label(&tf!("Übernehmen ({n})", n = n));
         self.import_button.set_sensitive(n > 0);
     }
 
@@ -426,8 +432,8 @@ impl Preview {
             .map(|v| Quality::from_height(v.height))
             .collect();
         let text: Vec<&str> = levels.iter().map(|q| q.label()).collect();
-        self.qualities[i].set_label(&format!("{} (erkannt)", text.join(" ")));
-        self.qualities[i].set_tooltip_text(Some("Aus der HLS-Master-Playlist erkannt"));
+        self.qualities[i].set_label(&tf!("{levels} (erkannt)", levels = text.join(" ")));
+        self.qualities[i].set_tooltip_text(Some(tr("Aus der HLS-Master-Playlist erkannt")));
         self.variants.borrow_mut().insert(i, variants.to_vec());
         if self.only_quality_warning[i] {
             self.checks[i].set_active(true);
@@ -483,9 +489,9 @@ impl Preview {
                     Probe::Ok { status, variants } => {
                         ok += 1;
                         p.found_variants(i, variants);
-                        format!("✔ erreichbar ({status})")
+                        tf!("✔ erreichbar ({status})", status = status)
                     }
-                    Probe::Skipped => "– nicht geprüft".to_string(),
+                    Probe::Skipped => tr("– nicht geprüft").to_string(),
                     Probe::Failed(e) => {
                         p.checks[i].set_active(false);
                         format!("✖ {e}")
@@ -493,16 +499,30 @@ impl Preview {
                 };
                 p.reach[i].set_label(&text);
                 p.reach[i].set_tooltip_text(Some(&text));
-                p.status.set_label(&format!(
-                    "Erreichbarkeit: {done} von {total} geprüft, {ok} erreichbar"
+                p.status.set_label(&tf!(
+                    "Erreichbarkeit: {done} von {total} geprüft, {ok} erreichbar",
+                    done = done,
+                    total = total,
+                    ok = ok
                 ));
             }
             if let Some(p) = w.upgrade() {
                 let cancelled = p.cancel.load(Ordering::Relaxed);
-                p.status.set_label(&format!(
-                    "Erreichbarkeit {}: {done} von {total} geprüft, {ok} erreichbar",
-                    if cancelled { "abgebrochen" } else { "geprüft" }
-                ));
+                p.status.set_label(&if cancelled {
+                    tf!(
+                        "Erreichbarkeit abgebrochen: {done} von {total} geprüft, {ok} erreichbar",
+                        done = done,
+                        total = total,
+                        ok = ok
+                    )
+                } else {
+                    tf!(
+                        "Erreichbarkeit geprüft: {done} von {total} geprüft, {ok} erreichbar",
+                        done = done,
+                        total = total,
+                        ok = ok
+                    )
+                });
                 stop.set_sensitive(false);
             }
         });
@@ -529,7 +549,7 @@ impl Preview {
                     s.id
                 }
                 None => lib.add_source(
-                    if name.is_empty() { "Liste" } else { &name },
+                    if name.is_empty() { tr("Liste") } else { &name },
                     &self.location,
                 ),
             };
@@ -545,16 +565,21 @@ impl Preview {
         self.mgr.app.library_changed();
         self.mgr.refill();
         if let Some(o) = outcome {
-            self.mgr.toast(&format!(
-                "Übernommen: {} neu, {} aktualisiert{}",
-                o.added,
-                o.updated,
-                if o.missing > 0 {
-                    format!(", {} fehlen in der Quelle", o.missing)
-                } else {
-                    String::new()
-                }
-            ));
+            let text = if o.missing > 0 {
+                tf!(
+                    "Übernommen: {added} neu, {updated} aktualisiert, {missing} fehlen in der Quelle",
+                    added = o.added,
+                    updated = o.updated,
+                    missing = o.missing
+                )
+            } else {
+                tf!(
+                    "Übernommen: {added} neu, {updated} aktualisiert",
+                    added = o.added,
+                    updated = o.updated
+                )
+            };
+            self.mgr.toast(&text);
         }
         crate::layer::close_body(&self.mgr.app, &self.body);
     }

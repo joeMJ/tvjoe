@@ -10,6 +10,8 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::tr;
+
 /// Art eines Eintrags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Art {
@@ -586,7 +588,7 @@ fn download_once(
     drop(file);
     let total = progress.total.load(Ordering::Relaxed);
     if total > 0 && progress.done.load(Ordering::Relaxed) < total {
-        return Err("Verbindung vorzeitig beendet".into());
+        return Err(tr("Verbindung vorzeitig beendet").into());
     }
     std::fs::rename(&part, path).map_err(|e| e.to_string())
 }

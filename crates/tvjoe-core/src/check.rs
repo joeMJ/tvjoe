@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::ids::normalize_id;
+use crate::{tf, tr};
 use crate::m3u::{Entry, Quality};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,25 +55,25 @@ impl FindingKind {
 impl fmt::Display for FindingKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ExtinfWithoutUrl => f.write_str("#EXTINF ohne URL"),
-            Self::UrlWithoutExtinf => f.write_str("URL ohne #EXTINF-Zeile, ignoriert"),
-            Self::MissingTvgId => f.write_str("tvg-id fehlt"),
-            Self::MissingLogo => f.write_str("tvg-logo fehlt"),
-            Self::MissingGroup => f.write_str("group-title fehlt"),
-            Self::DuplicateTvgId => f.write_str("tvg-id doppelt, ohne unterscheidende Qualität"),
-            Self::DuplicateUrl => f.write_str("URL doppelt"),
-            Self::DuplicateQuality(q) => write!(f, "Sender doppelt in der Qualität {}", q.label()),
+            Self::ExtinfWithoutUrl => f.write_str(tr("#EXTINF ohne URL")),
+            Self::UrlWithoutExtinf => f.write_str(tr("URL ohne #EXTINF-Zeile, ignoriert")),
+            Self::MissingTvgId => f.write_str(tr("tvg-id fehlt")),
+            Self::MissingLogo => f.write_str(tr("tvg-logo fehlt")),
+            Self::MissingGroup => f.write_str(tr("group-title fehlt")),
+            Self::DuplicateTvgId => f.write_str(tr("tvg-id doppelt, ohne unterscheidende Qualität")),
+            Self::DuplicateUrl => f.write_str(tr("URL doppelt")),
+            Self::DuplicateQuality(q) => f.write_str(&tf!("Sender doppelt in der Qualität {quality}", quality = q.label())),
             Self::DuplicateChno { old, new } => {
-                write!(f, "Kanalnummer {old} doppelt, neu vergeben: {new}")
+                f.write_str(&tf!("Kanalnummer {old} doppelt, neu vergeben: {new}", old = old, new = new))
             }
-            Self::Http => f.write_str("unverschlüsselte Quelle (http://)"),
-            Self::UnknownScheme(s) => write!(f, "unbekanntes URL-Schema „{s}“"),
-            Self::UnknownType => f.write_str("Quelltyp unbekannt (tvjoe-type)"),
-            Self::UnknownQuality(v) => write!(
-                f,
-                "Qualitätswert „{v}“ unbekannt (erlaubt: sd, 720, 1080, uhd)"
-            ),
-            Self::MissingQuality => f.write_str("Qualität unbekannt (tvjoe-quality fehlt)"),
+            Self::Http => f.write_str(tr("unverschlüsselte Quelle (http://)")),
+            Self::UnknownScheme(s) => f.write_str(&tf!("unbekanntes URL-Schema „{scheme}“", scheme = s)),
+            Self::UnknownType => f.write_str(tr("Quelltyp unbekannt (tvjoe-type)")),
+            Self::UnknownQuality(v) => f.write_str(&tf!(
+                "Qualitätswert „{value}“ unbekannt (erlaubt: sd, 720, 1080, uhd)",
+                value = v
+            )),
+            Self::MissingQuality => f.write_str(tr("Qualität unbekannt (tvjoe-quality fehlt)")),
         }
     }
 }

@@ -8,6 +8,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::glib;
 use tvjoe_core::ablage::{Art, Entry, State};
+use tvjoe_core::{tf, tr, trn};
 
 use crate::app::{App, hm};
 
@@ -25,9 +26,10 @@ fn label(text: &str, class: &str) -> gtk::Label {
 pub fn size_text(bytes: u64) -> String {
     let gb = bytes as f64 / f64::from(1u32 << 30);
     if gb >= 1.0 {
-        format!("{gb:.1} GB").replace('.', ",")
+        let size = format!("{gb:.1}").replace('.', ",");
+        tf!("{size} GB", size = size)
     } else {
-        format!("{} MB", bytes >> 20)
+        tf!("{size} MB", size = bytes >> 20)
     }
 }
 
@@ -128,11 +130,11 @@ pub fn planned_page(app: &Rc<App>) -> gtk::Widget {
         // Aufnahmedienst: Stand oben; laufende Aufnahmen stehen dann im Verzeichnis.
         if app.settings().record_service {
             let text = if cfg!(windows) {
-                "Aufnahmen laufen über die Aufgabenplanung von Windows, auch ohne geöffnetes tvjoe (solange Sie angemeldet sind)."
+                tr("Aufnahmen laufen über die Aufgabenplanung von Windows, auch ohne geöffnetes tvjoe (solange Sie angemeldet sind).")
             } else if crate::dienst::alive() {
-                "Aufnahmedienst läuft: Aufnahmen auch ohne geöffnetes tvjoe."
+                tr("Aufnahmedienst läuft: Aufnahmen auch ohne geöffnetes tvjoe.")
             } else {
-                "Aufnahmedienst antwortet nicht – geplante Aufnahmen finden nicht statt. Einstellungen → Ablage: Schalter aus- und wieder einschalten."
+                tr("Aufnahmedienst antwortet nicht – geplante Aufnahmen finden nicht statt. Einstellungen → Ablage: Schalter aus- und wieder einschalten.")
             };
             content.append(&label(text, "tvjoe-sub"));
             let entries = crate::ablage::all_entries();
@@ -141,14 +143,14 @@ pub fn planned_page(app: &Rc<App>) -> gtk::Widget {
                 .filter(|e| e.art == Art::Recording && e.state == State::Loading)
                 .collect();
             if !running.is_empty() {
-                let g = group("Läuft", None);
+                let g = group(tr("Läuft"), None);
                 for e in running {
                     let row = adw::ActionRow::builder()
                         .title(glib::markup_escape_text(&e.title))
-                        .subtitle(glib::markup_escape_text(&format!(
-                            "{} · seit {}",
-                            e.subtitle,
-                            hm(e.created)
+                        .subtitle(glib::markup_escape_text(&tf!(
+                            "{subtitle} · seit {time}",
+                            subtitle = e.subtitle,
+                            time = hm(e.created)
                         )))
                         .build();
                     row.add_prefix(&label("●", "tvjoe-rec"));
@@ -161,18 +163,18 @@ pub fn planned_page(app: &Rc<App>) -> gtk::Widget {
         let entries = crate::ablage::all_entries();
         let now = tvjoe_core::ablage::now();
         if !running.is_empty() {
-            let g = group("Läuft", None);
+            let g = group(tr("Läuft"), None);
             for (id, stop_at) in running {
                 let Some(e) = entries.iter().find(|e| e.id == id) else {
                     continue;
                 };
                 let row = adw::ActionRow::builder()
                     .title(glib::markup_escape_text(&e.title))
-                    .subtitle(glib::markup_escape_text(&format!(
-                        "{} · bis {} · {}",
-                        e.subtitle,
-                        hm(stop_at),
-                        size_text(std::fs::metadata(crate::capture::part_path(&e.path))
+                    .subtitle(glib::markup_escape_text(&tf!(
+                        "{subtitle} · bis {time} · {size}",
+                        subtitle = e.subtitle,
+                        time = hm(stop_at),
+                        size = size_text(std::fs::metadata(crate::capture::part_path(&e.path))
                             .or_else(|_| std::fs::metadata(tvjoe_core::ablage::part_path(&e.path)))
                             .map(|m| m.len())
                             .unwrap_or(0))
@@ -180,7 +182,7 @@ pub fn planned_page(app: &Rc<App>) -> gtk::Widget {
                     .build();
                 let dot = label("●", "tvjoe-rec");
                 row.add_prefix(&dot);
-                let stop = small_button("Beenden");
+                let stop = small_button(tr("Beenden"));
                 stop.connect_clicked(move |_| crate::ablage::stop_recording(id));
                 row.add_suffix(&stop);
                 g.add(&row);
@@ -192,27 +194,27 @@ pub fn planned_page(app: &Rc<App>) -> gtk::Widget {
             .filter(|t| t.stop > now)
             .collect();
         let g = group(
-            "Geplant",
-            Some("Im Programm per Rechtsklick auf eine Sendung planen. Aufgenommen wird nur, solange tvjoe läuft."),
+            tr("Geplant"),
+            Some(tr("Im Programm per Rechtsklick auf eine Sendung planen. Aufgenommen wird nur, solange tvjoe läuft.")),
         );
         if timers.is_empty() {
             g.add(
                 &adw::ActionRow::builder()
-                    .title("Keine Aufnahmen geplant")
+                    .title(tr("Keine Aufnahmen geplant"))
                     .build(),
             );
         }
         for t in timers {
             let row = adw::ActionRow::builder()
                 .title(glib::markup_escape_text(&t.title))
-                .subtitle(glib::markup_escape_text(&format!(
-                    "{} · {} – {}",
-                    t.channel,
-                    day(t.start),
-                    hm(t.stop)
+                .subtitle(glib::markup_escape_text(&tf!(
+                    "{channel} · {day} – {end}",
+                    channel = t.channel,
+                    day = day(t.start),
+                    end = hm(t.stop)
                 )))
                 .build();
-            let remove = small_button("Planung löschen");
+            let remove = small_button(tr("Planung löschen"));
             let (app, t) = (app.clone(), t.clone());
             remove.connect_clicked(move |_| crate::ablage::unplan(&app, &t));
             row.add_suffix(&remove);
@@ -235,7 +237,9 @@ fn section(e: &Entry) -> usize {
     }
 }
 
-const SECTIONS: [&str; 4] = ["ÖR-Mediathek", "Jellyfin", "Aufnahmen", "Zwischenspeicher"];
+fn sections() -> [&'static str; 4] {
+    [tr("ÖR-Mediathek"), "Jellyfin", tr("Aufnahmen"), tr("Zwischenspeicher")]
+}
 
 /// Serie eines Jellyfin-Titels „Serie S01E02 Name“ (sonst `None`).
 fn series_of(title: &str) -> Option<&str> {
@@ -283,25 +287,25 @@ pub fn overview_page(app: &Rc<App>) -> gtk::Widget {
             totals[section(e)] += size(e);
         }
         let sum: u64 = totals.iter().sum();
-        let parts: Vec<String> = SECTIONS
+        let parts: Vec<String> = sections()
             .iter()
             .zip(totals)
             .map(|(n, t)| format!("{n} {}", size_text(t)))
             .collect();
         let free = crate::ablage::free_space(&app)
-            .map(|f| format!(" · {} frei", size_text(f)))
-            .unwrap_or_default();
-        content.append(&label(
-            &format!("Belegt {}{free}", size_text(sum)),
-            "tvjoe-mt-detail-title",
-        ));
+            .map(size_text);
+        let used = match free {
+            Some(f) => tf!("Belegt {used} · {free} frei", used = size_text(sum), free = f),
+            None => tf!("Belegt {used}", used = size_text(sum)),
+        };
+        content.append(&label(&used, "tvjoe-mt-detail-title"));
         content.append(&label(&parts.join(" · "), "tvjoe-sub"));
         content.append(&label(
             &crate::ablage::storage_dir(&app).display().to_string(),
             "tvjoe-sub",
         ));
 
-        for (i, name) in SECTIONS.iter().enumerate() {
+        for (i, name) in sections().iter().enumerate() {
             let list: Vec<&Entry> = entries.iter().filter(|e| section(e) == i).collect();
             if list.is_empty() {
                 continue;
@@ -320,11 +324,10 @@ pub fn overview_page(app: &Rc<App>) -> gtk::Widget {
                             let exp = adw::ExpanderRow::builder()
                                 .expanded(expanded.borrow().contains(s))
                                 .title(glib::markup_escape_text(s))
-                                .subtitle(format!(
-                                    "Serie · {} {} · {}",
-                                    eps.len(),
-                                    if eps.len() == 1 { "Folge" } else { "Folgen" },
-                                    size_text(total)
+                                .subtitle(tf!(
+                                    "Serie · {episodes} · {size}",
+                                    episodes = trn("{n} Folge", "{n} Folgen", eps.len() as u64),
+                                    size = size_text(total)
                                 ))
                                 .build();
                             for x in eps {
@@ -353,7 +356,7 @@ pub fn overview_page(app: &Rc<App>) -> gtk::Widget {
         }
         if entries.is_empty() {
             content.append(&label(
-                "Noch nichts in der Ablage. Rechtsklick auf eine Kachel in der Mediathek lädt herunter, Taste R nimmt die laufende Sendung auf.",
+                tr("Noch nichts in der Ablage. Rechtsklick auf eine Kachel in der Mediathek lädt herunter, Taste R nimmt die laufende Sendung auf."),
                 "tvjoe-sub",
             ));
         }
@@ -367,16 +370,16 @@ fn entry_row(app: &Rc<App>, e: &Entry, size: u64) -> gtk::Widget {
         .iter()
         .any(|(id, _)| *id == e.id);
     let state = if recording {
-        "Aufnahme läuft".to_string()
+        tr("Aufnahme läuft").to_string()
     } else if running.is_some() {
-        "Wird geladen".to_string()
+        tr("Wird geladen").to_string()
     } else {
         match e.state {
-            State::Done => "Vollständig".into(),
-            State::Partial => "Teilweise".into(),
-            State::Queued => "Wartet".into(),
-            State::Loading => "Wird geladen".into(),
-            State::Failed => "Fehlgeschlagen".into(),
+            State::Done => tr("Vollständig").into(),
+            State::Partial => tr("Teilweise").into(),
+            State::Queued => tr("Wartet").into(),
+            State::Loading => tr("Wird geladen").into(),
+            State::Failed => tr("Fehlgeschlagen").into(),
         }
     };
     let mut sub = vec![state, size_text(size), day(e.created)];
@@ -394,8 +397,8 @@ fn entry_row(app: &Rc<App>, e: &Entry, size: u64) -> gtk::Widget {
             .valign(gtk::Align::Center)
             .show_text(true)
             .text(match f {
-                Some(f) => format!("{:.0} %", f * 100.0),
-                None => "lädt".to_string(),
+                Some(f) => tf!("{percent} %", percent = format!("{:.0}", f * 100.0)),
+                None => tr("lädt").to_string(),
             })
             .build();
         if f.is_none() {
@@ -405,7 +408,7 @@ fn entry_row(app: &Rc<App>, e: &Entry, size: u64) -> gtk::Widget {
     }
     let id = e.id;
     if e.state == State::Done && !recording {
-        let play = small_button("Abspielen");
+        let play = small_button(tr("Abspielen"));
         let app = app.clone();
         play.connect_clicked(move |_| {
             crate::ablage::play_entry(&app, id);
@@ -414,32 +417,33 @@ fn entry_row(app: &Rc<App>, e: &Entry, size: u64) -> gtk::Widget {
         row.add_suffix(&play);
     }
     if e.state == State::Partial && running.is_none() && e.art != Art::Recording {
-        let resume = small_button("Fortsetzen");
+        let resume = small_button(tr("Fortsetzen"));
         let app = app.clone();
         resume.connect_clicked(move |_| crate::ablage::resume_entry(&app, id));
         row.add_suffix(&resume);
     }
     if running.is_some() {
-        let cancel = small_button("Abbrechen");
+        let cancel = small_button(tr("Abbrechen"));
         let (s, k) = (e.source.clone(), e.key.clone());
         cancel.connect_clicked(move |_| crate::ablage::cancel(&s, &k));
         row.add_suffix(&cancel);
     }
     let delete = gtk::Button::builder()
         .icon_name("user-trash-symbolic")
-        .tooltip_text("Löschen")
+        .tooltip_text(tr("Löschen"))
         .valign(gtk::Align::Center)
         .css_classes(["flat"])
         .build();
     let title = e.title.clone();
     delete.connect_clicked(move |b| {
         let dialog = adw::AlertDialog::builder()
-            .heading("Wirklich löschen?")
-            .body(format!(
-                "„{title}“ wird von der Platte gelöscht. Das lässt sich nicht rückgängig machen."
+            .heading(tr("Wirklich löschen?"))
+            .body(tf!(
+                "„{title}“ wird von der Platte gelöscht. Das lässt sich nicht rückgängig machen.",
+                title = title
             ))
             .build();
-        dialog.add_responses(&[("keep", "Behalten"), ("delete", "Löschen")]);
+        dialog.add_responses(&[("keep", tr("Behalten")), ("delete", tr("Löschen"))]);
         dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
         dialog.set_default_response(Some("keep"));
         dialog.connect_response(None, move |_, r| {

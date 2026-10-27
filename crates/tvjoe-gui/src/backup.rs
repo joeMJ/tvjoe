@@ -7,6 +7,7 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk::gio;
 use tvjoe_core::backup::Backup;
+use tvjoe_core::{tf, tr};
 
 use crate::app::App;
 
@@ -16,24 +17,24 @@ pub fn prefs_group(
     pending: &Rc<RefCell<Option<Backup>>>,
 ) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
-        .title("Sichern")
-        .description("Alle Einstellungen, TV- und SAT-Senderliste in einer Datei. Nicht enthalten: Jellyfin-Anmeldung, Zwischenspeicher (Logos, Programm, Filmliste) und Weiterseh-Positionen.")
+        .title(tr("Sichern"))
+        .description(tr("Alle Einstellungen, TV- und SAT-Senderliste in einer Datei. Nicht enthalten: Jellyfin-Anmeldung, Zwischenspeicher (Logos, Programm, Filmliste) und Weiterseh-Positionen."))
         .build();
     let export_row = adw::ActionRow::builder()
-        .title("Exportieren")
-        .subtitle("Stand beim Öffnen der Einstellungen")
+        .title(tr("Exportieren"))
+        .subtitle(tr("Stand beim Öffnen der Einstellungen"))
         .build();
     let export = gtk::Button::builder()
-        .label("Exportieren…")
+        .label(tr("Exportieren…"))
         .valign(gtk::Align::Center)
         .build();
     export_row.add_suffix(&export);
     let import_row = adw::ActionRow::builder()
-        .title("Importieren")
-        .subtitle("Ersetzt Einstellungen und Senderlisten; die bisherigen Dateien bleiben als .bak")
+        .title(tr("Importieren"))
+        .subtitle(tr("Ersetzt Einstellungen und Senderlisten; die bisherigen Dateien bleiben als .bak"))
         .build();
     let import = gtk::Button::builder()
-        .label("Importieren…")
+        .label(tr("Importieren…"))
         .valign(gtk::Align::Center)
         .build();
     import_row.add_suffix(&import);
@@ -57,7 +58,7 @@ pub fn prefs_group(
 
 fn toml_filter() -> (gtk::FileFilter, gio::ListStore) {
     let filter = gtk::FileFilter::new();
-    filter.set_name(Some("tvjoe-Sicherung"));
+    filter.set_name(Some(tr("tvjoe-Sicherung")));
     filter.add_pattern("*.toml");
     let filters = gio::ListStore::new::<gtk::FileFilter>();
     filters.append(&filter);
@@ -72,13 +73,13 @@ fn export_file(app: &Rc<App>, d: &adw::PreferencesDialog) {
     let text = match app.backup().to_toml() {
         Ok(t) => t,
         Err(e) => {
-            d.add_toast(adw::Toast::new(&format!("Sicherung fehlgeschlagen: {e}")));
+            d.add_toast(adw::Toast::new(&tf!("Sicherung fehlgeschlagen: {fehler}", fehler = e)));
             return;
         }
     };
     let (filter, filters) = toml_filter();
     let fd = gtk::FileDialog::builder()
-        .title("Sicherung exportieren")
+        .title(tr("Sicherung exportieren"))
         .modal(true)
         .initial_name("tvjoe-sicherung.toml")
         .filters(&filters)
@@ -92,7 +93,7 @@ fn export_file(app: &Rc<App>, d: &adw::PreferencesDialog) {
             let Ok(file) = res else { return };
             let Some(path) = file.path() else { return };
             let msg = match std::fs::write(&path, &text) {
-                Ok(()) => format!("Gespeichert: {}", path.display()),
+                Ok(()) => tf!("Gespeichert: {pfad}", pfad = path.display()),
                 Err(e) => format!("{}: {e}", path.display()),
             };
             d2.add_toast(adw::Toast::new(&msg));
@@ -103,7 +104,7 @@ fn export_file(app: &Rc<App>, d: &adw::PreferencesDialog) {
 fn import_file(app: &Rc<App>, d: &adw::PreferencesDialog, pending: &Rc<RefCell<Option<Backup>>>) {
     let (filter, filters) = toml_filter();
     let fd = gtk::FileDialog::builder()
-        .title("Sicherung importieren")
+        .title(tr("Sicherung importieren"))
         .modal(true)
         .filters(&filters)
         .default_filter(&filter)
@@ -136,17 +137,17 @@ fn import_file(app: &Rc<App>, d: &adw::PreferencesDialog, pending: &Rc<RefCell<O
 fn confirm(d: &adw::PreferencesDialog, b: Backup, pending: &Rc<RefCell<Option<Backup>>>) {
     let active = |l: &tvjoe_core::Library| l.channels.iter().filter(|c| c.active).count();
     let alert = adw::AlertDialog::new(
-        Some("Sicherung übernehmen?"),
-        Some(&format!(
-            "Ersetzt alle Einstellungen, die TV-Senderliste ({} Sender, {} aktiv) und die SAT-Senderliste ({} Sender, {} aktiv). Die bisherigen Dateien bleiben als .bak erhalten, die Jellyfin-Anmeldung bleibt unverändert.\n\nDie Einstellungen werden dazu geschlossen.",
-            b.tv.channels.len(),
-            active(&b.tv),
-            b.sat.channels.len(),
-            active(&b.sat),
+        Some(tr("Sicherung übernehmen?")),
+        Some(&tf!(
+            "Ersetzt alle Einstellungen, die TV-Senderliste ({tv} Sender, {tv_aktiv} aktiv) und die SAT-Senderliste ({sat} Sender, {sat_aktiv} aktiv). Die bisherigen Dateien bleiben als .bak erhalten, die Jellyfin-Anmeldung bleibt unverändert.\n\nDie Einstellungen werden dazu geschlossen.",
+            tv = b.tv.channels.len(),
+            tv_aktiv = active(&b.tv),
+            sat = b.sat.channels.len(),
+            sat_aktiv = active(&b.sat),
         )),
     );
-    alert.add_response("cancel", "Abbrechen");
-    alert.add_response("ok", "Übernehmen");
+    alert.add_response("cancel", tr("Abbrechen"));
+    alert.add_response("ok", tr("Übernehmen"));
     alert.set_response_appearance("ok", adw::ResponseAppearance::Destructive);
     alert.set_close_response("cancel");
     let (d2, p) = (d.clone(), pending.clone());

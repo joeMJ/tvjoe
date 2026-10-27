@@ -17,7 +17,7 @@ use adw::prelude::*;
 use gtk::gdk_pixbuf::Pixbuf;
 use gtk::{gio, glib};
 use tvjoe_core::mediathek::{self, Film, Filter, Group, Kind, Mediathek, Version};
-use tvjoe_core::{epg, net, normalize_id, paths};
+use tvjoe_core::{epg, net, normalize_id, paths, tf, tr, trn};
 
 use crate::app::{App, hm};
 use crate::trace;
@@ -222,55 +222,55 @@ pub fn prefs_page(
     let s = app.settings().clone();
     let page = adw::PreferencesPage::builder()
         .name("mediathek")
-        .title("Mediathek")
+        .title(tr("Mediathek"))
         .icon_name("folder-videos-symbolic")
         .build();
 
     let which = adw::PreferencesGroup::builder()
-        .title("Mediatheken")
-        .description("Ausgeschaltet verschwindet der Knopf in der Kopfleiste, und im Hintergrund wird nichts geladen")
+        .title(tr("Mediatheken"))
+        .description(tr("Ausgeschaltet verschwindet der Knopf in der Kopfleiste, und im Hintergrund wird nichts geladen"))
         .build();
     let oer = adw::SwitchRow::builder()
-        .title("ÖR-Mediathek")
-        .subtitle("Öffentlich-rechtliche Sender, Filmliste von MediathekView")
+        .title(tr("ÖR-Mediathek"))
+        .subtitle(tr("Öffentlich-rechtliche Sender, Filmliste von MediathekView"))
         .active(s.mediathek_oer)
         .build();
     let jelly = adw::SwitchRow::builder()
         .title("Jellyfin")
-        .subtitle("Eigener Server, einrichten im Reiter „Jellyfin“")
+        .subtitle(tr("Eigener Server, einrichten im Reiter „Jellyfin“"))
         .active(s.jellyfin_enabled)
         .build();
     which.add(&oer);
     which.add(&jelly);
 
     let list = adw::PreferencesGroup::builder()
-        .title("Filmliste")
+        .title(tr("Filmliste"))
         .description(
-            "Von MediathekView, im Hintergrund geladen, sobald die Mediathek einmal geöffnet wurde",
+            tr("Von MediathekView, im Hintergrund geladen, sobald die Mediathek einmal geöffnet wurde"),
         )
         .build();
     let hours = adw::SpinRow::with_range(f64::from(MIN_REFRESH_HOURS), 168.0, 1.0);
-    hours.set_title("Neu laden nach");
-    hours.set_subtitle("Stunden; höchstens einmal täglich");
+    hours.set_title(tr("Neu laden nach"));
+    hours.set_subtitle(tr("Stunden; höchstens einmal täglich"));
     hours.set_value(f64::from(s.mediathek_refresh_hours.max(MIN_REFRESH_HOURS)));
     let days = adw::SpinRow::with_range(1.0, 90.0, 1.0);
-    days.set_title("Beiträge behalten");
-    days.set_subtitle("Tage; gilt ab der nächsten Aktualisierung");
+    days.set_title(tr("Beiträge behalten"));
+    days.set_subtitle(tr("Tage; gilt ab der nächsten Aktualisierung"));
     days.set_value(f64::from(s.mediathek_days.max(1)));
     list.add(&hours);
     list.add(&days);
 
-    let view = adw::PreferencesGroup::builder().title("Anzeige").build();
+    let view = adw::PreferencesGroup::builder().title(tr("Anzeige")).build();
     let hide_ad = adw::SwitchRow::builder()
-        .title("Fassungen mit Audiodeskription ausblenden")
+        .title(tr("Fassungen mit Audiodeskription ausblenden"))
         .active(s.mediathek_hide_ad)
         .build();
     view.add(&hide_ad);
 
     let senders = adw::PreferencesGroup::builder()
-        .title("Sender")
+        .title(tr("Sender"))
         .description(
-            "Ausgeschaltete Sender erscheinen weder in der Senderleiste noch in Listen und Suche",
+            tr("Ausgeschaltete Sender erscheinen weder in der Senderleiste noch in Listen und Suche"),
         )
         .build();
     let mut names: Vec<String> =
@@ -537,12 +537,12 @@ fn minutes(secs: i64) -> String {
     if secs <= 0 {
         return String::new();
     }
-    format!("{} Min.", (secs + 30) / 60)
+    tf!("{n} Min.", n = (secs + 30) / 60)
 }
 
 impl crate::layer::View for MtWindow {
     fn title(&self) -> String {
-        "Mediathek".to_string()
+        tr("Mediathek").to_string()
     }
     fn min_size(&self) -> (i32, i32) {
         MIN_SIZE
@@ -578,7 +578,12 @@ const MIN_SIZE: (i32, i32) = (900, 600);
 impl MtWindow {
     fn new(app: &Rc<App>) -> Rc<Self> {
         let tab = |label: &str| gtk::ToggleButton::builder().label(label).build();
-        let tabs = [tab("Episoden"), tab("Filme"), tab("Suche"), tab("Heruntergeladen")];
+        let tabs = [
+            tab(tr("Episoden")),
+            tab(tr("Filme")),
+            tab(tr("Suche")),
+            tab(tr("Heruntergeladen")),
+        ];
         for t in &tabs[1..] {
             t.set_group(Some(&tabs[0]));
         }
@@ -593,11 +598,11 @@ impl MtWindow {
         let header_end = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
-            .tooltip_text("Einstellungen der Mediathek")
+            .tooltip_text(tr("Einstellungen der Mediathek"))
             .build();
 
         let search = gtk::SearchEntry::builder()
-            .placeholder_text("Titel, Thema oder Beschreibung")
+            .placeholder_text(tr("Titel, Thema oder Beschreibung"))
             .hexpand(true)
             .build();
         let search_bar = gtk::Box::builder()
@@ -650,7 +655,7 @@ impl MtWindow {
         let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
         body.append(&search_bar);
         // Sortierung der Serien („Neueste“ / „A–Z“).
-        let newest = gtk::ToggleButton::builder().label("Neueste").build();
+        let newest = gtk::ToggleButton::builder().label(tr("Neueste")).build();
         let az = gtk::ToggleButton::builder()
             .label("A–Z")
             .group(&newest)
@@ -874,8 +879,8 @@ impl MtWindow {
                 )
                 .build()
         };
-        let resume = button("media-playback-start-symbolic", "Weitersehen");
-        let play = button("media-playback-start-symbolic", "Abspielen");
+        let resume = button("media-playback-start-symbolic", tr("Weitersehen"));
+        let play = button("media-playback-start-symbolic", tr("Abspielen"));
         let films = Rc::new(group.films.clone());
         // Knöpfe zur gewählten Fassung: mit gemerkter Position „Weitersehen ab 23:10“ und
         // „Von vorn“, sonst nur „Abspielen“.
@@ -897,15 +902,15 @@ impl MtWindow {
                     Some((p, _)) => {
                         set(
                             &resume,
-                            &format!("Weitersehen ab {}", crate::osd::clock(p)),
+                            &tf!("Weitersehen ab {zeit}", zeit = crate::osd::clock(p)),
                             true,
                         );
                         resume.set_visible(true);
-                        set(&play, "Von vorn", false);
+                        set(&play, tr("Von vorn"), false);
                     }
                     None => {
                         resume.set_visible(false);
-                        set(&play, "Abspielen", true);
+                        set(&play, tr("Abspielen"), true);
                     }
                 }
             }
@@ -1102,26 +1107,22 @@ impl MtWindow {
         text.set_hexpand(true);
         text.append(&label(topic, "tvjoe-mt-detail-title"));
         text.append(&label(
-            &format!(
-                "{sender} · {} {}",
-                episodes.len(),
-                if episodes.len() == 1 {
-                    "Folge"
-                } else {
-                    "Folgen"
-                }
+            &tf!(
+                "{sender} · {anzahl}",
+                sender = sender,
+                anzahl = trn("{n} Folge", "{n} Folgen", episodes.len() as u64)
             ),
             "tvjoe-osd-sub",
         ));
         let target_film = episodes[target].main();
         let resume_text = match (last.is_some(), start) {
-            (_, Some(p)) => format!(
-                "Weitersehen: {} ab {}",
-                episode_code(target_film),
-                crate::osd::clock(p)
+            (_, Some(p)) => tf!(
+                "Weitersehen: {folge} ab {zeit}",
+                folge = episode_code(target_film),
+                zeit = crate::osd::clock(p)
             ),
-            (true, None) => format!("Weitersehen: {}", episode_code(target_film)),
-            (false, None) => format!("Ansehen ab {}", episode_code(target_film)),
+            (true, None) => tf!("Weitersehen: {folge}", folge = episode_code(target_film)),
+            (false, None) => tf!("Ansehen ab {folge}", folge = episode_code(target_film)),
         };
         let resume = gtk::Button::builder()
             .css_classes(["suggested-action", "pill"])
@@ -1217,8 +1218,8 @@ impl MtWindow {
             for season in seasons {
                 let b = gtk::ToggleButton::builder()
                     .label(match season {
-                        Some(n) => format!("Staffel {n}"),
-                        None => "Weitere".to_string(),
+                        Some(n) => tf!("Staffel {n}", n = n),
+                        None => tr("Weitere").to_string(),
                     })
                     .active(season == target_season)
                     .build();
@@ -1257,8 +1258,8 @@ impl MtWindow {
                     };
                     let (this, all) = (pick(Some(season)), pick(None));
                     vec![
-                        (format!("Diese Staffel herunterladen ({})", this.len()), fetch(this)),
-                        (format!("Alle Folgen herunterladen ({})", all.len()), fetch(all)),
+                        (tf!("Diese Staffel herunterladen ({n})", n = this.len()), fetch(this)),
+                        (tf!("Alle Folgen herunterladen ({n})", n = all.len()), fetch(all)),
                     ]
                 });
                 row.append(&b);
@@ -1349,7 +1350,7 @@ impl MtWindow {
                 })
             };
             out.push((
-                format!("Alle Folgen herunterladen ({})", episodes.len()),
+                tf!("Alle Folgen herunterladen ({n})", n = episodes.len()),
                 fetch(&app, episodes.clone()),
             ));
             let mut seasons: Vec<u32> = episodes
@@ -1365,7 +1366,7 @@ impl MtWindow {
                     .cloned()
                     .collect();
                 out.push((
-                    format!("Staffel {season} herunterladen ({})", list.len()),
+                    tf!("Staffel {staffel} herunterladen ({n})", staffel = season, n = list.len()),
                     fetch(&app, list),
                 ));
             }
@@ -1436,7 +1437,7 @@ impl MtWindow {
             self.sender.replace(None);
         }
         let all = gtk::ToggleButton::builder()
-            .label("Alle")
+            .label(tr("Alle"))
             .css_classes(["tvjoe-mt-sender"])
             .active(self.sender.borrow().is_none())
             .build();
@@ -1487,15 +1488,15 @@ impl MtWindow {
         let db = self.db.borrow();
         let last = db.as_ref().and_then(Mediathek::last_update);
         let mut text = match last {
-            Some(t) => format!(
-                "Stand {} {} · {} Beiträge",
-                glib::DateTime::from_unix_local(t)
+            Some(t) => tf!(
+                "Stand {datum} {zeit} · {n} Beiträge",
+                datum = glib::DateTime::from_unix_local(t)
                     .ok()
                     .and_then(|d| d.format("%d.%m.").ok())
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
-                hm(t),
-                db.as_ref().map_or(0, Mediathek::count)
+                zeit = hm(t),
+                n = db.as_ref().map_or(0, Mediathek::count)
             ),
             None => String::new(),
         };
@@ -1503,7 +1504,7 @@ impl MtWindow {
             if !text.is_empty() {
                 text.push_str(" · ");
             }
-            text.push_str("Filmliste wird aktualisiert …");
+            text.push_str(tr("Filmliste wird aktualisiert …"));
         }
         self.stand.set_label(&text);
     }
@@ -1526,19 +1527,19 @@ impl MtWindow {
             let db = self.db.borrow();
             let Some(db) = db.as_ref() else {
                 self.show_empty(
-                    "Keine Mediathek",
-                    "Die Datenbank ließ sich nicht öffnen (Cacheordner).",
+                    tr("Keine Mediathek"),
+                    tr("Die Datenbank ließ sich nicht öffnen (Cacheordner)."),
                 );
                 return;
             };
             if db.count() == 0 {
                 let (title, text) = match LAST_ERROR.with(|e| e.borrow().clone()) {
                     Some(e) if !UPDATING.with(Cell::get) => {
-                        ("Filmliste nicht geladen", format!("Fehler: {e}"))
+                        (tr("Filmliste nicht geladen"), tf!("Fehler: {e}", e = e))
                     }
                     _ => (
-                        "Filmliste wird geladen",
-                        "Beim ersten Mal wird die vollständige Filmliste von MediathekView geladen (rund 80 MB). Danach genügt meist die kleine Änderungsliste.".to_string(),
+                        tr("Filmliste wird geladen"),
+                        tr("Beim ersten Mal wird die vollständige Filmliste von MediathekView geladen (rund 80 MB). Danach genügt meist die kleine Änderungsliste.").to_string(),
                     ),
                 };
                 self.show_empty(title, &text);
@@ -1563,7 +1564,7 @@ impl MtWindow {
                     let text = self.search.text();
                     if text.trim().chars().count() < 2 {
                         self.films.borrow_mut().clear();
-                        self.show_empty("Suche", "Mindestens zwei Zeichen eingeben.");
+                        self.show_empty(tr("Suche"), tr("Mindestens zwei Zeichen eingeben."));
                         return;
                     }
                     db.search_filtered(text.trim(), sender.as_deref(), &filter, FETCH)
@@ -1634,8 +1635,8 @@ impl MtWindow {
         if films.is_empty() {
             self.films.borrow_mut().clear();
             self.show_empty(
-                "Keine Beiträge",
-                "Für diese Auswahl gibt es keine Beiträge.",
+                tr("Keine Beiträge"),
+                tr("Für diese Auswahl gibt es keine Beiträge."),
             );
             return;
         }
@@ -1698,9 +1699,9 @@ fn season_download_label(episodes: &[Group], season: Option<u32>) -> String {
         .filter(|g| mediathek::season_episode(&g.main().title).0 == season)
         .count();
     match season {
-        Some(k) => format!("Staffel {k} herunterladen ({n})"),
-        None if n == episodes.len() => format!("Alle Folgen herunterladen ({n})"),
-        None => format!("Weitere herunterladen ({n})"),
+        Some(k) => tf!("Staffel {staffel} herunterladen ({n})", staffel = k, n = n),
+        None if n == episodes.len() => tf!("Alle Folgen herunterladen ({n})", n = n),
+        None => tf!("Weitere herunterladen ({n})", n = n),
     }
 }
 
@@ -1739,8 +1740,8 @@ fn episode_key(f: &Film) -> (u32, u32, i64) {
 fn episode_code(f: &Film) -> String {
     match mediathek::season_episode(&f.title) {
         (Some(s), Some(e)) => format!("S{s:02}/E{e:02}"),
-        (Some(s), None) => format!("Staffel {s}"),
-        (None, Some(e)) => format!("Folge {e}"),
+        (Some(s), None) => tf!("Staffel {n}", n = s),
+        (None, Some(e)) => tf!("Folge {n}", n = e),
         (None, None) => glib::DateTime::from_unix_local(f.timestamp)
             .ok()
             .and_then(|d| d.format("%d.%m.%Y").ok())
@@ -1924,12 +1925,12 @@ fn tile(
     };
     let (topic, meta) = match series_count {
         Some(n) => (
-            sub(&format!(
-                "{} · {n} {}",
-                film.sender,
-                if n == 1 { "Folge" } else { "Folgen" }
+            sub(&tf!(
+                "{sender} · {anzahl}",
+                sender = film.sender,
+                anzahl = trn("{n} Folge", "{n} Folgen", n as u64)
             )),
-            sub(&format!("Neueste Folge {}", day_time(film.timestamp))),
+            sub(&tf!("Neueste Folge {zeit}", zeit = day_time(film.timestamp))),
         ),
         None => {
             let meta: Vec<String> = [day_time(film.timestamp), minutes(film.duration)]

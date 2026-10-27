@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tvjoe_core::ablage;
+use tvjoe_core::{tf, tr};
 use tvjoe_core::auftrag::{self, Job, JobState, ServiceConfig, Status};
 
 const SERVICE_NAME: &str = "tvjoe";
@@ -308,7 +309,7 @@ fn record_job(job: &Job, cfg: &ServiceConfig, stop: &Arc<AtomicBool>) {
     let min_free = u64::from(cfg.min_free_gb) << 30;
     if crate::ablage::free_bytes(&dir).is_some_and(|f| f < min_free) {
         st.state = JobState::Failed;
-        st.error = Some("zu wenig Platz".into());
+        st.error = Some(tr("zu wenig Platz").into());
         write_status(cfg, &st);
         return;
     }
@@ -488,9 +489,9 @@ pub fn import_status(app: &crate::app::App) {
         }
         if st.state == JobState::Rejected {
             if before != Some(JobState::Rejected) {
-                app.message(&format!(
-                    "Aufnahmedienst hat einen Auftrag abgelehnt: {}",
-                    st.error.as_deref().unwrap_or("")
+                app.message(&tf!(
+                    "Aufnahmedienst hat einen Auftrag abgelehnt: {fehler}",
+                    fehler = st.error.as_deref().unwrap_or("")
                 ));
             }
             SEEN.with(|s| s.borrow_mut().insert(st.id, st.state));
@@ -522,13 +523,17 @@ pub fn import_status(app: &crate::app::App) {
         };
         ix.set_state(id, state, st.error.as_deref());
         if before != Some(st.state) {
-            let what = format!("{} – {}", st.title, st.channel);
+            let what = tf!("{titel} – {sender}", titel = st.title, sender = st.channel);
             match st.state {
-                JobState::Loading => notify("Aufnahme läuft", &what),
-                JobState::Done => notify("Aufnahme beendet", &what),
+                JobState::Loading => notify(tr("Aufnahme läuft"), &what),
+                JobState::Done => notify(tr("Aufnahme beendet"), &what),
                 _ => notify(
-                    "Aufnahme abgebrochen",
-                    &format!("{what}: {}", st.error.as_deref().unwrap_or("")),
+                    tr("Aufnahme abgebrochen"),
+                    &tf!(
+                        "{was}: {fehler}",
+                        was = what,
+                        fehler = st.error.as_deref().unwrap_or("")
+                    ),
                 ),
             }
         }
@@ -574,7 +579,7 @@ fn run_elevated(script: &str) -> Result<(), String> {
     if powershell(&outer, true) {
         Ok(())
     } else {
-        Err("abgebrochen oder vom System abgelehnt".into())
+        Err(tr("abgebrochen oder vom System abgelehnt").into())
     }
 }
 
@@ -585,10 +590,10 @@ fn ps_quote(s: &str) -> String {
 /// Dienst einrichten bzw. auf den Stand dieses Programms bringen.
 pub fn install(s: &tvjoe_core::Settings) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let src = exe.parent().ok_or("kein Programmordner")?.to_path_buf();
+    let src = exe.parent().ok_or(tr("kein Programmordner"))?.to_path_buf();
     let (jobs, status) = (
-        jobs_dir().ok_or("kein LOCALAPPDATA")?,
-        status_dir().ok_or("kein LOCALAPPDATA")?,
+        jobs_dir().ok_or(tr("kein LOCALAPPDATA"))?,
+        status_dir().ok_or(tr("kein LOCALAPPDATA"))?,
     );
     let records = crate::ablage::storage_dir_for(s).join("records");
     for d in [&jobs, &status, &records] {
@@ -645,7 +650,7 @@ pub fn install(s: &tvjoe_core::Settings) -> Result<(), String> {
     );
     run_elevated(&script)?;
     if installed_config().is_none() {
-        return Err("Einrichtung nicht abgeschlossen".into());
+        return Err(tr("Einrichtung nicht abgeschlossen").into());
     }
     Ok(())
 }

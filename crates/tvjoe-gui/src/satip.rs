@@ -8,7 +8,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::glib;
 use tvjoe_core::satip::{self, CheckResult, ScanProgress};
-use tvjoe_core::{Library, Settings, paths};
+use tvjoe_core::{Library, Settings, paths, tf, tr};
 
 use crate::app::App;
 
@@ -22,25 +22,25 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
         .build();
 
     let device = adw::PreferencesGroup::builder()
-        .title("Gerät")
-        .description(
+        .title(tr("Gerät"))
+        .description(tr(
             "SAT>IP-Empfänger im Netz (z. B. EyeTV Netstream 4Sat); Satellit Astra 19,2° Ost",
-        )
+        ))
         .build();
     let enabled = adw::SwitchRow::builder()
-        .title("SAT-Quelle verwenden")
+        .title(tr("SAT-Quelle verwenden"))
         .active(s.satip_enabled)
         .build();
     let host = adw::EntryRow::builder()
-        .title("Adresse des SAT>IP-Geräts (IP-Adresse)")
+        .title(tr("Adresse des SAT>IP-Geräts (IP-Adresse)"))
         .text(&s.satip_host)
         .build();
     let check_row = adw::ActionRow::builder()
-        .title("Prüfen")
-        .subtitle("Stimmt je Tuner einen Transponder ab, liest den Empfang und prüft, ob der Datenstrom ankommt")
+        .title(tr("Prüfen"))
+        .subtitle(tr("Stimmt je Tuner einen Transponder ab, liest den Empfang und prüft, ob der Datenstrom ankommt"))
         .build();
     let check = gtk::Button::builder()
-        .label("Prüfen")
+        .label(tr("Prüfen"))
         .valign(gtk::Align::Center)
         .build();
     check_row.add_suffix(&check);
@@ -49,22 +49,22 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     device.add(&check_row);
 
     let result = adw::PreferencesGroup::builder()
-        .title("Ergebnis")
+        .title(tr("Ergebnis"))
         .visible(false)
         .build();
     page.add(&device);
     page.add(&result);
 
     let list = adw::PreferencesGroup::builder()
-        .title("Senderliste")
-        .description("Frei empfangbare TV-Sender aller Transponder von Astra 19,2° Ost; verschlüsselte Sender und Radio werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen.")
+        .title(tr("Senderliste"))
+        .description(tr("Frei empfangbare TV-Sender aller Transponder von Astra 19,2° Ost; verschlüsselte Sender und Radio werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen."))
         .build();
     let scan_row = adw::ActionRow::builder()
-        .title("Suchlauf")
+        .title(tr("Suchlauf"))
         .subtitle(list_summary())
         .build();
     let scan = gtk::Button::builder()
-        .label("Suchlauf starten")
+        .label(tr("Suchlauf starten"))
         .valign(gtk::Align::Center)
         .build();
     scan_row.add_suffix(&scan);
@@ -111,7 +111,7 @@ fn run_check(
     for w in rows.borrow_mut().drain(..) {
         group.remove(&w);
     }
-    let waiting = adw::ActionRow::builder().title("Prüfe …").build();
+    let waiting = adw::ActionRow::builder().title(tr("Prüfe …")).build();
     group.add(&waiting);
     rows.borrow_mut().push(waiting.upcast());
     group.set_visible(true);
@@ -141,7 +141,7 @@ fn run_check(
         match result {
             Ok(r) => show_result(&r, &host, &add, &group, &rows, &button),
             Err(e) => add(adw::ActionRow::builder()
-                .title("Gerät nicht erreichbar")
+                .title(tr("Gerät nicht erreichbar"))
                 .subtitle(e)
                 .build()
                 .upcast()),
@@ -157,23 +157,27 @@ fn show_result(
     rows: &Rc<std::cell::RefCell<Vec<gtk::Widget>>>,
     button: &gtk::Button,
 ) {
-    let mut name = r.name.clone().unwrap_or_else(|| "SAT>IP-Gerät".into());
+    let mut name = r.name.clone().unwrap_or_else(|| tr("SAT>IP-Gerät").into());
     if let Some(f) = &r.firmware {
-        name.push_str(&format!(" · Firmware {f}"));
+        name = tf!("{name} · Firmware {firmware}", name = name, firmware = f);
     }
     add(adw::ActionRow::builder()
         .title(&name)
-        .subtitle(format!("{} Tuner", r.tuners))
+        .subtitle(tf!("{n} Tuner", n = r.tuners))
         .build()
         .upcast());
     for t in &r.status {
         let text = if t.lock {
-            format!("Signal {} % · Qualität {}/15", t.level_percent(), t.quality)
+            tf!(
+                "Signal {percent} % · Qualität {quality}/15",
+                percent = t.level_percent(),
+                quality = t.quality
+            )
         } else {
-            "kein Signal (Kabel angeschlossen?)".to_string()
+            tr("kein Signal (Kabel angeschlossen?)").to_string()
         };
         let row = adw::ActionRow::builder()
-            .title(format!("Tuner {} · {} MHz", t.tuner, t.freq))
+            .title(tf!("Tuner {tuner} · {freq} MHz", tuner = t.tuner, freq = t.freq))
             .subtitle(text)
             .build();
         row.add_prefix(&gtk::Image::from_icon_name(if t.lock {
@@ -185,26 +189,26 @@ fn show_result(
     }
     if r.packets > 0 {
         add(adw::ActionRow::builder()
-            .title("Datenstrom kommt an")
-            .subtitle(format!("{} Pakete in 3 s", r.packets))
+            .title(tr("Datenstrom kommt an"))
+            .subtitle(tf!("{n} Pakete in 3 s", n = r.packets))
             .build()
             .upcast());
         return;
     }
     // Kein Datenstrom: meist die Firewall (ufw bzw. Windows-Firewall verwirft das eingehende UDP).
     let row = adw::ActionRow::builder()
-        .title("Kein Datenstrom angekommen")
+        .title(tr("Kein Datenstrom angekommen"))
         .subtitle(if cfg!(windows) {
-            "Die Windows-Firewall verwirft vermutlich die UDP-Pakete des Geräts."
+            tr("Die Windows-Firewall verwirft vermutlich die UDP-Pakete des Geräts.")
         } else if satip::ufw_active() {
-            "Die Firewall (ufw) ist aktiv und verwirft vermutlich die UDP-Pakete des Geräts."
+            tr("Die Firewall (ufw) ist aktiv und verwirft vermutlich die UDP-Pakete des Geräts.")
         } else {
-            "Eine Firewall oder das Netz verhindert vermutlich die UDP-Pakete des Geräts."
+            tr("Eine Firewall oder das Netz verhindert vermutlich die UDP-Pakete des Geräts.")
         })
         .build();
     if satip::firewall_fix_available() {
         let fix = gtk::Button::builder()
-            .label("Freigabe eintragen…")
+            .label(tr("Freigabe eintragen…"))
             .valign(gtk::Align::Center)
             .build();
         row.add_suffix(&fix);
@@ -231,19 +235,21 @@ fn confirm_firewall(
         return;
     };
     let ask = if cfg!(windows) {
-        "Windows fragt über die Benutzerkontensteuerung nach der Bestätigung."
+        tr("Windows fragt über die Benutzerkontensteuerung nach der Bestätigung.")
     } else {
-        "Das System fragt nach dem Passwort."
+        tr("Das System fragt nach dem Passwort.")
     };
     let d = adw::AlertDialog::new(
-        Some("Firewall-Freigabe"),
-        Some(&format!(
-            "Erlaubt wird nur UDP vom SAT>IP-Gerät {host}, sonst nichts:\n\n{}\n\n{ask}",
-            satip::firewall_rule_text(host)
+        Some(tr("Firewall-Freigabe")),
+        Some(&tf!(
+            "Erlaubt wird nur UDP vom SAT>IP-Gerät {host}, sonst nichts:\n\n{rule}\n\n{ask}",
+            host = host,
+            rule = satip::firewall_rule_text(host),
+            ask = ask
         )),
     );
-    d.add_response("cancel", "Abbrechen");
-    d.add_response("ok", "Eintragen");
+    d.add_response("cancel", tr("Abbrechen"));
+    d.add_response("ok", tr("Eintragen"));
     d.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
     d.set_close_response("cancel");
     let (host, group, rows, button) = (
@@ -272,8 +278,8 @@ fn confirm_firewall(
                 return;
             }
             let row = adw::ActionRow::builder()
-                .title("Freigabe nicht eingetragen")
-                .subtitle("Abgebrochen oder vom System abgelehnt. Die Regel lässt sich auch von Hand eintragen (siehe docs/SAT-IP.md).")
+                .title(tr("Freigabe nicht eingetragen"))
+                .subtitle(tr("Abgebrochen oder vom System abgelehnt. Die Regel lässt sich auch von Hand eintragen (siehe docs/SAT-IP.md)."))
                 .build();
             row.add_prefix(&gtk::Image::from_icon_name("dialog-warning-symbolic"));
             group.add(&row);
@@ -289,8 +295,8 @@ fn list_summary() -> String {
         .and_then(|p| Library::load(&p).ok())
         .unwrap_or_default();
     match lib.channels.iter().filter(|c| !c.missing).count() {
-        0 => "Noch keine Sender gespeichert".to_string(),
-        n => format!("{n} Sender gespeichert"),
+        0 => tr("Noch keine Sender gespeichert").to_string(),
+        n => tf!("{n} Sender gespeichert", n = n),
     }
 }
 
@@ -310,13 +316,13 @@ fn run_scan(
     bar: &gtk::ProgressBar,
 ) {
     if host.is_empty() {
-        row.set_subtitle("Bitte zuerst die Adresse des Geräts eintragen");
+        row.set_subtitle(tr("Bitte zuerst die Adresse des Geräts eintragen"));
         return;
     }
     button.set_sensitive(false);
     bar.set_visible(true);
     bar.set_fraction(0.0);
-    bar.set_text(Some("Prüfe Tuner …"));
+    bar.set_text(Some(tr("Prüfe Tuner …")));
     let (tx, rx) = async_channel::unbounded();
     let h = host.to_string();
     std::thread::spawn(move || {
@@ -324,7 +330,7 @@ fn run_scan(
             .map(|r| r.status.iter().filter(|t| t.lock).count())
             .unwrap_or(1)
             .max(1);
-        let _ = tx.send_blocking(ScanMsg::Step("Lese die Transponderliste …"));
+        let _ = tx.send_blocking(ScanMsg::Step(tr("Lese die Transponderliste …")));
         let progress = |p: ScanProgress| {
             let _ = tx.send_blocking(ScanMsg::Progress(p));
         };
@@ -344,9 +350,11 @@ fn run_scan(
                 ScanMsg::Step(t) => bar.set_text(Some(t)),
                 ScanMsg::Progress(p) => {
                     bar.set_fraction(p.done as f64 / p.total.max(1) as f64);
-                    bar.set_text(Some(&format!(
-                        "Transponder {} von {} · {} Dienste gefunden",
-                        p.done, p.total, p.services
+                    bar.set_text(Some(&tf!(
+                        "Transponder {done} von {total} · {services} Dienste gefunden",
+                        done = p.done,
+                        total = p.total,
+                        services = p.services
                     )));
                 }
                 ScanMsg::Done(result) => {
@@ -360,7 +368,7 @@ fn run_scan(
                             }
                             text
                         }
-                        Err(e) => format!("Suchlauf fehlgeschlagen: {e}"),
+                        Err(e) => tf!("Suchlauf fehlgeschlagen: {error}", error = e),
                     });
                     break;
                 }
@@ -372,26 +380,31 @@ fn run_scan(
 /// Ergebnis in die SAT-Senderliste übernehmen und als Unterzeile zusammenfassen.
 fn save_scan(host: &str, services: &[satip::ScannedService]) -> String {
     let Some(path) = paths::satip_library_path() else {
-        return "Kein Konfigurationsordner gefunden".to_string();
+        return tr("Kein Konfigurationsordner gefunden").to_string();
     };
     let mut lib = match Library::load(&path) {
         Ok(l) => l,
-        Err(e) => return format!("SAT-Senderliste nicht lesbar: {e}"),
+        Err(e) => return tf!("SAT-Senderliste nicht lesbar: {error}", error = e),
     };
     let items = satip::to_channels(host, services);
     let out = lib.sync_scanned("SAT>IP", &format!("satip://{host}"), &items);
     if let Err(e) = lib.save(&path) {
-        return format!("SAT-Senderliste nicht gespeichert: {e}");
+        return tf!("SAT-Senderliste nicht gespeichert: {error}", error = e);
     }
-    let mut text = format!(
-        "{} frei empfangbare TV-Sender ({} neu, {} aktualisiert",
-        items.len(),
-        out.added,
-        out.updated
-    );
     if out.missing > 0 {
-        text.push_str(&format!(", {} nicht mehr gefunden", out.missing));
+        tf!(
+            "{total} frei empfangbare TV-Sender ({added} neu, {updated} aktualisiert, {missing} nicht mehr gefunden)",
+            total = items.len(),
+            added = out.added,
+            updated = out.updated,
+            missing = out.missing
+        )
+    } else {
+        tf!(
+            "{total} frei empfangbare TV-Sender ({added} neu, {updated} aktualisiert)",
+            total = items.len(),
+            added = out.added,
+            updated = out.updated
+        )
     }
-    text.push(')');
-    text
 }

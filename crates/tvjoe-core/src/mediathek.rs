@@ -15,6 +15,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::{Deserializer, MapAccess, Visitor};
 
 use crate::net;
+use crate::{tf, tr};
 
 pub const FULL_URL: &str = "https://liste.mediathekview.de/Filmliste-akt.xz";
 pub const DIFF_URL: &str = "https://liste.mediathekview.de/Filmliste-diff.xz";
@@ -81,19 +82,37 @@ pub enum Version {
     Sprache(&'static str),
 }
 
+/// Anzeigename einer Sprache (Schlüssel: deutscher Name aus [`Version::Sprache`]).
+fn language_name(name: &'static str) -> &'static str {
+    match name {
+        "Englisch" => tr("Englisch"),
+        "Französisch" => tr("Französisch"),
+        "Niederländisch" => tr("Niederländisch"),
+        "Schwedisch" => tr("Schwedisch"),
+        "Italienisch" => tr("Italienisch"),
+        "Dänisch" => tr("Dänisch"),
+        "Norwegisch" => tr("Norwegisch"),
+        "Türkisch" => tr("Türkisch"),
+        "Russisch" => tr("Russisch"),
+        "Ukrainisch" => tr("Ukrainisch"),
+        "Obersorbisch" => tr("Obersorbisch"),
+        other => other,
+    }
+}
+
 impl Version {
     /// Bezeichnung für Knöpfe und Titel.
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Normal => "Deutsch",
-            Self::Untertitel => "Mit Untertitel",
-            Self::KlareSprache => "Klare Sprache",
-            Self::Gebaerdensprache => "Gebärdensprache",
-            Self::Audiodeskription => "Audiodeskription",
-            Self::GesprocheneUntertitel => "Gesprochene Untertitel",
-            Self::OriginalUntertitel => "Original mit Untertitel",
-            Self::Original => "Originalversion",
-            Self::Sprache(name) => name,
+            Self::Normal => tr("Deutsch"),
+            Self::Untertitel => tr("Mit Untertitel"),
+            Self::KlareSprache => tr("Klare Sprache"),
+            Self::Gebaerdensprache => tr("Gebärdensprache"),
+            Self::Audiodeskription => tr("Audiodeskription"),
+            Self::GesprocheneUntertitel => tr("Gesprochene Untertitel"),
+            Self::OriginalUntertitel => tr("Original mit Untertitel"),
+            Self::Original => tr("Originalversion"),
+            Self::Sprache(name) => language_name(name),
         }
     }
 
@@ -101,14 +120,14 @@ impl Version {
     pub fn badge(&self) -> &'static str {
         match self {
             Self::Normal => "DE",
-            Self::Untertitel => "UT",
-            Self::KlareSprache => "Klare Sprache",
+            Self::Untertitel => tr("UT"),
+            Self::KlareSprache => tr("Klare Sprache"),
             Self::Gebaerdensprache => "DGS",
             Self::Audiodeskription => "AD",
-            Self::GesprocheneUntertitel => "Gespr. UT",
-            Self::OriginalUntertitel => "OmU",
-            Self::Original => "OV",
-            Self::Sprache(name) => name,
+            Self::GesprocheneUntertitel => tr("Gespr. UT"),
+            Self::OriginalUntertitel => tr("OmU"),
+            Self::Original => tr("OV"),
+            Self::Sprache(name) => language_name(name),
         }
     }
 
@@ -468,7 +487,7 @@ impl<'de, F: FnMut(Vec<String>)> Visitor<'de> for ListVisitor<'_, F> {
     type Value = ();
 
     fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("Filmliste (JSON-Objekt)")
+        f.write_str(tr("Filmliste (JSON-Objekt)"))
     }
 
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
@@ -492,7 +511,7 @@ pub fn parse_filmliste<R: Read>(reader: R, mut on_film: impl FnMut(Film)) -> Res
         }
     };
     de.deserialize_map(ListVisitor(&mut cb))
-        .map_err(|e| format!("Filmliste unlesbar: {e}"))
+        .map_err(|e| tf!("Filmliste unlesbar: {error}", error = e))
 }
 
 /// Ausländische bzw. fremdsprachige Sender, standardmäßig ausgeblendet (Einstellung je Sender).
@@ -600,7 +619,7 @@ fn row_to_film(r: &rusqlite::Row) -> rusqlite::Result<Film> {
 }
 
 fn db_err(e: rusqlite::Error) -> String {
-    format!("Mediathek-Datenbank: {e}")
+    tf!("Mediathek-Datenbank: {error}", error = e)
 }
 
 impl Mediathek {

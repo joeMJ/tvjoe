@@ -190,8 +190,25 @@ fn activate(application: &adw::Application, opts: &Options) {
     }
 }
 
+/// Sprache aus den Einstellungen bzw. vom System wählen (vor jedem Text der Oberfläche).
+fn init_language() {
+    let choice = paths::settings_path()
+        .and_then(|p| Settings::load(&p).ok())
+        .map(|s| s.language)
+        .unwrap_or_default();
+    let system: Vec<String> = glib::language_names().iter().map(|s| s.to_string()).collect();
+    let dir = paths::config_dir().map(|d| d.join("sprachen"));
+    let lang = tvjoe_core::i18n::init(&choice, &system, dir.as_deref());
+    // Eingebaute Texte von GTK und libadwaita in derselben Sprache.
+    if !choice.is_empty() {
+        // SAFETY: vor dem Start weiterer Threads.
+        unsafe { std::env::set_var("LANGUAGE", &lang) };
+    }
+}
+
 fn main() -> glib::ExitCode {
     tvjoe_core::console::attach_parent();
+    init_language();
     // Ohne Fenster: Aufnahmedienst (Linux) bzw. eine geplante Aufnahme (Windows-Aufgabe).
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {

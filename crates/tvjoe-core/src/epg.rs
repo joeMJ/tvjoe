@@ -16,6 +16,7 @@ use quick_xml::events::Event;
 use crate::ids::normalize_id;
 use crate::library::Channel;
 use crate::net;
+use crate::tf;
 
 const MAX_XMLTV_BYTES: u64 = 256 * 1024 * 1024;
 
@@ -329,7 +330,11 @@ pub fn parse_xmltv(bytes: &[u8]) -> Result<Guide, String> {
     loop {
         let ev = reader
             .read_event_into(&mut buf)
-            .map_err(|e| format!("XML bei Byte {}: {e}", reader.buffer_position()))?;
+            .map_err(|e| tf!(
+                "XML bei Byte {position}: {error}",
+                position = reader.buffer_position(),
+                error = e
+            ))?;
         match ev {
             Event::Start(e) => {
                 let attr = |name: &[u8]| {
@@ -563,12 +568,16 @@ pub fn load_sources(
                             let _ = p.parent().map(std::fs::create_dir_all);
                             let _ = std::fs::write(p, &b);
                         }
-                        notes.push(format!("{src}: neu geladen"));
+                        notes.push(tf!("{source}: neu geladen", source = src));
                         Ok(b)
                     }
                     Err(e) => match cache.as_deref().map(std::fs::read) {
                         Some(Ok(b)) => {
-                            notes.push(format!("{src}: Laden fehlgeschlagen ({e}), alter Stand"));
+                            notes.push(tf!(
+                                "{source}: Laden fehlgeschlagen ({error}), alter Stand",
+                                source = src,
+                                error = e
+                            ));
                             Ok(b)
                         }
                         _ => Err(e),
@@ -580,14 +589,15 @@ pub fn load_sources(
         };
         match bytes.and_then(|b| parse_xmltv(&b)) {
             Ok(g) => {
-                notes.push(format!(
-                    "{src}: {} Kanäle, {} Sendungen",
-                    g.channels.len(),
-                    g.programme_count()
+                notes.push(tf!(
+                    "{source}: {channels} Kanäle, {programmes} Sendungen",
+                    source = src,
+                    channels = g.channels.len(),
+                    programmes = g.programme_count()
                 ));
                 guide.merge(g);
             }
-            Err(e) => notes.push(format!("{src}: {e}")),
+            Err(e) => notes.push(tf!("{source}: {error}", source = src, error = e)),
         }
     }
     (guide, notes)

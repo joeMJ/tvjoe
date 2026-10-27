@@ -10,6 +10,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::net;
+use crate::tr;
 
 /// Gespeicherter Zugang.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,8 +133,8 @@ pub fn quick_connect_start(server: &str, device_id: &str) -> Result<QuickConnect
             .send_empty(),
     )?;
     Ok(QuickConnect {
-        code: v["Code"].as_str().ok_or("kein Code")?.to_string(),
-        secret: v["Secret"].as_str().ok_or("kein Secret")?.to_string(),
+        code: v["Code"].as_str().ok_or(tr("kein Code"))?.to_string(),
+        secret: v["Secret"].as_str().ok_or(tr("kein Secret"))?.to_string(),
     })
 }
 
@@ -170,12 +171,12 @@ pub fn quick_connect_finish(
         server: server.to_string(),
         user_id: v["User"]["Id"]
             .as_str()
-            .ok_or("keine Benutzerkennung")?
+            .ok_or(tr("keine Benutzerkennung"))?
             .to_string(),
         user_name: v["User"]["Name"].as_str().unwrap_or("").to_string(),
         token: v["AccessToken"]
             .as_str()
-            .ok_or("kein Zugangsschlüssel")?
+            .ok_or(tr("kein Zugangsschlüssel"))?
             .to_string(),
         device_id: device_id.to_string(),
     })
@@ -367,11 +368,11 @@ pub fn logo_url(server: &str) -> Result<String, String> {
     let html = String::from_utf8_lossy(&html);
     let start = html
         .find("touchicon")
-        .ok_or("kein Logo auf der Startseite")?;
+        .ok_or(tr("kein Logo auf der Startseite"))?;
     let end = start
         + html[start..]
             .find(['"', '\''])
-            .ok_or("Logo-Adresse unvollständig")?;
+            .ok_or(tr("Logo-Adresse unvollständig"))?;
     Ok(format!("{server}/web/{}", &html[start..end]))
 }
 

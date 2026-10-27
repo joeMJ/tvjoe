@@ -18,6 +18,7 @@ use tvjoe_core::ablage::{self, Art, Index, Progress, State, Timer};
 use tvjoe_core::jellyfin_lib::Item;
 use tvjoe_core::mediathek::Film;
 use tvjoe_core::paths;
+use tvjoe_core::{tf, tr, trn};
 
 use crate::app::App;
 use crate::capture;
@@ -305,7 +306,7 @@ pub fn fetch_film(app: &Rc<App>, film: &Film, art: Art) {
 pub fn fetch_item(app: &Rc<App>, item: &Item, art: Art) {
     let Some(a) = get() else { return };
     let Some(account) = crate::jellyfin::account() else {
-        app.message("Jellyfin: nicht angemeldet");
+        app.message(tr("Jellyfin: nicht angemeldet"));
         return;
     };
     let (original, kbps) = {
@@ -348,7 +349,7 @@ pub fn cancel(source: &str, key: &str) {
             j.progress.cancel.store(true, Ordering::Relaxed);
         }
         if e.state == State::Queued {
-            a.index.set_state(e.id, State::Partial, Some("abgebrochen"));
+            a.index.set_state(e.id, State::Partial, Some(tr("abgebrochen")));
         }
     }
     a.refresh_badges();
@@ -489,12 +490,13 @@ fn confirm_cancel(parent: &impl IsA<gtk::Widget>, source: &str, key: &str) {
         .and_then(|a| a.index.find(source, key).first().map(|e| e.title.clone()))
         .unwrap_or_default();
     let dialog = adw::AlertDialog::builder()
-        .heading("Laden abbrechen?")
-        .body(format!(
-            "„{title}“ wird nicht weiter geladen. Was schon da ist, bleibt; „Fortsetzen“ lädt später den Rest."
+        .heading(tr("Laden abbrechen?"))
+        .body(tf!(
+            "„{title}“ wird nicht weiter geladen. Was schon da ist, bleibt; „Fortsetzen“ lädt später den Rest.",
+            title = title
         ))
         .build();
-    dialog.add_responses(&[("keep", "Weiter laden"), ("cancel", "Abbrechen")]);
+    dialog.add_responses(&[("keep", tr("Weiter laden")), ("cancel", tr("Abbrechen"))]);
     dialog.set_response_appearance("cancel", adw::ResponseAppearance::Destructive);
     dialog.set_default_response(Some("keep"));
     let (s, k) = (source.to_string(), key.to_string());
@@ -564,23 +566,23 @@ impl Ablage {
             .iter()
             .any(|e| e.art == art && e.state == State::Done && e.path.exists())
         {
-            app.message(&format!("Liegt schon in der Ablage: {title}"));
+            app.message(&tf!("Liegt schon in der Ablage: {title}", title = title));
             return;
         }
         if existing
             .iter()
             .any(|e| matches!(e.state, State::Loading | State::Queued))
         {
-            app.message(&format!("Wird schon geladen: {title}"));
+            app.message(&tf!("Wird schon geladen: {title}", title = title));
             return;
         }
         let dir = sub_dir(app, art, source);
         let min_free = gb(app.settings().min_free_gb);
         if free_bytes(&dir).is_some_and(|f| f < min_free) {
-            app.message(&format!(
-                "Zu wenig Platz in {} (unter {} GB frei)",
-                dir.display(),
-                app.settings().min_free_gb
+            app.message(&tf!(
+                "Zu wenig Platz in {dir} (unter {gb} GB frei)",
+                dir = dir.display(),
+                gb = app.settings().min_free_gb
             ));
             return;
         }
@@ -593,19 +595,16 @@ impl Ablage {
         let id = match self.index.add(art, source, key, title, subtitle, &path) {
             Ok(id) => id,
             Err(e) => {
-                app.message(&format!("Ablage: {e}"));
+                app.message(&tf!("Ablage: {e}", e = e));
                 return;
             }
         };
         self.queue.borrow_mut().push_back(Pending { id, fetch });
-        app.message(&format!(
-            "{}: {title}",
-            if art == Art::Cache {
-                "Wird zwischengespeichert"
-            } else {
-                "Wird heruntergeladen"
-            }
-        ));
+        app.message(&if art == Art::Cache {
+            tf!("Wird zwischengespeichert: {title}", title = title)
+        } else {
+            tf!("Wird heruntergeladen: {title}", title = title)
+        });
         self.pump();
         self.refresh_badges();
     }
@@ -663,15 +662,11 @@ impl Ablage {
                         self.index.set_size(id, size, size);
                         self.index.set_state(id, State::Done, None);
                         if let Some(app) = &app {
-                            app.message(&format!(
-                                "{}: {}",
-                                if e.art == Art::Cache {
-                                    "Zwischengespeichert"
-                                } else {
-                                    "Heruntergeladen"
-                                },
-                                e.title
-                            ));
+                            app.message(&if e.art == Art::Cache {
+                                tf!("Zwischengespeichert: {title}", title = e.title)
+                            } else {
+                                tf!("Heruntergeladen: {title}", title = e.title)
+                            });
                         }
                         if e.art == Art::Cache {
                             self.enforce_cache_limit();
@@ -692,7 +687,7 @@ impl Ablage {
                             Some(&err),
                         );
                         if let (Some(app), false) = (&app, cancelled) {
-                            app.message(&format!("Laden fehlgeschlagen: {} ({err})", e.title));
+                            app.message(&tf!("Laden fehlgeschlagen: {title} ({err})", title = e.title, err = err));
                         }
                     }
                 }
@@ -706,7 +701,7 @@ impl Ablage {
                     Ok(()) => {
                         self.index.set_state(id, State::Done, None);
                         if let Some(app) = &app {
-                            app.message(&format!("Aufnahme beendet: {}", e.title));
+                            app.message(&tf!("Aufnahme beendet: {title}", title = e.title));
                         }
                     }
                     Err(err) => {
@@ -716,7 +711,7 @@ impl Ablage {
                             Some(&err),
                         );
                         if let Some(app) = &app {
-                            app.message(&format!("Aufnahme abgebrochen: {} ({err})", e.title));
+                            app.message(&tf!("Aufnahme abgebrochen: {title} ({err})", title = e.title, err = err));
                         }
                     }
                 }
@@ -809,14 +804,17 @@ impl Ablage {
             Status::Loading => (
                 "process-stop-symbolic",
                 match running.flatten() {
-                    Some(f) => format!("Wird geladen {:.0} % – abbrechen", f * 100.0),
-                    None => "Wird geladen – abbrechen".to_string(),
+                    Some(f) => tf!(
+                        "Wird geladen {percent} % – abbrechen",
+                        percent = format!("{:.0}", f * 100.0)
+                    ),
+                    None => tr("Wird geladen – abbrechen").to_string(),
                 },
                 true,
             ),
-            Status::Partial => ("folder-download-symbolic", "Herunterladen fortsetzen".into(), true),
-            Status::Done => ("drive-harddisk-symbolic", "In der Ablage".into(), false),
-            Status::None => ("folder-download-symbolic", "Herunterladen".into(), true),
+            Status::Partial => ("folder-download-symbolic", tr("Herunterladen fortsetzen").into(), true),
+            Status::Done => ("drive-harddisk-symbolic", tr("In der Ablage").into(), false),
+            Status::None => ("folder-download-symbolic", tr("Herunterladen").into(), true),
         };
         content.set_icon_name(icon);
         content.set_label(&text);
@@ -839,12 +837,12 @@ impl Ablage {
             (
                 "folder-download-symbolic",
                 match f {
-                    Some(f) => format!("Wird geladen: {:.0} %", f * 100.0),
-                    None => "Wird geladen".to_string(),
+                    Some(f) => tf!("Wird geladen: {percent} %", percent = format!("{:.0}", f * 100.0)),
+                    None => tr("Wird geladen").to_string(),
                 },
             )
         } else if entries.iter().any(|e| e.state == State::Queued) {
-            ("folder-download-symbolic", "Wartet auf das Laden".to_string())
+            ("folder-download-symbolic", tr("Wartet auf das Laden").to_string())
         } else if let Some(e) = entries
             .iter()
             .find(|e| e.state == State::Done && e.path.exists())
@@ -852,15 +850,15 @@ impl Ablage {
             (
                 "drive-harddisk-symbolic",
                 if e.art == Art::Cache {
-                    "Zwischengespeichert".to_string()
+                    tr("Zwischengespeichert").to_string()
                 } else {
-                    "Heruntergeladen".to_string()
+                    tr("Heruntergeladen").to_string()
                 },
             )
         } else if entries.iter().any(|e| e.state == State::Partial) {
             (
                 "media-playback-pause-symbolic",
-                "Teilweise geladen (Herunterladen setzt fort)".to_string(),
+                tr("Teilweise geladen (Herunterladen setzt fort)").to_string(),
             )
         } else {
             button.set_visible(false);
@@ -871,14 +869,11 @@ impl Ablage {
         let clickable = icon != "drive-harddisk-symbolic";
         button.set_can_target(clickable);
         button.set_tooltip_text(Some(&if clickable {
-            format!(
-                "{tip} – Klick: {}",
-                if icon == "media-playback-pause-symbolic" {
-                    "fortsetzen"
-                } else {
-                    "abbrechen"
-                }
-            )
+            if icon == "media-playback-pause-symbolic" {
+                tf!("{tip} – Klick: fortsetzen", tip = tip)
+            } else {
+                tf!("{tip} – Klick: abbrechen", tip = tip)
+            }
         } else {
             tip
         }));
@@ -957,7 +952,7 @@ fn run_fetch(
 pub fn toggle_record(app: &Rc<App>) {
     let Some(a) = get() else { return };
     let Some((cid, sat)) = app.current_live() else {
-        app.message("Aufnehmen geht beim Fernsehen (nicht bei Abrufvideos)");
+        app.message(tr("Aufnehmen geht beim Fernsehen (nicht bei Abrufvideos)"));
         return;
     };
     // Aufnahmedienst: Sofortaufnahme als Planung ab jetzt; Beenden löscht sie aus dem Plan.
@@ -971,7 +966,7 @@ pub fn toggle_record(app: &Rc<App>) {
             .find(|t| t.channel_id == cid && t.sat == sat && t.start <= now + 60 && now < t.stop + post);
         if let Some(t) = current {
             a.index.remove_timer(t.id);
-            app.message(&format!("Aufnahme wird beendet: {}", t.title));
+            app.message(&tf!("Aufnahme wird beendet: {title}", title = t.title));
             return;
         }
         let (title, stop) = app
@@ -996,13 +991,13 @@ pub fn toggle_record(app: &Rc<App>) {
             Ok(id) => {
                 crate::dienst::start_now(id);
                 crate::dienst::sync_tasks(app);
-                app.message(&format!(
-                    "Aufnahme an den Aufnahmedienst übergeben: {} (bis {})",
-                    timer.title,
-                    crate::app::hm(stop + post)
+                app.message(&tf!(
+                    "Aufnahme an den Aufnahmedienst übergeben: {title} (bis {end})",
+                    title = timer.title,
+                    end = crate::app::hm(stop + post)
                 ));
             }
-            Err(e) => app.message(&format!("Aufnahme nicht übergeben: {e}")),
+            Err(e) => app.message(&tf!("Aufnahme nicht übergeben: {e}", e = e)),
         }
         return;
     }
@@ -1051,8 +1046,8 @@ pub fn timer_for(channel_id: u64, sat: bool, start: i64) -> Option<Timer> {
 pub fn plan(app: &Rc<App>, timer: &Timer) {
     let Some(a) = get() else { return };
     match a.index.add_timer(timer) {
-        Ok(_) => app.message(&format!("Aufnahme geplant: {}", timer.title)),
-        Err(e) => app.message(&format!("Aufnahme nicht geplant: {e}")),
+        Ok(_) => app.message(&tf!("Aufnahme geplant: {title}", title = timer.title)),
+        Err(e) => app.message(&tf!("Aufnahme nicht geplant: {e}", e = e)),
     }
     a.check_recordings();
     crate::dienst::sync_tasks(app);
@@ -1067,7 +1062,7 @@ pub fn unplan(app: &Rc<App>, timer: &Timer) {
             r.timer_id = None;
         }
     }
-    app.message(&format!("Planung gelöscht: {}", timer.title));
+    app.message(&tf!("Planung gelöscht: {title}", title = timer.title));
     crate::dienst::sync_tasks(app);
 }
 
@@ -1086,22 +1081,13 @@ pub fn busy_text() -> Option<String> {
     let loads = a.jobs.borrow().len() + a.queue.borrow().len();
     let mut parts = Vec::new();
     if recs > 0 {
-        parts.push(format!(
-            "{recs} {} läuft",
-            if recs == 1 { "Aufnahme" } else { "Aufnahmen" }
-        ));
+        parts.push(trn("{n} Aufnahme läuft", "{n} Aufnahmen laufen", recs as u64));
     }
     if planned > 0 {
-        parts.push(format!(
-            "{planned} {} geplant",
-            if planned == 1 { "Aufnahme" } else { "Aufnahmen" }
-        ));
+        parts.push(trn("{n} Aufnahme geplant", "{n} Aufnahmen geplant", planned as u64));
     }
     if loads > 0 {
-        parts.push(format!(
-            "{loads} {} läuft",
-            if loads == 1 { "Download" } else { "Downloads" }
-        ));
+        parts.push(trn("{n} Download läuft", "{n} Downloads laufen", loads as u64));
     }
     (!parts.is_empty()).then(|| parts.join(", "))
 }
@@ -1166,22 +1152,29 @@ impl Ablage {
         };
         let running = self.recs.borrow().iter().filter(|r| r.sat == sat).count();
         if max > 0 && running >= max as usize {
-            app.message(&format!(
-                "Keine weitere {}-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Ablage)",
-                if sat { "SAT" } else { "Internet" }
-            ));
+            app.message(&if sat {
+                tf!(
+                    "Keine weitere SAT-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Ablage)",
+                    max = max
+                )
+            } else {
+                tf!(
+                    "Keine weitere Internet-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Ablage)",
+                    max = max
+                )
+            });
             return;
         }
         let dir = sub_dir(app, Art::Recording, if sat { "sat" } else { "tv" });
         if free_bytes(&dir).is_some_and(|f| f < min_free) {
-            app.message(&format!(
-                "Aufnahme nicht gestartet: zu wenig Platz in {}",
-                dir.display()
+            app.message(&tf!(
+                "Aufnahme nicht gestartet: zu wenig Platz in {dir}",
+                dir = dir.display()
             ));
             return;
         }
         let Some((name, url, bitrate)) = app.record_source(cid, sat) else {
-            app.message("Aufnahme nicht gestartet: Sender nicht gefunden");
+            app.message(tr("Aufnahme nicht gestartet: Sender nicht gefunden"));
             return;
         };
         let title = if title.is_empty() { name.clone() } else { title.to_string() };
@@ -1198,7 +1191,7 @@ impl Ablage {
         ) {
             Ok(id) => id,
             Err(e) => {
-                app.message(&format!("Ablage: {e}"));
+                app.message(&tf!("Ablage: {e}", e = e));
                 return;
             }
         };
@@ -1207,7 +1200,7 @@ impl Ablage {
                 Ok(r) => Recorder::Sat(r),
                 Err(e) => {
                     self.index.set_state(id, State::Failed, Some(&e));
-                    app.message(&format!("Aufnahme nicht gestartet: {e}"));
+                    app.message(&tf!("Aufnahme nicht gestartet: {e}", e = e));
                     return;
                 }
             }
@@ -1236,9 +1229,10 @@ impl Ablage {
             timer_id,
             rec: Some(rec),
         });
-        app.message(&format!(
-            "Aufnahme läuft: {title} (bis {})",
-            crate::app::hm(stop_at)
+        app.message(&tf!(
+            "Aufnahme läuft: {title} (bis {end})",
+            title = title,
+            end = crate::app::hm(stop_at)
         ));
         self.update_suspend();
     }
@@ -1291,7 +1285,7 @@ impl Ablage {
             });
             let Some(i) = due else { break };
             if low {
-                app.message("Aufnahme beendet: zu wenig Platz auf der Platte");
+                app.message(tr("Aufnahme beendet: zu wenig Platz auf der Platte"));
             }
             self.stop(i);
         }
@@ -1326,7 +1320,7 @@ impl Ablage {
                 let cookie = application.inhibit(
                     Some(&app.window),
                     gtk::ApplicationInhibitFlags::SUSPEND,
-                    Some("Aufnahme läuft"),
+                    Some(tr("Aufnahme läuft")),
                 );
                 self.suspend_cookie.set((cookie != 0).then_some(cookie));
             }
@@ -1396,15 +1390,15 @@ pub fn entries_for(
     match status(source, key) {
         Status::Loading => {
             let (s, k) = (source.to_string(), key.to_string());
-            out.push(("Laden abbrechen".into(), Box::new(move || cancel(&s, &k))));
+            out.push((tr("Laden abbrechen").into(), Box::new(move || cancel(&s, &k))));
         }
         Status::Done => {}
         Status::Partial => {
-            out.push(("Herunterladen fortsetzen".into(), Box::new(download)));
+            out.push((tr("Herunterladen fortsetzen").into(), Box::new(download)));
         }
         Status::None => {
-            out.push(("Herunterladen".into(), Box::new(download)));
-            out.push(("Zwischenspeichern".into(), Box::new(cache)));
+            out.push((tr("Herunterladen").into(), Box::new(download)));
+            out.push((tr("Zwischenspeichern").into(), Box::new(cache)));
         }
     }
     out
@@ -1425,21 +1419,21 @@ pub fn prefs_page(
     let s = app.settings().clone();
     let page = adw::PreferencesPage::builder()
         .name("ablage")
-        .title("Ablage")
+        .title(tr("Ablage"))
         .icon_name("drive-harddisk-symbolic")
         .build();
 
     let place = adw::PreferencesGroup::builder()
-        .title("Ablage")
-        .description("Im Ordner entstehen Unterordner: mediathek und jellyfin (Heruntergeladenes), records (Aufnahmen), cache (Zwischenspeicher). Heruntergeladenes und Aufnahmen bleiben, bis Sie sie löschen; Zwischengespeichertes löscht tvjoe wieder, sobald die Grenze erreicht ist (am längsten nicht Gesehenes zuerst).")
+        .title(tr("Ablage"))
+        .description(tr("Im Ordner entstehen Unterordner: mediathek und jellyfin (Heruntergeladenes), records (Aufnahmen), cache (Zwischenspeicher). Heruntergeladenes und Aufnahmen bleiben, bis Sie sie löschen; Zwischengespeichertes löscht tvjoe wieder, sobald die Grenze erreicht ist (am längsten nicht Gesehenes zuerst)."))
         .build();
     let dir: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(s.storage_dir.clone()));
     let dir_row = adw::ActionRow::builder()
-        .title("Ablageordner")
+        .title(tr("Ablageordner"))
         .subtitle(storage_dir(app).display().to_string())
         .build();
     let choose = gtk::Button::builder()
-        .label("Ändern …")
+        .label(tr("Ändern …"))
         .valign(gtk::Align::Center)
         .build();
     dir_row.add_suffix(&choose);
@@ -1447,7 +1441,7 @@ pub fn prefs_page(
         let (dir, row) = (dir.clone(), dir_row.clone());
         choose.connect_clicked(move |b| {
             let dialog = gtk::FileDialog::builder()
-                .title("Ordner für die Ablage")
+                .title(tr("Ordner für die Ablage"))
                 .modal(true)
                 .build();
             let parent = b.root().and_downcast::<gtk::Window>();
@@ -1461,26 +1455,26 @@ pub fn prefs_page(
         });
     }
     let cache_limit = adw::SpinRow::with_range(1.0, 2000.0, 1.0);
-    cache_limit.set_title("Zwischenspeicher höchstens");
-    cache_limit.set_subtitle("GB");
+    cache_limit.set_title(tr("Zwischenspeicher höchstens"));
+    cache_limit.set_subtitle(tr("GB"));
     cache_limit.set_value(f64::from(s.cache_limit_gb));
     let min_free = adw::SpinRow::with_range(1.0, 500.0, 1.0);
-    min_free.set_title("Mindestens frei lassen");
-    min_free.set_subtitle("GB; darunter beginnt kein Download und keine Aufnahme, eine laufende Aufnahme endet");
+    min_free.set_title(tr("Mindestens frei lassen"));
+    min_free.set_subtitle(tr("GB; darunter beginnt kein Download und keine Aufnahme, eine laufende Aufnahme endet"));
     min_free.set_value(f64::from(s.min_free_gb));
     place.add(&dir_row);
     place.add(&cache_limit);
     place.add(&min_free);
 
     let download = adw::PreferencesGroup::builder()
-        .title("Herunterladen")
-        .description("Rechtsklick auf eine Kachel: Herunterladen, Zwischenspeichern, bei Serien eine Staffel oder alle Folgen")
+        .title(tr("Herunterladen"))
+        .description(tr("Rechtsklick auf eine Kachel: Herunterladen, Zwischenspeichern, bei Serien eine Staffel oder alle Folgen"))
         .build();
     let levels = [None, Some(Quality::P1080), Some(Quality::P720), Some(Quality::Sd)];
     let oer_quality = adw::ComboRow::builder()
-        .title("ÖR-Mediathek: Qualität")
-        .subtitle("Zwischenspeichern nimmt die Qualität der Wiedergabe")
-        .model(&gtk::StringList::new(&["Höchste", "1080p", "720p", "SD"]))
+        .title(tr("ÖR-Mediathek: Qualität"))
+        .subtitle(tr("Zwischenspeichern nimmt die Qualität der Wiedergabe"))
+        .model(&gtk::StringList::new(&[tr("Höchste"), "1080p", "720p", "SD"]))
         .selected(
             levels
                 .iter()
@@ -1489,47 +1483,47 @@ pub fn prefs_page(
         )
         .build();
     let jf_original = adw::SwitchRow::builder()
-        .title("Jellyfin: Originaldatei")
-        .subtitle("Aus: vom Server umgerechnet mit der Bitrate darunter (kleinere Datei)")
+        .title(tr("Jellyfin: Originaldatei"))
+        .subtitle(tr("Aus: vom Server umgerechnet mit der Bitrate darunter (kleinere Datei)"))
         .active(s.jellyfin_download_original)
         .build();
     let jf_kbps = adw::SpinRow::with_range(500.0, 40000.0, 500.0);
-    jf_kbps.set_title("Jellyfin: Bitrate beim Umrechnen");
-    jf_kbps.set_subtitle("kbit/s");
+    jf_kbps.set_title(tr("Jellyfin: Bitrate beim Umrechnen"));
+    jf_kbps.set_subtitle(tr("kbit/s"));
     jf_kbps.set_value(f64::from(s.jellyfin_download_kbps));
     download.add(&oer_quality);
     download.add(&jf_original);
     download.add(&jf_kbps);
 
     let record = adw::PreferencesGroup::builder()
-        .title("Aufnahme")
-        .description("Taste R oder der rote Knopf in der Senderanzeige nimmt die laufende Sendung auf; im Programm per Rechtsklick planen. Aufgenommen wird nur, solange tvjoe läuft.")
+        .title(tr("Aufnahme"))
+        .description(tr("Taste R oder der rote Knopf in der Senderanzeige nimmt die laufende Sendung auf; im Programm per Rechtsklick planen. Aufgenommen wird nur, solange tvjoe läuft."))
         .build();
     let pre = adw::SpinRow::with_range(0.0, 30.0, 1.0);
-    pre.set_title("Vorlauf");
-    pre.set_subtitle("Minuten vor Beginn laut Programm");
+    pre.set_title(tr("Vorlauf"));
+    pre.set_subtitle(tr("Minuten vor Beginn laut Programm"));
     pre.set_value(f64::from(s.record_pre_min));
     let post = adw::SpinRow::with_range(0.0, 60.0, 1.0);
-    post.set_title("Nachlauf");
-    post.set_subtitle("Minuten nach Ende laut Programm");
+    post.set_title(tr("Nachlauf"));
+    post.set_subtitle(tr("Minuten nach Ende laut Programm"));
     post.set_value(f64::from(s.record_post_min));
     let max_sat = adw::SpinRow::with_range(0.0, 8.0, 1.0);
-    max_sat.set_title("SAT: gleichzeitig höchstens");
-    max_sat.set_subtitle("Aufnahmen; jede belegt einen Tuner (bei gleichem Transponder geteilt); 0 = ohne Grenze");
+    max_sat.set_title(tr("SAT: gleichzeitig höchstens"));
+    max_sat.set_subtitle(tr("Aufnahmen; jede belegt einen Tuner (bei gleichem Transponder geteilt); 0 = ohne Grenze"));
     max_sat.set_value(f64::from(s.record_max_sat));
     let max_net = adw::SpinRow::with_range(0.0, 20.0, 1.0);
-    max_net.set_title("Internet: gleichzeitig höchstens");
-    max_net.set_subtitle("Aufnahmen; 0 = ohne Grenze");
+    max_net.set_title(tr("Internet: gleichzeitig höchstens"));
+    max_net.set_subtitle(tr("Aufnahmen; 0 = ohne Grenze"));
     max_net.set_value(f64::from(s.record_max_internet));
     for r in [&pre, &post, &max_sat, &max_net] {
         record.add(r);
     }
     let service = adw::SwitchRow::builder()
-        .title("Aufnahmen auch ohne geöffnetes tvjoe")
+        .title(tr("Aufnahmen auch ohne geöffnetes tvjoe"))
         .subtitle(if cfg!(windows) {
-            "Richtet den Windows-Dienst „tvjoe Aufnahmedienst“ ein, der auch ohne Anmeldung aufnimmt und den Rechner dafür weckt. Wirkt beim Schließen der Einstellungen: Dann fragt Windows nach Administratorrechten, die Einrichtung dauert einige Sekunden; eine Meldung oben sagt, wann sie fertig ist"
+            tr("Richtet den Windows-Dienst „tvjoe Aufnahmedienst“ ein, der auch ohne Anmeldung aufnimmt und den Rechner dafür weckt. Wirkt beim Schließen der Einstellungen: Dann fragt Windows nach Administratorrechten, die Einrichtung dauert einige Sekunden; eine Meldung oben sagt, wann sie fertig ist")
         } else {
-            "Richtet einen Hintergrunddienst ein (systemd-Benutzerdienst), der auch ohne Anmeldung aufnimmt; wirkt beim Schließen der Einstellungen"
+            tr("Richtet einen Hintergrunddienst ein (systemd-Benutzerdienst), der auch ohne Anmeldung aufnimmt; wirkt beim Schließen der Einstellungen")
         })
         .active(crate::dienst::installed())
         .build();
@@ -1655,7 +1649,7 @@ pub fn resume_entry(app: &Rc<App>, id: i64) {
         "oer" => fetch_film(app, &film_of(&e), e.art),
         "jellyfin" => match crate::jfview::item(&e.key) {
             Some(it) => fetch_item(app, &it, e.art),
-            None => app.message("Jellyfin: Eintrag nicht mehr in der Bibliothek"),
+            None => app.message(tr("Jellyfin: Eintrag nicht mehr in der Bibliothek")),
         },
         _ => {}
     }

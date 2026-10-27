@@ -7,6 +7,7 @@ pub mod backup;
 pub mod check;
 pub mod console;
 pub mod epg;
+pub mod i18n;
 pub mod ids;
 pub mod jellyfin;
 pub mod jellyfin_lib;
@@ -24,6 +25,7 @@ pub mod ts;
 pub mod update;
 
 pub use check::{Finding, FindingKind, Severity};
+pub use i18n::{tr, trn};
 pub use ids::normalize_id;
 pub use library::{Channel, ImportOutcome, Library, NumberTaken, ScannedChannel, Source, Stream};
 pub use m3u::{Entry, ParseError, Playlist, Quality, SourceKind};

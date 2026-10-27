@@ -16,6 +16,7 @@ use tvjoe_core::epg::{self, Guide};
 use tvjoe_core::jellyfin_lib::Item;
 use tvjoe_core::mediathek::Film;
 use tvjoe_core::{Channel, Library, Quality, Settings, SourceKind, Strategy, Stream, net, paths};
+use tvjoe_core::{tf, tr};
 
 use crate::logos::Logos;
 use crate::osd::{
@@ -34,7 +35,7 @@ fn usable(c: &Channel) -> bool {
 }
 
 fn quality_label(q: Option<Quality>) -> &'static str {
-    q.map_or("Qualität unbekannt", Quality::label)
+    q.map_or(tr("Qualität unbekannt"), Quality::label)
 }
 
 fn number_text(ch: &Channel) -> String {
@@ -54,28 +55,34 @@ struct Row {
 /// Meldung, wenn GTK kein OpenGL für das Videobild bekommt.
 fn gl_error_text(detail: &str) -> String {
     let hint = if cfg!(windows) {
-        "In einer Remotedesktop-Sitzung, in einer VM ohne 3D-Beschleunigung oder ohne Grafiktreiber stellt Windows kein taugliches OpenGL bereit; tvjoe bitte direkt am Rechner starten."
+        tr(
+            "In einer Remotedesktop-Sitzung, in einer VM ohne 3D-Beschleunigung oder ohne Grafiktreiber stellt Windows kein taugliches OpenGL bereit; tvjoe bitte direkt am Rechner starten.",
+        )
     } else {
-        "Grafiktreiber bzw. Mesa prüfen (tvjoe --check)."
+        tr("Grafiktreiber bzw. Mesa prüfen (tvjoe --check).")
     };
     // Unter Windows sagt die GTK-Begründung („libEGL ist nicht verfügbar“) Anwendern nichts.
     if cfg!(windows) {
-        format!("Kein Videobild: OpenGL ist nicht verfügbar. {hint}")
+        tf!("Kein Videobild: OpenGL ist nicht verfügbar. {hint}", hint = hint)
     } else {
-        format!("Kein Videobild: OpenGL ist nicht verfügbar ({detail}). {hint}")
+        tf!(
+            "Kein Videobild: OpenGL ist nicht verfügbar ({detail}). {hint}",
+            detail = detail,
+            hint = hint
+        )
     }
 }
 
 /// Empfang eines SAT>IP-Tuners für Bauchbinde und Info.
 fn reception_text(t: &tvjoe_core::satip::TunerStatus) -> String {
     if t.lock {
-        format!(
-            "Signal {} % · Qualität {} %",
-            t.level_percent(),
-            t.quality * 100 / 15
+        tf!(
+            "Signal {signal} % · Qualität {quality} %",
+            signal = t.level_percent(),
+            quality = t.quality * 100 / 15
         )
     } else {
-        "Kein Empfang".to_string()
+        tr("Kein Empfang").to_string()
     }
 }
 
@@ -200,8 +207,8 @@ impl App {
         match &player {
             Some(p) => overlay.set_child(Some(&p.area)),
             None => overlay.set_child(Some(&status_page(
-                "Wiedergabe nicht möglich",
-                "libmpv ließ sich nicht starten.",
+                tr("Wiedergabe nicht möglich"),
+                tr("libmpv ließ sich nicht starten."),
             ))),
         }
         overlay.add_overlay(&osd.root);
@@ -214,17 +221,17 @@ impl App {
         let header = adw::HeaderBar::new();
         let sidebar_button = gtk::ToggleButton::builder()
             .icon_name("sidebar-show-symbolic")
-            .tooltip_text("Senderliste (L)")
+            .tooltip_text(tr("Senderliste (L)"))
             .build();
         header.pack_start(&sidebar_button);
         let manage_button = gtk::Button::builder()
             .icon_name("document-edit-symbolic")
-            .tooltip_text("Sender verwalten (Strg+E)")
+            .tooltip_text(tr("Sender verwalten (Strg+E)"))
             .build();
         header.pack_start(&manage_button);
         let layer_back = gtk::Button::builder()
             .icon_name("go-previous-symbolic")
-            .tooltip_text("Schließen (Esc)")
+            .tooltip_text(tr("Schließen (Esc)"))
             .visible(false)
             .build();
         header.pack_start(&layer_back);
@@ -234,17 +241,17 @@ impl App {
         // (Nutzer, 2026-10-25 und 2026-10-26).
         let fullscreen_button = gtk::Button::builder()
             .icon_name("view-fullscreen-symbolic")
-            .tooltip_text("Vollbild (F)")
+            .tooltip_text(tr("Vollbild (F)"))
             .css_classes(["tvjoe-source"])
             .build();
         let crop_button = gtk::Button::builder()
             .icon_name(crate::icons::CROP)
-            .tooltip_text("Schwarze Balken abschneiden")
+            .tooltip_text(tr("Schwarze Balken abschneiden"))
             .css_classes(["tvjoe-source"])
             .build();
         let fill_button = gtk::Button::builder()
             .icon_name("zoom-fit-best-symbolic")
-            .tooltip_text("Bild füllen (Z)")
+            .tooltip_text(tr("Bild füllen (Z)"))
             .css_classes(["tvjoe-source"])
             .build();
         for (b, on) in [(&crop_button, settings.crop_bars), (&fill_button, settings.fill)] {
@@ -262,32 +269,32 @@ impl App {
         header.pack_end(&view_group);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
-            .tooltip_text("Einstellungen (Strg+,)")
+            .tooltip_text(tr("Einstellungen (Strg+,)"))
             .build();
         header.pack_end(&prefs_button);
         let grid_button = gtk::Button::builder()
             .icon_name("x-office-calendar-symbolic")
-            .tooltip_text("Programm (G)")
+            .tooltip_text(tr("Programm (G)"))
             .build();
         header.pack_end(&grid_button);
         let info_button = gtk::Button::builder()
             .icon_name("dialog-information-symbolic")
-            .tooltip_text("Info (I)")
+            .tooltip_text(tr("Info (I)"))
             .build();
         header.pack_end(&info_button);
         let tv_button = gtk::Button::builder()
             .icon_name("video-display-symbolic")
-            .tooltip_text("Fernsehen")
+            .tooltip_text(tr("Fernsehen"))
             .css_classes(["tvjoe-source"])
             .build();
         let sat_button = gtk::Button::builder()
             .icon_name(crate::icons::SATELLITE)
-            .tooltip_text("Satellit (SAT>IP)")
+            .tooltip_text(tr("Satellit (SAT>IP)"))
             .css_classes(["tvjoe-source"])
             .build();
         let mediathek_button = gtk::Button::builder()
             .icon_name("folder-videos-symbolic")
-            .tooltip_text("ÖR-Mediathek")
+            .tooltip_text(tr("ÖR-Mediathek"))
             .css_classes(["tvjoe-source"])
             .build();
         // Jellyfin: Logo des Servers (einfarbig), bis es geladen ist ein Server-Symbol.
@@ -848,7 +855,11 @@ impl App {
             match current {
                 Some(p) => {
                     r.now
-                        .set_label(&format!("{} · bis {}", p.title, hm(p.stop)));
+                        .set_label(&tf!(
+                            "{title} · bis {end}",
+                            title = p.title,
+                            end = hm(p.stop)
+                        ));
                     r.now.set_tooltip_text(Some(&p.title));
                     r.now.set_visible(true);
                 }
@@ -857,7 +868,11 @@ impl App {
             match next {
                 Some(p) => {
                     r.next
-                        .set_label(&format!("Danach {}  {}", hm(p.start), p.title));
+                        .set_label(&tf!(
+                            "Danach {start}  {title}",
+                            start = hm(p.start),
+                            title = p.title
+                        ));
                     r.next.set_tooltip_text(Some(&p.title));
                     r.next.set_visible(true);
                 }
@@ -917,8 +932,21 @@ impl App {
             if let Some((id, _)) = guide.match_channel(ch) {
                 let (cur, nxt) = guide.now_next(&id, epg::now());
                 if st.osd_epg {
-                    now = cur.map(|p| format!("Jetzt {}–{}  {}", hm(p.start), hm(p.stop), p.title));
-                    next = nxt.map(|p| format!("Danach {}  {}", hm(p.start), p.title));
+                    now = cur.map(|p| {
+                        tf!(
+                            "Jetzt {start}–{end}  {title}",
+                            start = hm(p.start),
+                            end = hm(p.stop),
+                            title = p.title
+                        )
+                    });
+                    next = nxt.map(|p| {
+                        tf!(
+                            "Danach {start}  {title}",
+                            start = hm(p.start),
+                            title = p.title
+                        )
+                    });
                 }
                 if st.osd_description {
                     // Absätze zu einem Text zusammenziehen: die Anzeige kürzt dann auf
@@ -933,7 +961,7 @@ impl App {
         let record = (self.vod.borrow().is_none() && self.current.get() == Some(ch.id))
             .then(|| crate::ablage::is_recording(ch.id, self.sat.get()));
         if record == Some(true) {
-            meta.push("● Aufnahme".to_string());
+            meta.push(tr("● Aufnahme").to_string());
         }
         ChannelInfo {
             number: if st.osd_number {
@@ -1128,7 +1156,7 @@ impl App {
                     &gtk::Label::builder()
                         .label("★")
                         .css_classes(["tvjoe-fav"])
-                        .tooltip_text("Favorit")
+                        .tooltip_text(tr("Favorit"))
                         .build(),
                 );
             }
@@ -1258,12 +1286,16 @@ impl App {
             // Aufnahmen gibt es nur, solange tvjoe läuft).
             if let Some(text) = crate::ablage::busy_text().filter(|_| !crate::ablage::close_confirmed()) {
                 let dialog = adw::AlertDialog::builder()
-                    .heading("tvjoe beenden?")
-                    .body(format!(
-                        "{text}. Aufnahmen gibt es nur, solange tvjoe läuft; laufende werden beim Beenden abgeschlossen, Downloads lassen sich später fortsetzen."
+                    .heading(tr("tvjoe beenden?"))
+                    .body(tf!(
+                        "{text}. Aufnahmen gibt es nur, solange tvjoe läuft; laufende werden beim Beenden abgeschlossen, Downloads lassen sich später fortsetzen.",
+                        text = text
                     ))
                     .build();
-                dialog.add_responses(&[("cancel", "Weiterlaufen lassen"), ("quit", "Beenden")]);
+                dialog.add_responses(&[
+                    ("cancel", tr("Weiterlaufen lassen")),
+                    ("quit", tr("Beenden")),
+                ]);
                 dialog.set_response_appearance("quit", adw::ResponseAppearance::Destructive);
                 dialog.set_default_response(Some("cancel"));
                 let win = w.clone();
@@ -1411,16 +1443,16 @@ impl App {
                 self.update_source_indicator();
                 self.osd.show(
                     "",
-                    "Keine SAT-Sender",
-                    "Suchlauf unter Einstellungen → SAT>IP",
+                    tr("Keine SAT-Sender"),
+                    tr("Suchlauf unter Einstellungen → SAT>IP"),
                     0,
                 );
             }
             None => {
                 self.osd.show(
                     "",
-                    "Keine Sender",
-                    "Sender aus einer M3U übernehmen: tvjoe --import liste.m3u --mit-warnungen",
+                    tr("Keine Sender"),
+                    tr("Sender aus einer M3U übernehmen: tvjoe --import liste.m3u --mit-warnungen"),
                     0,
                 );
             }
@@ -1470,7 +1502,8 @@ impl App {
                 s.last_channel = Some(id);
             }
         }
-        self.window.set_title(Some(&format!("{name} – tvjoe")));
+        self.window
+            .set_title(Some(&tf!("{name} – tvjoe", name = name)));
         if let Some(r) = self.rows.borrow().iter().find(|r| r.id == id) {
             self.list.select_row(Some(&r.row));
         }
@@ -1494,7 +1527,8 @@ impl App {
                 self.relay.replace(Some(r));
             }
             Err(e) => {
-                self.msg.show(&format!("SAT>IP: {e}"), self.overlay_secs());
+                self.msg
+                    .show(&tf!("SAT>IP: {error}", error = e), self.overlay_secs());
                 return;
             }
         }
@@ -1530,7 +1564,9 @@ impl App {
                 == Some(&url);
             if silent && same && app.vod.borrow().is_none() {
                 app.msg.show(
-                    "Kein Datenstrom vom SAT>IP-Gerät (UDP). Firewall: Einstellungen → SAT>IP → Prüfen. Über WireGuard: Masquerade im Tunnel verhindert den Rückweg (docs/SAT-IP.md)",
+                    tr(
+                        "Kein Datenstrom vom SAT>IP-Gerät (UDP). Firewall: Einstellungen → SAT>IP → Prüfen. Über WireGuard: Masquerade im Tunnel verhindert den Rückweg (docs/SAT-IP.md)",
+                    ),
                     app.overlay_secs() * 2,
                 );
             }
@@ -1601,12 +1637,12 @@ impl App {
         }
         if let Some(s) = start {
             self.msg.show(
-                &format!("Weiter ab {}", crate::osd::clock(s)),
+                &tf!("Weiter ab {time}", time = crate::osd::clock(s)),
                 self.overlay_secs(),
             );
         }
         self.window
-            .set_title(Some(&format!("{} – tvjoe", vod.title())));
+            .set_title(Some(&tf!("{name} – tvjoe", name = vod.title())));
         self.vod.replace(Some(vod));
         self.info.hide();
         self.list.unselect_all();
@@ -1642,7 +1678,7 @@ impl App {
     fn load_jellyfin(self: &Rc<Self>, j: &JellyVod, start: Option<f64>) {
         let Some(acc) = crate::jellyfin::account() else {
             self.msg
-                .show("Jellyfin: nicht angemeldet", self.overlay_secs());
+                .show(tr("Jellyfin: nicht angemeldet"), self.overlay_secs());
             return;
         };
         let max_kbps = self.settings.borrow().jellyfin_max_kbps;
@@ -1696,7 +1732,7 @@ impl App {
                 }
                 Err(e) => app
                     .msg
-                    .show(&format!("Jellyfin: nicht abspielbar ({e})"), 0),
+                    .show(&tf!("Jellyfin: nicht abspielbar ({error})", error = e), 0),
             }
         });
     }
@@ -1761,7 +1797,7 @@ impl App {
             logo: vod.logo(self).filter(|_| osd_logo),
             name: vod.name(),
             meta: if self.vod_local.get() {
-                format!("{} · aus der Ablage", vod.meta())
+                tf!("{meta} · aus der Ablage", meta = vod.meta())
             } else {
                 vod.meta()
             },
@@ -1837,7 +1873,7 @@ impl App {
                 let cookie = application.inhibit(
                     Some(&self.window),
                     gtk::ApplicationInhibitFlags::IDLE,
-                    Some("Fernsehen läuft"),
+                    Some(tr("Fernsehen läuft")),
                 );
                 self.inhibit_cookie.set((cookie != 0).then_some(cookie));
                 trace(&format!("Bildschirmsperre verhindert (Kennung {cookie})"));
@@ -1873,13 +1909,13 @@ impl App {
                     let title = next.title();
                     self.start_vod(next, None);
                     self.msg
-                        .show(&format!("Als Nächstes: {title}"), self.overlay_secs());
+                        .show(&tf!("Als Nächstes: {title}", title = title), self.overlay_secs());
                     return;
                 }
             }
             let text = match ev {
-                PlayerEvent::Ended => "Beitrag zu Ende",
-                _ => "Video nicht abspielbar",
+                PlayerEvent::Ended => tr("Beitrag zu Ende"),
+                _ => tr("Video nicht abspielbar"),
             };
             self.msg.show(text, self.overlay_secs());
             return;
@@ -1903,9 +1939,12 @@ impl App {
                     .map(|s| (s.url.clone(), s.max_bitrate, s.quality));
                 let text = match &next {
                     Some((_, _, q)) => {
-                        format!("Stream gestört – weiche aus auf {}", quality_label(*q))
+                        tf!(
+                            "Stream gestört – weiche aus auf {quality}",
+                            quality = quality_label(*q)
+                        )
                     }
-                    None => "Sender nicht erreichbar – alle Streams versucht".to_string(),
+                    None => tr("Sender nicht erreichbar – alle Streams versucht").to_string(),
                 };
                 let stream = next.as_ref().and_then(|(u, b, _)| {
                     ch.streams
@@ -2024,7 +2063,7 @@ impl App {
             None => {
                 self.osd.hide();
                 self.msg
-                    .show("Kein Sender mit dieser Nummer", self.overlay_secs());
+                    .show(tr("Kein Sender mit dieser Nummer"), self.overlay_secs());
             }
         }
     }
@@ -2064,12 +2103,12 @@ impl App {
             lib.channel(id).and_then(|ch| {
                 ch.pick_stream_capped(Some(next), fallback, cap).map(|s| {
                     let text = if s.quality == Some(next) {
-                        format!("Qualität {}", next.label())
+                        tf!("Qualität {quality}", quality = next.label())
                     } else {
-                        format!(
-                            "Qualität {} nicht vorhanden – läuft {}",
-                            next.label(),
-                            quality_label(s.quality)
+                        tf!(
+                            "Qualität {wanted} nicht vorhanden – läuft {actual}",
+                            wanted = next.label(),
+                            actual = quality_label(s.quality)
                         )
                     };
                     (
@@ -2099,16 +2138,18 @@ impl App {
             return;
         };
         self.settings.borrow_mut().volume = v.clamp(0, 130) as u32;
-        self.msg.show(&format!("Lautstärke {v} %"), 2);
+        self.msg.show(&tf!("Lautstärke {volume} %", volume = v), 2);
     }
 
     /// Nächste Tonspur (Taste A, Knopf in der Video-Bauchbinde).
     fn cycle_audio(&self) {
         let Some(player) = &self.player else { return };
         let text = match player.cycle_audio() {
-            Some((n, count, label)) if count > 1 => format!("Ton: {label} ({n}/{count})"),
-            Some((_, _, label)) => format!("Nur eine Tonspur: {label}"),
-            None => "Keine Tonspur".to_string(),
+            Some((n, count, label)) if count > 1 => {
+                tf!("Ton: {label} ({n}/{count})", label = label, n = n, count = count)
+            }
+            Some((_, _, label)) => tf!("Nur eine Tonspur: {label}", label = label),
+            None => tr("Keine Tonspur").to_string(),
         };
         self.msg.show(&text, self.overlay_secs());
     }
@@ -2116,9 +2157,11 @@ impl App {
     fn cycle_subtitles(&self) {
         let Some(player) = &self.player else { return };
         let text = match player.cycle_subtitles() {
-            Some(Some((n, count, label))) => format!("Untertitel: {label} ({n}/{count})"),
-            Some(None) => "Untertitel aus".to_string(),
-            None => "Keine Untertitel".to_string(),
+            Some(Some((n, count, label))) => {
+                tf!("Untertitel: {label} ({n}/{count})", label = label, n = n, count = count)
+            }
+            Some(None) => tr("Untertitel aus").to_string(),
+            None => tr("Keine Untertitel").to_string(),
         };
         self.msg.show(&text, self.overlay_secs());
     }
@@ -2155,14 +2198,14 @@ impl App {
         }
         let text = if crop != old_crop {
             if crop {
-                "Schwarze Balken werden abgeschnitten"
+                tr("Schwarze Balken werden abgeschnitten")
             } else {
-                "Schwarze Balken bleiben"
+                tr("Schwarze Balken bleiben")
             }
         } else if fill {
-            "Bild füllt das Fenster"
+            tr("Bild füllt das Fenster")
         } else {
-            "Bild eingepasst"
+            tr("Bild eingepasst")
         };
         self.msg.show(text, 2);
     }
@@ -2290,7 +2333,7 @@ impl App {
 
     fn toggle_mute(&self) {
         if let Some(muted) = self.player.as_ref().and_then(|p| p.toggle_mute()) {
-            self.msg.show(if muted { "Ton aus" } else { "Ton an" }, 2);
+            self.msg.show(if muted { tr("Ton aus") } else { tr("Ton an") }, 2);
         }
     }
 
@@ -2312,7 +2355,7 @@ impl App {
         tv.set_content(Some(&self.list_scroller));
         tv.add_css_class("tvjoe-sidebar");
         let win = adw::Window::builder()
-            .title("Sender – tvjoe")
+            .title(tr("Sender – tvjoe"))
             .default_width(360)
             .default_height(640)
             .content(&tv)
@@ -2348,7 +2391,7 @@ impl App {
                 meta: {
                     let mut m = vod.info_meta();
                     if self.vod_local.get() {
-                        m.push("Aus der Ablage (lokale Datei)".to_string());
+                        m.push(tr("Aus der Ablage (lokale Datei)").to_string());
                     }
                     m
                 },
@@ -2357,7 +2400,7 @@ impl App {
                     .vod_next
                     .borrow()
                     .first()
-                    .map(|n| format!("Danach: {}", n.title())),
+                    .map(|n| tf!("Danach: {title}", title = n.title())),
                 record: None,
             },
             None => {
@@ -2382,11 +2425,11 @@ impl App {
                     .unwrap_or((None, None));
                 match cur {
                     Some(p) => {
-                        let mut meta = vec![format!(
-                            "{} · {}–{}",
-                            ch.display_name(),
-                            hm(p.start),
-                            hm(p.stop)
+                        let mut meta = vec![tf!(
+                            "{channel} · {start}–{end}",
+                            channel = ch.display_name(),
+                            start = hm(p.start),
+                            end = hm(p.stop)
                         )];
                         meta.extend(p.subtitle.clone());
                         InfoContent {
@@ -2394,14 +2437,16 @@ impl App {
                             title: p.title.clone(),
                             meta,
                             desc: p.desc.clone().unwrap_or_default().trim().to_string(),
-                            next: nxt.map(|n| format!("Danach {}  {}", hm(n.start), n.title)),
+                            next: nxt.map(|n| {
+                                tf!("Danach {start}  {title}", start = hm(n.start), title = n.title)
+                            }),
                             record: Some(crate::ablage::is_recording(id, self.sat.get())),
                         }
                     }
                     None => InfoContent {
                         logo,
                         title: ch.display_name().to_string(),
-                        meta: vec!["Kein Programm (EPG) für diesen Sender".to_string()],
+                        meta: vec![tr("Kein Programm (EPG) für diesen Sender").to_string()],
                         desc: String::new(),
                         next: None,
                         record: Some(crate::ablage::is_recording(id, self.sat.get())),
@@ -2411,11 +2456,11 @@ impl App {
         };
         if self.vod.borrow().is_none() {
             if let Some(t) = self.relay.borrow().as_ref().and_then(|r| r.status()) {
-                content.meta.push(format!(
-                    "{} · Tuner {} · {} MHz",
-                    reception_text(&t),
-                    t.tuner,
-                    t.freq
+                content.meta.push(tf!(
+                    "{reception} · Tuner {tuner} · {freq} MHz",
+                    reception = reception_text(&t),
+                    tuner = t.tuner,
+                    freq = t.freq
                 ));
             }
         }

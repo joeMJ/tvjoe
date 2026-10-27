@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
-use tvjoe_core::{Channel, NumberTaken, Quality, net, paths};
+use tvjoe_core::{Channel, NumberTaken, Quality, net, paths, tf, tr};
 
 use crate::app::App;
 
@@ -75,7 +75,7 @@ fn cell(text: &str, width: i32, class: &str) -> gtk::Label {
 
 impl crate::layer::View for Manager {
     fn title(&self) -> String {
-        "Sender verwalten".to_string()
+        tr("Sender verwalten").to_string()
     }
     fn min_size(&self) -> (i32, i32) {
         MIN_SIZE
@@ -104,23 +104,23 @@ impl Manager {
         let header_start = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         let header_end = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         let import_file = gtk::Button::builder()
-            .label("Datei importieren…")
-            .tooltip_text("M3U-Datei ganz oder teilweise übernehmen")
+            .label(tr("Datei importieren…"))
+            .tooltip_text(tr("M3U-Datei ganz oder teilweise übernehmen"))
             .build();
         import_file.add_css_class("suggested-action");
         let import_url = gtk::Button::builder()
-            .label("Von URL…")
-            .tooltip_text("M3U von einer Adresse laden")
+            .label(tr("Von URL…"))
+            .tooltip_text(tr("M3U von einer Adresse laden"))
             .build();
         let export = gtk::Button::builder()
-            .label("Exportieren…")
-            .tooltip_text("Alle Sender als M3U8 speichern")
+            .label(tr("Exportieren…"))
+            .tooltip_text(tr("Alle Sender als M3U8 speichern"))
             .build();
         header_start.append(&import_file);
         header_start.append(&import_url);
         let epg_sources = gtk::Button::builder()
-            .label("EPG-Quellen…")
-            .tooltip_text("XMLTV-Quellen eintragen und neu laden")
+            .label(tr("EPG-Quellen…"))
+            .tooltip_text(tr("XMLTV-Quellen eintragen und neu laden"))
             .build();
         header_end.append(&epg_sources);
         header_end.append(&export);
@@ -131,16 +131,16 @@ impl Manager {
         titles.set_margin_top(8);
         titles.set_margin_bottom(4);
         for (t, w) in [
-            ("Nr.", 44),
+            (tr("Nr."), 44),
             ("", 52),
-            ("Name", 260),
-            ("Gruppe", 150),
-            ("Quelle", 130),
-            ("Qualitäten", 150),
-            ("Status", 110),
-            ("EPG", 150),
-            ("Aktiv", 50),
-            ("Favorit", 50),
+            (tr("Name"), 260),
+            (tr("Gruppe"), 150),
+            (tr("Quelle"), 130),
+            (tr("Qualitäten"), 150),
+            (tr("Status"), 110),
+            (tr("EPG"), 150),
+            (tr("Aktiv"), 50),
+            (tr("Favorit"), 50),
         ] {
             titles.append(&cell(t, w, "tvjoe-name"));
         }
@@ -164,7 +164,7 @@ impl Manager {
             .margin_bottom(8)
             .build();
         let hint = gtk::Label::builder()
-            .label("Rechte Maustaste: Aktionen für die Auswahl · Strg/Umschalt-Klick: mehrere Sender wählen · Klick auf einen markierten Sender: abwählen · Esc: Auswahl aufheben")
+            .label(tr("Rechte Maustaste: Aktionen für die Auswahl · Strg/Umschalt-Klick: mehrere Sender wählen · Klick auf einen markierten Sender: abwählen · Esc: Auswahl aufheben"))
             .css_classes(["tvjoe-sub"])
             .xalign(0.0)
             .margin_start(22)
@@ -264,10 +264,11 @@ impl Manager {
             rows.push((ch.id, row));
         }
         let active = lib.channels.iter().filter(|c| c.active).count();
-        self.count.set_label(&format!(
-            "{} Sender, davon {active} aktiv · {} Quellen",
-            lib.channels.len(),
-            lib.sources.len()
+        self.count.set_label(&tf!(
+            "{channels} Sender, davon {active} aktiv · {sources} Quellen",
+            channels = lib.channels.len(),
+            active = active,
+            sources = lib.sources.len()
         ));
     }
 
@@ -306,7 +307,7 @@ impl Manager {
         let name = cell(ch.display_name(), 260, "tvjoe-name");
         name_box.append(&name);
         if ch.custom_name.is_some() {
-            name_box.append(&cell(&format!("Quelle: {}", ch.name), 260, "tvjoe-sub"));
+            name_box.append(&cell(&tf!("Quelle: {name}", name = ch.name), 260, "tvjoe-sub"));
         }
         hbox.append(&name_box);
         hbox.append(&cell(ch.display_group().unwrap_or("–"), 150, "tvjoe-sub"));
@@ -318,11 +319,11 @@ impl Manager {
             .collect();
         hbox.append(&cell(&qualities.join(" "), 150, "tvjoe-sub"));
         let status = if ch.missing {
-            "fehlt in Quelle"
+            tr("fehlt in Quelle")
         } else if !ch.active {
-            "inaktiv"
+            tr("inaktiv")
         } else {
-            "ok"
+            tr("ok")
         };
         hbox.append(&cell(status, 110, "tvjoe-sub"));
         let sat_epg = ch
@@ -331,19 +332,23 @@ impl Manager {
             .is_some_and(|e| e.starts_with(tvjoe_core::epg::SAT_PREFIX));
         let epg_text = match self.app.guide() {
             _ if sat_epg => match self.app.guide().filter(|g| g.has_channel(&ch.key)) {
-                Some(_) => "SAT-Empfang".to_string(),
-                None => "SAT-Empfang (wird gesammelt)".to_string(),
+                Some(_) => tr("SAT-Empfang").to_string(),
+                None => tr("SAT-Empfang (wird gesammelt)").to_string(),
             },
             Some(g) => match g.match_channel(ch) {
                 Some((id, kind)) => {
-                    let how = match kind {
-                        tvjoe_core::epg::MatchKind::Manual => "manuell",
-                        tvjoe_core::epg::MatchKind::Fuzzy => "unscharf",
-                        _ => "automatisch",
-                    };
-                    format!("{} ({how})", g.display_name(&id).unwrap_or(&id))
+                    let name = g.display_name(&id).unwrap_or(&id);
+                    match kind {
+                        tvjoe_core::epg::MatchKind::Manual => {
+                            tf!("{name} (manuell)", name = name)
+                        }
+                        tvjoe_core::epg::MatchKind::Fuzzy => {
+                            tf!("{name} (unscharf)", name = name)
+                        }
+                        _ => tf!("{name} (automatisch)", name = name),
+                    }
                 }
-                None => "keine Zuordnung".into(),
+                None => tr("keine Zuordnung").into(),
             },
             None => "–".into(),
         };
@@ -353,7 +358,7 @@ impl Manager {
 
         let active = gtk::CheckButton::builder()
             .active(ch.active)
-            .tooltip_text("Aktiv: erscheint in der Senderliste")
+            .tooltip_text(tr("Aktiv: erscheint in der Senderliste"))
             .width_request(50)
             .build();
         let id = ch.id;
@@ -368,7 +373,7 @@ impl Manager {
         hbox.append(&active);
         let fav = gtk::CheckButton::builder()
             .active(ch.favorite)
-            .tooltip_text("Favorit")
+            .tooltip_text(tr("Favorit"))
             .width_request(50)
             .build();
         let m = Rc::downgrade(self);
@@ -489,9 +494,9 @@ impl Manager {
         let menu = gio::Menu::new();
         // Einzelaktionen gelten immer für die angeklickte Zeile, auch bei Mehrfachauswahl.
         let single = gio::Menu::new();
-        single.append_item(&item("Umbenennen…", "rename"));
-        single.append_item(&item("Nummer ändern…", "number"));
-        single.append_item(&item("EPG-Zuordnung…", "epg"));
+        single.append_item(&item(tr("Umbenennen…"), "rename"));
+        single.append_item(&item(tr("Nummer ändern…"), "number"));
+        single.append_item(&item(tr("EPG-Zuordnung…"), "epg"));
         let label = if n > 1 {
             self.app
                 .library()
@@ -502,33 +507,33 @@ impl Manager {
         };
         menu.append_section(label.as_deref(), &single);
         let s1 = gio::Menu::new();
-        s1.append_item(&item("Eigenen Namen löschen", "reset-name"));
+        s1.append_item(&item(tr("Eigenen Namen löschen"), "reset-name"));
         menu.append_section(None, &s1);
         let s2 = gio::Menu::new();
-        s2.append_item(&item("An den Anfang verschieben", "top"));
-        s2.append_item(&item("Nach oben", "up"));
-        s2.append_item(&item("Nach unten", "down"));
-        s2.append_item(&item("Ans Ende verschieben", "bottom"));
+        s2.append_item(&item(tr("An den Anfang verschieben"), "top"));
+        s2.append_item(&item(tr("Nach oben"), "up"));
+        s2.append_item(&item(tr("Nach unten"), "down"));
+        s2.append_item(&item(tr("Ans Ende verschieben"), "bottom"));
         menu.append_section(None, &s2);
         let s3 = gio::Menu::new();
-        s3.append_item(&item("Aktivieren", "activate"));
-        s3.append_item(&item("Deaktivieren", "deactivate"));
-        s3.append_item(&item("Favorit an/aus", "favorite"));
+        s3.append_item(&item(tr("Aktivieren"), "activate"));
+        s3.append_item(&item(tr("Deaktivieren"), "deactivate"));
+        s3.append_item(&item(tr("Favorit an/aus"), "favorite"));
         menu.append_section(None, &s3);
         let s4 = gio::Menu::new();
         s4.append_item(&item(
             &if n > 1 {
-                format!("{n} Sender exportieren…")
+                tf!("{n} Sender exportieren…", n = n)
             } else {
-                "Exportieren…".into()
+                tr("Exportieren…").into()
             },
             "export",
         ));
         s4.append_item(&item(
             &if n > 1 {
-                format!("{n} Sender löschen…")
+                tf!("{n} Sender löschen…", n = n)
             } else {
-                "Löschen…".into()
+                tr("Löschen…").into()
             },
             "delete",
         ));
@@ -604,7 +609,7 @@ impl Manager {
         destructive: bool,
     ) -> adw::AlertDialog {
         let d = adw::AlertDialog::new(Some(heading), Some(body));
-        d.add_response("cancel", "Abbrechen");
+        d.add_response("cancel", tr("Abbrechen"));
         d.add_response("ok", ok);
         d.set_response_appearance(
             "ok",
@@ -634,10 +639,10 @@ impl Manager {
             .activates_default(true)
             .build();
         let d = self.ask(
-            "Sender umbenennen",
-            "Eigener Name (bleibt bei Aktualisierungen erhalten):",
+            tr("Sender umbenennen"),
+            tr("Eigener Name (bleibt bei Aktualisierungen erhalten):"),
             Some(entry.upcast_ref()),
-            "Umbenennen",
+            tr("Umbenennen"),
             false,
         );
         let m = self.clone();
@@ -665,16 +670,16 @@ impl Manager {
             .activates_default(true)
             .build();
         let d = self.ask(
-            "Nummer ändern",
-            "Ziffernblocknummer (muss frei sein):",
+            tr("Nummer ändern"),
+            tr("Ziffernblocknummer (muss frei sein):"),
             Some(entry.upcast_ref()),
-            "Übernehmen",
+            tr("Übernehmen"),
             false,
         );
         let m = self.clone();
         d.connect_response(Some("ok"), move |_, _| {
             let Ok(n) = entry.text().trim().parse::<u32>() else {
-                m.toast("Bitte eine Zahl eingeben.");
+                m.toast(tr("Bitte eine Zahl eingeben."));
                 return;
             };
             let result = m.app.library_mut().set_number(id, n);
@@ -690,7 +695,7 @@ impl Manager {
                         .channel(other)
                         .map(|c| c.display_name().to_string())
                         .unwrap_or_default();
-                    m.toast(&format!("Nummer {n} gehört schon zu „{name}“."));
+                    m.toast(&tf!("Nummer {n} gehört schon zu „{name}“.", n = n, name = name));
                 }
             }
         });
@@ -705,15 +710,15 @@ impl Manager {
         let sat = ch.key.starts_with(tvjoe_core::epg::SAT_PREFIX);
         let guide = self.app.guide();
         if guide.is_none() && !sat {
-            self.toast("Kein EPG geladen – zuerst eine EPG-Quelle eintragen.");
+            self.toast(tr("Kein EPG geladen – zuerst eine EPG-Quelle eintragen."));
             return;
         }
         let mut suggestions = guide.map(|g| g.suggestions(&ch)).unwrap_or_default();
         suggestions.retain(|(sid, _)| !sid.starts_with(tvjoe_core::epg::SAT_PREFIX));
         if sat {
-            suggestions.insert(0, (ch.key.clone(), "Aus dem SAT-Empfang".to_string()));
+            suggestions.insert(0, (ch.key.clone(), tr("Aus dem SAT-Empfang").to_string()));
         }
-        let mut labels: Vec<String> = vec!["Automatisch zuordnen".into()];
+        let mut labels: Vec<String> = vec![tr("Automatisch zuordnen").into()];
         labels.extend(
             suggestions
                 .iter()
@@ -733,13 +738,13 @@ impl Manager {
             }
         }
         let d = self.ask(
-            "EPG-Zuordnung",
-            &format!(
-                "Programmdaten für „{}“ (passende Kanäle zuerst):",
-                ch.display_name()
+            tr("EPG-Zuordnung"),
+            &tf!(
+                "Programmdaten für „{name}“ (passende Kanäle zuerst):",
+                name = ch.display_name()
             ),
             Some(drop.upcast_ref()),
-            "Übernehmen",
+            tr("Übernehmen"),
             false,
         );
         let m = self.clone();
@@ -755,7 +760,7 @@ impl Manager {
             m.set_flag(&[id], |c| c.epg_id = epg_id.clone());
             m.refill();
             if to_sat {
-                m.toast("Programmdaten werden aus dem SAT-Empfang gesammelt (etwa 40 Sekunden je Transponder).");
+                m.toast(tr("Programmdaten werden aus dem SAT-Empfang gesammelt (etwa 40 Sekunden je Transponder)."));
                 crate::satepg::run(&m.app);
             }
         });
@@ -774,10 +779,10 @@ impl Manager {
             .width_request(520)
             .build();
         let d = self.ask(
-            "EPG-Quellen",
-            "Eine XMLTV-Quelle je Zeile (Datei oder URL, auch .xml.gz):",
+            tr("EPG-Quellen"),
+            tr("Eine XMLTV-Quelle je Zeile (Datei oder URL, auch .xml.gz):"),
             Some(view.upcast_ref()),
-            "Speichern und neu laden",
+            tr("Speichern und neu laden"),
             false,
         );
         let m = self.clone();
@@ -793,7 +798,7 @@ impl Manager {
             m.app.settings_mut().epg_sources = sources;
             m.app.save_settings();
             m.app.load_epg(true);
-            m.toast("EPG wird neu geladen …");
+            m.toast(tr("EPG wird neu geladen …"));
         });
         d.present(Some(&self.body));
     }
@@ -858,13 +863,14 @@ impl Manager {
                 .channel(id)
                 .map(|c| c.display_name().to_string())
                 .unwrap_or_default();
-            format!(
-                "„{name}“ wird aus der Bibliothek entfernt. Ein erneuter Import der Quelle fügt ihn wieder hinzu."
+            tf!(
+                "„{name}“ wird aus der Bibliothek entfernt. Ein erneuter Import der Quelle fügt ihn wieder hinzu.",
+                name = name
             )
         } else {
-            format!("{} Sender werden aus der Bibliothek entfernt.", ids.len())
+            tf!("{n} Sender werden aus der Bibliothek entfernt.", n = ids.len())
         };
-        let d = self.ask("Sender löschen?", &body, None, "Löschen", true);
+        let d = self.ask(tr("Sender löschen?"), &body, None, tr("Löschen"), true);
         let m = self.clone();
         d.connect_response(Some("ok"), move |_, _| {
             {
@@ -875,14 +881,14 @@ impl Manager {
             }
             m.app.library_changed();
             m.refill();
-            m.toast("Gelöscht.");
+            m.toast(tr("Gelöscht."));
         });
         d.present(Some(&self.body));
     }
 
     fn export(self: &Rc<Self>, ids: Option<Vec<u64>>) {
         let dialog = gtk::FileDialog::builder()
-            .title("Sender als M3U8 exportieren")
+            .title(tr("Sender als M3U8 exportieren"))
             .initial_name("tvjoe-sender.m3u8")
             .modal(true)
             .build();
@@ -895,8 +901,8 @@ impl Manager {
                 let Some(path) = file.path() else { return };
                 let text = m.app.library().export_m3u(ids.as_deref());
                 match std::fs::write(&path, text) {
-                    Ok(()) => m.toast(&format!("Gespeichert: {}", path.display())),
-                    Err(e) => m.toast(&format!("Speichern fehlgeschlagen: {e}")),
+                    Ok(()) => m.toast(&tf!("Gespeichert: {path}", path = path.display())),
+                    Err(e) => m.toast(&tf!("Speichern fehlgeschlagen: {error}", error = e)),
                 }
             },
         );
@@ -911,11 +917,11 @@ fn with_tv_list(parent: &gtk::Button, m: &Rc<Manager>, f: fn(&Rc<Manager>)) {
         return;
     }
     let d = adw::AlertDialog::new(
-        Some("M3U übernehmen"),
-        Some("Die Übernahme gilt der TV-Senderliste. tvjoe schaltet dazu von SAT auf TV um."),
+        Some(tr("M3U übernehmen")),
+        Some(tr("Die Übernahme gilt der TV-Senderliste. tvjoe schaltet dazu von SAT auf TV um.")),
     );
-    d.add_response("cancel", "Abbrechen");
-    d.add_response("ok", "Auf TV umschalten");
+    d.add_response("cancel", tr("Abbrechen"));
+    d.add_response("ok", tr("Auf TV umschalten"));
     d.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
     d.set_close_response("cancel");
     let app = m.app.clone();

@@ -9,6 +9,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
 use crate::jellyfin::Account;
+use crate::tf;
 
 /// Bibliotheksarten, die Videos enthalten (Musik und Live-TV bleiben außen vor).
 const VIDEO_KINDS: &[&str] = &["movies", "tvshows", "boxsets", "homevideos", "mixed", ""];
@@ -95,7 +96,7 @@ const COLUMNS: &str = "id, kind, name, sort_name, series_id, series_name, season
     position_secs, last_played";
 
 fn db_err(e: rusqlite::Error) -> String {
-    format!("Jellyfin-Zwischenspeicher: {e}")
+    tf!("Jellyfin-Zwischenspeicher: {error}", error = e)
 }
 
 fn row_to_item(r: &rusqlite::Row) -> rusqlite::Result<Item> {

@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 
 use crate::VERSION;
 use crate::net;
+use crate::{tf, tr};
 
 /// Öffentliches Repository (Veröffentlichung über den gefilterten Branch).
 pub const REPO: &str = "joeMJ/tvjoe";
@@ -57,7 +58,7 @@ pub fn is_newer(current: &str, candidate: &str) -> bool {
 }
 
 pub fn parse_release(json: &str) -> Result<Release, String> {
-    serde_json::from_str(json).map_err(|e| format!("Antwort von GitHub unlesbar: {e}"))
+    serde_json::from_str(json).map_err(|e| tf!("Antwort von GitHub unlesbar: {error}", error = e))
 }
 
 /// Distributionskennung aus `/etc/os-release`, z. B. `ubuntu26.04`.
@@ -135,7 +136,7 @@ pub fn check() -> Result<Option<Release>, String> {
         return Ok(None);
     }
     if status != 200 {
-        return Err(format!("GitHub antwortet mit Status {status}"));
+        return Err(tf!("GitHub antwortet mit Status {status}", status = status));
     }
     let mut resp = resp;
     let json = resp
@@ -153,23 +154,31 @@ pub fn check() -> Result<Option<Release>, String> {
 
 /// Lädt das passende Paket und prüft es gegen `SHA256SUMS`. Gibt den Pfad der Datei zurück.
 pub fn download(release: &Release, dir: &Path) -> Result<PathBuf, String> {
-    let distro = distro_tag().ok_or("Distribution unbekannt (/etc/os-release)")?;
+    let distro = distro_tag().ok_or(tr("Distribution unbekannt (/etc/os-release)"))?;
     let asset = release
         .package_for(&distro, deb_arch())
-        .ok_or_else(|| format!("Kein Paket für {distro}/{} im Release", deb_arch()))?;
+        .ok_or_else(|| {
+            tf!(
+                "Kein Paket für {distro}/{arch} im Release",
+                distro = distro,
+                arch = deb_arch()
+            )
+        })?;
     let sums = release
         .sums()
-        .ok_or("Release ohne SHA256SUMS – Download abgelehnt")?;
+        .ok_or(tr("Release ohne SHA256SUMS – Download abgelehnt"))?;
     let agent = agent();
     let sums_text = String::from_utf8(net::fetch(&agent, &sums.browser_download_url, 1024 * 1024)?)
-        .map_err(|_| "SHA256SUMS unlesbar")?;
+        .map_err(|_| tr("SHA256SUMS unlesbar"))?;
     let expected = expected_sum(&sums_text, &asset.name)
-        .ok_or_else(|| format!("{} fehlt in SHA256SUMS", asset.name))?;
+        .ok_or_else(|| tf!("{name} fehlt in SHA256SUMS", name = asset.name))?;
     let bytes = net::fetch(&agent, &asset.browser_download_url, MAX_PACKAGE_BYTES)?;
     let actual = sha256_hex(&bytes);
     if actual != expected {
-        return Err(format!(
-            "Prüfsumme falsch (erwartet {expected}, erhalten {actual})"
+        return Err(tf!(
+            "Prüfsumme falsch (erwartet {expected}, erhalten {actual})",
+            expected = expected,
+            actual = actual
         ));
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;

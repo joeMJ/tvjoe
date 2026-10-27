@@ -7,6 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::{tf, tr};
+
 /// Größte Auftragsdatei (Bytes).
 pub const MAX_JOB_BYTES: u64 = 4096;
 /// Längste Aufnahme (Sekunden).
@@ -90,26 +92,26 @@ fn clean(s: &str) -> String {
 /// der Ablehnung. `now`: jetzt (Sekunden seit 1970).
 pub fn parse_job(bytes: &[u8], cfg: &ServiceConfig, now: i64) -> Result<Job, String> {
     if bytes.len() as u64 > MAX_JOB_BYTES {
-        return Err("Auftrag zu groß".into());
+        return Err(tr("Auftrag zu groß").into());
     }
     let mut job: Job =
-        serde_json::from_slice(bytes).map_err(|e| format!("Auftrag nicht lesbar: {e}"))?;
+        serde_json::from_slice(bytes).map_err(|e| tf!("Auftrag nicht lesbar: {error}", error = e))?;
     if job.id <= 0 {
-        return Err("ungültige Nummer".into());
+        return Err(tr("ungültige Nummer").into());
     }
     if job.stop <= job.start {
-        return Err("Ende vor Beginn".into());
+        return Err(tr("Ende vor Beginn").into());
     }
     if job.stop - job.start > MAX_DURATION {
-        return Err("länger als zwölf Stunden".into());
+        return Err(tr("länger als zwölf Stunden").into());
     }
     if job.stop <= now {
-        return Err("schon vorbei".into());
+        return Err(tr("schon vorbei").into());
     }
     job.channel = clean(&job.channel);
     job.title = clean(&job.title);
     if job.channel.is_empty() {
-        return Err("kein Sender".into());
+        return Err(tr("kein Sender").into());
     }
     check_url(&job.url, job.sat, &cfg.satip_host)?;
     Ok(job)
@@ -119,21 +121,21 @@ pub fn parse_job(bytes: &[u8], cfg: &ServiceConfig, now: i64) -> Result<Job, Str
 /// keine Leer- oder Steuerzeichen.
 fn check_url(url: &str, sat: bool, satip_host: &str) -> Result<(), String> {
     if url.len() > 2048 || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
-        return Err("ungültige Adresse".into());
+        return Err(tr("ungültige Adresse").into());
     }
     if sat {
         if satip_host.is_empty() {
-            return Err("kein SAT>IP-Gerät eingerichtet".into());
+            return Err(tr("kein SAT>IP-Gerät eingerichtet").into());
         }
-        let (host, _) = crate::satip::split_url(url).ok_or("keine SAT>IP-Adresse")?;
+        let (host, _) = crate::satip::split_url(url).ok_or(tr("keine SAT>IP-Adresse"))?;
         if !host.eq_ignore_ascii_case(satip_host) {
-            return Err("anderes SAT>IP-Gerät als eingerichtet".into());
+            return Err(tr("anderes SAT>IP-Gerät als eingerichtet").into());
         }
         Ok(())
     } else if url.starts_with("http://") || url.starts_with("https://") {
         Ok(())
     } else {
-        Err("nur http(s) erlaubt".into())
+        Err(tr("nur http(s) erlaubt").into())
     }
 }
 

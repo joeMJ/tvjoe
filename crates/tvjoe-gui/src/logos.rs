@@ -11,6 +11,7 @@ use gtk::gdk_pixbuf::{Pixbuf, PixbufRotation};
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 use tvjoe_core::net;
+use tvjoe_core::tr;
 
 const MAX_SIZE: i32 = 128;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
@@ -129,7 +130,7 @@ pub fn white_from_dark(path: &Path) -> Option<gdk::Texture> {
 
 /// Wie [`white_from_dark`], als PNG-Datei abgelegt (für Bauchbinde und Info).
 pub fn save_white_from_dark(src: &Path, dst: &Path) -> Result<(), String> {
-    let t = white_from_dark(src).ok_or("Logo nicht lesbar")?;
+    let t = white_from_dark(src).ok_or(tr("Logo nicht lesbar"))?;
     t.save_to_png(dst).map_err(|e| e.to_string())
 }
 

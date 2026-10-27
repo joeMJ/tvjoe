@@ -10,10 +10,11 @@ use std::process::{Command, ExitCode};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tvjoe_core::epg::{self, MatchKind};
-use tvjoe_core::{Library, Playlist, Settings, Severity, VERSION, paths, syscheck};
+use tvjoe_core::{Library, Playlist, Settings, Severity, VERSION, paths, syscheck, tf, tr};
 
 fn main() -> ExitCode {
     tvjoe_core::console::attach_parent();
+    init_language();
     let t0 = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -37,23 +38,36 @@ fn main() -> ExitCode {
     }
 }
 
-fn print_help() {
-    println!(
-        "tvjoe {VERSION}
+/// Sprache wählen (Einstellung `language`, sonst Systemsprache; eigene Kataloge in `sprachen/`).
+/// Die Oberfläche läuft als eigener Prozess und wählt ihre Sprache selbst.
+fn init_language() {
+    let choice = paths::settings_path()
+        .and_then(|p| Settings::load(&p).ok())
+        .map(|s| s.language)
+        .unwrap_or_default();
+    let dir = paths::config_dir().map(|d| d.join("sprachen"));
+    tvjoe_core::i18n::init(&choice, &tvjoe_core::i18n::env_languages(), dir.as_deref());
+}
 
-Aufruf:
+fn print_help() {
+    println!("tvjoe {VERSION}\n");
+    println!(
+        "{}\n",
+        tr("Aufruf:
   tvjoe [--channel NUMMER] [--mute] [--quit-after SEKUNDEN] [--protokoll]
   tvjoe --import DATEI.m3u [--name NAME] [--mit-warnungen]
   tvjoe --check [--dev]
   tvjoe --epg-add QUELLE          XMLTV-Datei oder -URL in die Einstellungen aufnehmen
   tvjoe --epg-check [QUELLE …]    Zuordnung der Sender zum EPG prüfen
   tvjoe --update-check            nach neuer Version auf GitHub fragen
-  tvjoe --version
-
---protokoll schreibt nach jeder Pause oder Fortsetzung sechs Sekunden lang Bildnummer,
+  tvjoe --version")
+    );
+    println!(
+        "{}",
+        tr("--protokoll schreibt nach jeder Pause oder Fortsetzung sechs Sekunden lang Bildnummer,
 Position und jedes Neuzeichnen in die Ausgabe (Fehlersuche).
 --import übernimmt Einträge ohne Befund; mit --mit-warnungen auch Einträge mit Warnungen.
-Umgebung: TVJOE_CONFIG_DIR, TVJOE_CACHE_DIR (andere Ablage), TVJOE_TRACE=1 (Zeitmessung)."
+Umgebung: TVJOE_CONFIG_DIR, TVJOE_CACHE_DIR (andere Ablage), TVJOE_TRACE=1 (Zeitmessung).")
     );
 }
 
@@ -65,41 +79,48 @@ fn interactive() -> bool {
 fn offer_install(packages: &[&str]) -> bool {
     if cfg!(windows) {
         // Unter Windows liegen die DLLs dem Programm bei; beim Bauen kommen sie aus MSYS2.
+        let msys = packages
+            .iter()
+            .map(|p| match *p {
+                p if p.starts_with("mingw-") => p.to_string(),
+                // pkg-config-Modul → MSYS2-Paket
+                "libadwaita-1" => "mingw-w64-ucrt-x86_64-libadwaita".to_string(),
+                p => format!("mingw-w64-ucrt-x86_64-{p}"),
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
         println!(
-            "Fehlt: {}. Zum Bauen in MSYS2 installieren: pacman -S {}",
-            packages.join(", "),
-            packages
-                .iter()
-                .map(|p| match *p {
-                    p if p.starts_with("mingw-") => p.to_string(),
-                    // pkg-config-Modul → MSYS2-Paket
-                    "libadwaita-1" => "mingw-w64-ucrt-x86_64-libadwaita".to_string(),
-                    p => format!("mingw-w64-ucrt-x86_64-{p}"),
-                })
-                .collect::<Vec<_>>()
-                .join(" ")
+            "{}",
+            tf!(
+                "Fehlt: {packages}. Zum Bauen in MSYS2 installieren: pacman -S {msys}",
+                packages = packages.join(", "),
+                msys = msys
+            )
         );
         return false;
     }
     let cmd = syscheck::install_command(packages);
-    println!("Installation: {}", cmd.join(" "));
+    println!("{}", tf!("Installation: {command}", command = cmd.join(" ")));
     if !interactive() {
         let _ = Command::new("notify-send")
             .args([
-                "tvjoe: Systempakete fehlen",
-                &format!(
-                    "{}\nIm Terminal ausführen: tvjoe --check",
-                    packages.join(", ")
+                tr("tvjoe: Systempakete fehlen"),
+                &tf!(
+                    "{packages}\nIm Terminal ausführen: tvjoe --check",
+                    packages = packages.join(", ")
                 ),
             ])
             .status();
         return false;
     }
-    print!("Jetzt installieren? [j/N] ");
+    print!("{} ", tr("Jetzt installieren? [j/N]"));
     let _ = std::io::stdout().flush();
     let mut answer = String::new();
     let _ = std::io::stdin().lock().read_line(&mut answer);
-    if !matches!(answer.trim(), "j" | "J" | "ja" | "Ja") {
+    if !matches!(
+        answer.trim(),
+        "j" | "J" | "ja" | "Ja" | "y" | "Y" | "yes" | "Yes"
+    ) {
         return false;
     }
     Command::new(&cmd[0])
@@ -124,20 +145,24 @@ fn check(dev: bool) -> ExitCode {
     if dev {
         let dev_missing = syscheck::missing_dev_packages();
         for p in syscheck::DEV_PACKAGES {
+            let what = if cfg!(windows) {
+                tf!("{package} (Entwicklung, pkg-config)", package = p)
+            } else {
+                tf!("{package} (Entwicklung)", package = p)
+            };
             println!(
-                "{} {p} (Entwicklung{})",
+                "{} {what}",
                 if dev_missing.contains(p) {
                     "✖"
                 } else {
                     "✔"
-                },
-                if cfg!(windows) { ", pkg-config" } else { "" }
+                }
             );
         }
         packages.extend(dev_missing);
     }
     if packages.is_empty() {
-        println!("Alles vorhanden.");
+        println!("{}", tr("Alles vorhanden."));
         return ExitCode::SUCCESS;
     }
     if offer_install(&packages) {
@@ -150,9 +175,17 @@ fn check(dev: bool) -> ExitCode {
 fn start_gui(t0: u128, args: &[String]) -> ExitCode {
     let missing = syscheck::missing_runtime();
     if !missing.is_empty() {
-        eprintln!("tvjoe: Es fehlen Systembibliotheken:");
+        eprintln!("{}", tr("tvjoe: Es fehlen Systembibliotheken:"));
         for r in &missing {
-            eprintln!("  {} ({}, Paket {})", r.what, r.soname, r.package);
+            eprintln!(
+                "{}",
+                tf!(
+                    "  {what} ({soname}, Paket {package})",
+                    what = r.what,
+                    soname = r.soname,
+                    package = r.package
+                )
+            );
         }
         let packages: Vec<&str> = missing.iter().map(|r| r.package).collect();
         if !offer_install(&packages) || !syscheck::missing_runtime().is_empty() {
@@ -176,7 +209,14 @@ fn start_gui(t0: u128, args: &[String]) -> ExitCode {
     {
         use std::os::unix::process::CommandExt;
         let err = cmd.exec();
-        eprintln!("tvjoe: {} lässt sich nicht starten: {err}", gui.display());
+        eprintln!(
+            "{}",
+            tf!(
+                "tvjoe: {program} lässt sich nicht starten: {error}",
+                program = gui.display(),
+                error = err
+            )
+        );
         ExitCode::FAILURE
     }
     #[cfg(not(unix))]
@@ -184,7 +224,14 @@ fn start_gui(t0: u128, args: &[String]) -> ExitCode {
         Ok(s) if s.success() => ExitCode::SUCCESS,
         Ok(_) => ExitCode::FAILURE,
         Err(err) => {
-            eprintln!("tvjoe: {} lässt sich nicht starten: {err}", gui.display());
+            eprintln!(
+                "{}",
+                tf!(
+                    "tvjoe: {program} lässt sich nicht starten: {error}",
+                    program = gui.display(),
+                    error = err
+                )
+            );
             ExitCode::FAILURE
         }
     }
@@ -203,7 +250,7 @@ fn import(args: &[String]) -> ExitCode {
         }
     }
     let Some(file) = file else {
-        eprintln!("tvjoe --import: Datei fehlt (tvjoe --help)");
+        eprintln!("{}", tr("tvjoe --import: Datei fehlt (tvjoe --help)"));
         return ExitCode::from(2);
     };
     let bytes = match std::fs::read(file) {
@@ -231,9 +278,14 @@ fn import(args: &[String]) -> ExitCode {
         *by_kind.entry(f.kind.to_string()).or_default() += 1;
     }
     println!(
-        "{file}: {} Einträge, {} Befunde, davon {errors} Fehler",
-        playlist.entries.len(),
-        playlist.findings.len()
+        "{}",
+        tf!(
+            "{file}: {entries} Einträge, {findings} Befunde, davon {errors} Fehler",
+            file = file,
+            entries = playlist.entries.len(),
+            findings = playlist.findings.len(),
+            errors = errors
+        )
     );
     for (kind, n) in &by_kind {
         println!("  {n:>4} × {kind}");
@@ -251,13 +303,17 @@ fn import(args: &[String]) -> ExitCode {
         .collect();
     if selected.is_empty() {
         println!(
-            "Keine Einträge ohne Befund. Mit --mit-warnungen auch Einträge mit Warnungen übernehmen."
+            "{}",
+            tr("Keine Einträge ohne Befund. Mit --mit-warnungen auch Einträge mit Warnungen übernehmen.")
         );
         return ExitCode::FAILURE;
     }
 
     let Some(lib_path) = paths::library_path() else {
-        eprintln!("Kein Konfigurationsordner gefunden (HOME bzw. APPDATA fehlt).");
+        eprintln!(
+            "{}",
+            tr("Kein Konfigurationsordner gefunden (HOME bzw. APPDATA fehlt).")
+        );
         return ExitCode::FAILURE;
     };
     let mut lib = match Library::load(&lib_path) {
@@ -294,12 +350,15 @@ fn import(args: &[String]) -> ExitCode {
         return ExitCode::FAILURE;
     }
     println!(
-        "Übernommen: {} Einträge → {} neu, {} aktualisiert, {} fehlen in der Quelle. Bibliothek: {}",
-        selected.len(),
-        out.added,
-        out.updated,
-        out.missing,
-        lib_path.display()
+        "{}",
+        tf!(
+            "Übernommen: {taken} Einträge → {added} neu, {updated} aktualisiert, {missing} fehlen in der Quelle. Bibliothek: {library}",
+            taken = selected.len(),
+            added = out.added,
+            updated = out.updated,
+            missing = out.missing,
+            library = lib_path.display()
+        )
     );
     ExitCode::SUCCESS
 }
@@ -319,7 +378,7 @@ fn load_settings() -> (Option<PathBuf>, Settings) {
 
 fn epg_add(args: &[String]) -> ExitCode {
     let Some(src) = args.first() else {
-        eprintln!("tvjoe --epg-add: Quelle fehlt");
+        eprintln!("{}", tr("tvjoe --epg-add: Quelle fehlt"));
         return ExitCode::from(2);
     };
     let (path, mut settings) = load_settings();
@@ -331,7 +390,13 @@ fn epg_add(args: &[String]) -> ExitCode {
     }
     match settings.save(&path) {
         Ok(()) => {
-            println!("EPG-Quellen: {}", settings.epg_sources.join(", "));
+            println!(
+                "{}",
+                tf!(
+                    "EPG-Quellen: {sources}",
+                    sources = settings.epg_sources.join(", ")
+                )
+            );
             ExitCode::SUCCESS
         }
         Err(e) => {
@@ -349,7 +414,10 @@ fn epg_check(args: &[String]) -> ExitCode {
         args.to_vec()
     };
     if sources.is_empty() {
-        eprintln!("Keine EPG-Quelle: tvjoe --epg-add URL oder tvjoe --epg-check URL");
+        eprintln!(
+            "{}",
+            tr("Keine EPG-Quelle: tvjoe --epg-add URL oder tvjoe --epg-check URL")
+        );
         return ExitCode::from(2);
     }
     let lib = paths::library_path()
@@ -363,7 +431,13 @@ fn epg_check(args: &[String]) -> ExitCode {
     for n in &notes {
         println!("{n}");
     }
-    println!("geladen in {:.1} s", started.elapsed().as_secs_f64());
+    println!(
+        "{}",
+        tf!(
+            "geladen in {seconds} s",
+            seconds = format!("{:.1}", started.elapsed().as_secs_f64())
+        )
+    );
     let now = epg::now();
     let mut matched = 0;
     for ch in &lib.channels {
@@ -372,10 +446,10 @@ fn epg_check(args: &[String]) -> ExitCode {
             Some((id, kind)) => {
                 matched += 1;
                 let how = match kind {
-                    MatchKind::Manual => "manuell",
+                    MatchKind::Manual => tr("manuell"),
                     MatchKind::TvgId => "tvg-id",
-                    MatchKind::Name => "Name",
-                    MatchKind::Fuzzy => "unscharf",
+                    MatchKind::Name => tr("Name"),
+                    MatchKind::Fuzzy => tr("unscharf"),
                 };
                 let current = guide
                     .now_next(&id, now)
@@ -383,42 +457,74 @@ fn epg_check(args: &[String]) -> ExitCode {
                     .map(|p| p.title.as_str())
                     .unwrap_or("–");
                 println!(
-                    "✔ {num:>3} {:<28} → {id} ({how}) · jetzt: {current}",
-                    ch.display_name()
+                    "{}",
+                    tf!(
+                        "✔ {num} {name} → {id} ({how}) · jetzt: {current}",
+                        num = format!("{num:>3}"),
+                        name = format!("{:<28}", ch.display_name()),
+                        id = id,
+                        how = how,
+                        current = current
+                    )
                 );
             }
             None => println!(
-                "✖ {num:>3} {:<28} → keine Zuordnung (tvg-id {})",
-                ch.display_name(),
-                ch.tvg_id.as_deref().unwrap_or("–")
+                "{}",
+                tf!(
+                    "✖ {num} {name} → keine Zuordnung (tvg-id {tvg_id})",
+                    num = format!("{num:>3}"),
+                    name = format!("{:<28}", ch.display_name()),
+                    tvg_id = ch.tvg_id.as_deref().unwrap_or("–")
+                )
             ),
         }
     }
-    println!("{matched} von {} Sendern zugeordnet", lib.channels.len());
+    println!(
+        "{}",
+        tf!(
+            "{matched} von {total} Sendern zugeordnet",
+            matched = matched,
+            total = lib.channels.len()
+        )
+    );
     ExitCode::SUCCESS
 }
 
 fn update_check() -> ExitCode {
     use tvjoe_core::update;
     println!(
-        "Installiert: {VERSION} · Distribution: {} · Architektur: {}",
-        update::distro_tag().unwrap_or_else(|| "?".into()),
-        update::deb_arch()
+        "{}",
+        tf!(
+            "Installiert: {version} · Distribution: {distro} · Architektur: {arch}",
+            version = VERSION,
+            distro = update::distro_tag().unwrap_or_else(|| "?".into()),
+            arch = update::deb_arch()
+        )
     );
     match update::check() {
         Ok(Some(r)) => {
-            println!("Neue Version: {} ({})", r.tag_name, r.html_url);
+            println!(
+                "{}",
+                tf!(
+                    "Neue Version: {tag} ({url})",
+                    tag = r.tag_name,
+                    url = r.html_url
+                )
+            );
             ExitCode::SUCCESS
         }
         Ok(None) => {
             println!(
-                "Keine neuere Version (oder noch keine Veröffentlichung auf github.com/{}).",
-                update::REPO
+                "{}",
+                tf!(
+                    "Keine neuere Version (oder noch keine Veröffentlichung auf github.com/{repo}).",
+                    repo = update::REPO
+                )
             );
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("Prüfung fehlgeschlagen: {e}");
+            eprintln!("{}", tf!("Prüfung fehlgeschlagen: {error}", error = e));
             ExitCode::FAILURE
         }
     }

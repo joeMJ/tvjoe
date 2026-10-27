@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::library::Library;
+use crate::{tf, tr};
 use crate::settings::Settings;
 
 /// Kennung und Fassung des Formats (erste Zeile der Datei).
@@ -36,9 +37,9 @@ impl Backup {
     pub fn from_toml(text: &str) -> Result<Self, String> {
         let b: Self = toml::from_str(text).map_err(|e| e.to_string())?;
         match b.tvjoe_sicherung {
-            0 => Err("keine tvjoe-Sicherung".into()),
+            0 => Err(tr("keine tvjoe-Sicherung").into()),
             FORMAT => Ok(b),
-            v => Err(format!("Sicherung aus einer neueren Fassung (Format {v})")),
+            v => Err(tf!("Sicherung aus einer neueren Fassung (Format {version})", version = v)),
         }
     }
 }

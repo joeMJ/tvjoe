@@ -8,6 +8,7 @@ use std::rc::Rc;
 
 use gtk::glib;
 use gtk::prelude::*;
+use tvjoe_core::tr;
 
 /// Breite der Namensspalte (lange Namen werden mit „…“ gekürzt).
 const NAME_WIDTH: i32 = 260;
@@ -208,16 +209,16 @@ impl Osd {
         extra.set_wrap(true);
 
         // Mediathek: Knöpfe, Fortschrittsleiste, Zeit (anstelle von „Danach“).
-        let back_min = osd_button("media-skip-backward-symbolic", "1 Minute zurück (Bild ↑)");
-        let back = osd_button("media-seek-backward-symbolic", "10 Sekunden zurück (←)");
-        let pause = osd_button("media-playback-pause-symbolic", "Pause (Leertaste)");
-        let fwd = osd_button("media-seek-forward-symbolic", "10 Sekunden vor (→)");
-        let fwd_min = osd_button("media-skip-forward-symbolic", "1 Minute vor (Bild ↓)");
+        let back_min = osd_button("media-skip-backward-symbolic", tr("1 Minute zurück (Bild ↑)"));
+        let back = osd_button("media-seek-backward-symbolic", tr("10 Sekunden zurück (←)"));
+        let pause = osd_button("media-playback-pause-symbolic", tr("Pause (Leertaste)"));
+        let fwd = osd_button("media-seek-forward-symbolic", tr("10 Sekunden vor (→)"));
+        let fwd_min = osd_button("media-skip-forward-symbolic", tr("1 Minute vor (Bild ↓)"));
         let audio = osd_button(
             "preferences-desktop-locale-symbolic",
-            "Tonspur wechseln (A)",
+            tr("Tonspur wechseln (A)"),
         );
-        let info = osd_button("dialog-information-symbolic", "Info (I)");
+        let info = osd_button("dialog-information-symbolic", tr("Info (I)"));
         let progress = gtk::ProgressBar::builder()
             .hexpand(true)
             .valign(gtk::Align::Center)
@@ -237,8 +238,8 @@ impl Osd {
         video_row.append(&progress);
         video_row.append(&time);
         let live = gtk::Button::builder()
-            .label("Live")
-            .tooltip_text("Zurück auf live (Ende)")
+            .label(tr("Live"))
+            .tooltip_text(tr("Zurück auf live (Ende)"))
             .css_classes(["flat", "tvjoe-osd-button"])
             .valign(gtk::Align::Center)
             .visible(false)
@@ -281,8 +282,8 @@ impl Osd {
         root.append(&right);
         // Aufnahmeknopf wie an einer Kamera: weißes Feld „REC“; während der Aufnahme rot.
         let rec = gtk::Button::builder()
-            .label("REC")
-            .tooltip_text("Aufnehmen bis Sendungsende (R)")
+            .label(tr("REC"))
+            .tooltip_text(tr("Aufnehmen bis Sendungsende (R)"))
             .css_classes(["tvjoe-rec-button"])
             .valign(gtk::Align::Center)
             .visible(false)
@@ -383,26 +384,26 @@ impl Osd {
         self.live.set_visible(v.live.is_some());
         let tips = if v.live.is_some() {
             [
-                "1 Minute zurück (Bild ↑)",
-                "10 Sekunden zurück",
-                "10 Sekunden vor",
-                "1 Minute vor (Bild ↓)",
+                tr("1 Minute zurück (Bild ↑)"),
+                tr("10 Sekunden zurück"),
+                tr("10 Sekunden vor"),
+                tr("1 Minute vor (Bild ↓)"),
             ]
         } else {
             [
-                "1 Minute zurück (Bild ↑)",
-                "10 Sekunden zurück (←)",
-                "10 Sekunden vor (→)",
-                "1 Minute vor (Bild ↓)",
+                tr("1 Minute zurück (Bild ↑)"),
+                tr("10 Sekunden zurück (←)"),
+                tr("10 Sekunden vor (→)"),
+                tr("1 Minute vor (Bild ↓)"),
             ]
         };
         for (b, t) in self.seek_buttons.iter().zip(tips) {
             b.set_tooltip_text(Some(t));
         }
         let (icon, tip) = if v.paused {
-            ("media-playback-start-symbolic", "Weiter (Leertaste)")
+            ("media-playback-start-symbolic", tr("Weiter (Leertaste)"))
         } else {
-            ("media-playback-pause-symbolic", "Pause (Leertaste)")
+            ("media-playback-pause-symbolic", tr("Pause (Leertaste)"))
         };
         self.pause.set_icon_name(icon);
         self.pause.set_tooltip_text(Some(tip));
@@ -434,8 +435,8 @@ impl Osd {
                     Origin::Satellite => crate::icons::SATELLITE,
                 }));
                 self.origin.set_tooltip_text(Some(match o {
-                    Origin::Internet => "Internet",
-                    Origin::Satellite => "Satellit",
+                    Origin::Internet => tr("Internet"),
+                    Origin::Satellite => tr("Satellit"),
                 }));
                 self.origin.set_visible(true);
             }
@@ -491,9 +492,9 @@ impl Osd {
         match info.record {
             Some(on) => {
                 self.rec.set_tooltip_text(Some(if on {
-                    "Aufnahme beenden (R)"
+                    tr("Aufnahme beenden (R)")
                 } else {
-                    "Aufnehmen bis Sendungsende (R)"
+                    tr("Aufnehmen bis Sendungsende (R)")
                 }));
                 if on {
                     self.rec.add_css_class("tvjoe-rec-on");
@@ -734,7 +735,7 @@ impl InfoPanel {
         head.append(&logo_slot);
         head.append(&head_text);
         let rec = gtk::Button::builder()
-            .label("REC")
+            .label(tr("REC"))
             .css_classes(["tvjoe-rec-button"])
             .valign(gtk::Align::Start)
             .visible(false)
@@ -750,7 +751,7 @@ impl InfoPanel {
             .build();
         let next = wrap("tvjoe-info-meta");
         let hint = gtk::Label::builder()
-            .label("I, Esc oder Klick schließt")
+            .label(tr("I, Esc oder Klick schließt"))
             .css_classes(["tvjoe-osd-sub"])
             .xalign(1.0)
             .build();
@@ -823,7 +824,7 @@ impl InfoPanel {
         self.meta.set_label(&c.meta.join("\n"));
         self.meta.set_visible(!c.meta.is_empty());
         self.desc.set_label(if c.desc.is_empty() {
-            "Keine Beschreibung vorhanden."
+            tr("Keine Beschreibung vorhanden.")
         } else {
             &c.desc
         });
@@ -832,9 +833,9 @@ impl InfoPanel {
         match c.record {
             Some(on) => {
                 self.rec.set_tooltip_text(Some(if on {
-                    "Aufnahme beenden (R)"
+                    tr("Aufnahme beenden (R)")
                 } else {
-                    "Aufnehmen bis Sendungsende (R)"
+                    tr("Aufnehmen bis Sendungsende (R)")
                 }));
                 if on {
                     self.rec.add_css_class("tvjoe-rec-on");

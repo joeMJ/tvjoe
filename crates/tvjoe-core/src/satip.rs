@@ -9,6 +9,8 @@ use std::io::{Read, Write};
 use std::net::{TcpStream, UdpSocket};
 use std::time::{Duration, Instant};
 
+use crate::{tf, tr};
+
 const PORT: u16 = 554;
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -157,7 +159,7 @@ pub fn request(
     let addr = std::net::ToSocketAddrs::to_socket_addrs(&(host, PORT))
         .map_err(|e| e.to_string())?
         .next()
-        .ok_or("Adresse nicht auflösbar")?;
+        .ok_or(tr("Adresse nicht auflösbar"))?;
     let mut s = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(|e| e.to_string())?;
     s.set_read_timeout(Some(TIMEOUT)).ok();
     s.set_write_timeout(Some(TIMEOUT)).ok();
@@ -199,7 +201,7 @@ pub fn request(
         .next()
         .and_then(|l| l.split_whitespace().nth(1))
         .and_then(|c| c.parse().ok())
-        .ok_or_else(|| "keine RTSP-Antwort".to_string())?;
+        .ok_or_else(|| tr("keine RTSP-Antwort").to_string())?;
     let headers = lines
         .filter_map(|l| l.split_once(':'))
         .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
@@ -244,10 +246,10 @@ impl Session {
         let id = r
             .header("Session")
             .map(|s| s.split(';').next().unwrap_or(s).trim().to_string())
-            .ok_or("keine Sitzung")?;
+            .ok_or(tr("keine Sitzung"))?;
         let stream = r
             .header("com.ses.streamID")
-            .ok_or("keine Stream-Nummer")?
+            .ok_or(tr("keine Stream-Nummer"))?
             .to_string();
         Ok(Self {
             host: host.to_string(),
@@ -316,7 +318,7 @@ pub fn check(host: &str, listen: Duration) -> Result<CheckResult, String> {
     let (name, firmware) = web_info(host);
     let opt = request(host, "OPTIONS", &format!("rtsp://{host}:{PORT}/"), &[])?;
     if opt.status != 200 {
-        return Err(format!("RTSP antwortet mit {}", opt.status));
+        return Err(tf!("RTSP antwortet mit {status}", status = opt.status));
     }
     // Empfangsport: freien UDP-Port vom System nehmen (gerade Nummer für RTP).
     let sock = bind_rtp()?;
@@ -367,7 +369,7 @@ fn bind_rtp() -> Result<UdpSocket, String> {
             return Ok(s);
         }
     }
-    Err("kein freier UDP-Port".into())
+    Err(tr("kein freier UDP-Port").into())
 }
 
 fn count_packets(sock: &UdpSocket, listen: Duration) -> usize {
@@ -430,7 +432,7 @@ impl Relay {
     pub fn start(url: &str) -> Result<Self, String> {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::{Arc, Mutex};
-        let (host, query) = split_url(url).ok_or("keine SAT>IP-Adresse")?;
+        let (host, query) = split_url(url).ok_or(tr("keine SAT>IP-Adresse"))?;
         // PID 18 (EIT) mitnehmen: „Jetzt/Danach“ beim Ansehen; der Player übergeht sie.
         let query = match query.split_once("pids=") {
             Some((a, rest)) => {
@@ -609,7 +611,7 @@ impl Recorder {
     pub fn start(url: &str, path: &std::path::Path, queue_bytes: u64) -> Result<Self, String> {
         use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
         use std::sync::{Arc, Mutex, mpsc};
-        let (host, query) = split_url(url).ok_or("keine SAT>IP-Adresse")?;
+        let (host, query) = split_url(url).ok_or(tr("keine SAT>IP-Adresse"))?;
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
@@ -633,7 +635,7 @@ impl Recorder {
         let writer = std::thread::spawn(move || {
             for chunk in rx {
                 if let Err(e) = file.write_all(&chunk) {
-                    err(format!("Schreiben fehlgeschlagen: {e}"));
+                    err(tf!("Schreiben fehlgeschlagen: {error}", error = e));
                     sp.store(true, Ordering::Relaxed);
                     break;
                 }
@@ -650,7 +652,7 @@ impl Recorder {
                 Err(e) => return err(e),
             };
             let Ok(port) = sock.local_addr().map(|a| a.port()) else {
-                return err("kein UDP-Anschluss".into());
+                return err(tr("kein UDP-Anschluss").into());
             };
             let session = match Session::setup(&host, &query, port) {
                 Ok(s) => s,
@@ -678,7 +680,7 @@ impl Recorder {
                         }
                     }
                 } else if last_data.elapsed() > Duration::from_secs(15) {
-                    err("kein Datenstrom vom SAT>IP-Gerät".into());
+                    err(tr("kein Datenstrom vom SAT>IP-Gerät").into());
                     break;
                 }
                 if Instant::now() >= next_status {
@@ -826,7 +828,7 @@ pub fn collect_eit(host: &str, query: &str, secs: u64) -> Result<Vec<crate::ts::
     let col = collect(&sock, Duration::from_secs(secs), &|pid| pid == 18, &|_| false);
     s.teardown();
     if col.sections.is_empty() {
-        return Err("keine Programmdaten empfangen".into());
+        return Err(tr("keine Programmdaten empfangen").into());
     }
     Ok(col
         .sections
@@ -877,7 +879,7 @@ pub fn transponders(host: &str) -> Result<Vec<Transponder>, String> {
     }
     out.sort_by_key(|t| (t.freq, t.pol));
     if out.is_empty() {
-        return Err("Keine Transponder in der Netzwerktabelle gefunden.".into());
+        return Err(tr("Keine Transponder in der Netzwerktabelle gefunden.").into());
     }
     Ok(out)
 }

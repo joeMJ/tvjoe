@@ -1,6 +1,8 @@
 //! Lesen und atomares Schreiben der TOML-Dateien.
 
 use std::fmt;
+
+use crate::tf;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -20,12 +22,12 @@ pub enum StoreError {
 impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(e) => write!(f, "Dateifehler: {e}"),
-            Self::Parse(e) => write!(f, "Datei nicht lesbar: {e}"),
-            Self::TooNew(v) => write!(
-                f,
-                "Datei hat das neuere Format {v}, bitte tvjoe aktualisieren"
-            ),
+            Self::Io(e) => f.write_str(&tf!("Dateifehler: {error}", error = e)),
+            Self::Parse(e) => f.write_str(&tf!("Datei nicht lesbar: {error}", error = e)),
+            Self::TooNew(v) => f.write_str(&tf!(
+                "Datei hat das neuere Format {version}, bitte tvjoe aktualisieren",
+                version = v
+            )),
         }
     }
 }

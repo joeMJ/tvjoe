@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use tvjoe_core::jellyfin::Playback;
 use tvjoe_core::jellyfin_lib::Item;
 use tvjoe_core::mediathek::Film;
+use tvjoe_core::{tf, tr};
 
 use crate::app::App;
 
@@ -92,18 +93,21 @@ impl Vod {
     /// Zeile unter dem Namen.
     pub fn meta(&self) -> String {
         match self {
-            Vod::Oer(f) => format!("Mediathek · {}", crate::mediathek::day_time(f.timestamp)),
+            Vod::Oer(f) => tf!(
+                "Mediathek · {zeit}",
+                zeit = crate::mediathek::day_time(f.timestamp)
+            ),
             Vod::Jelly(j) => {
                 let mut parts = vec!["Jellyfin".to_string()];
                 if let Some(y) = j.item.year {
                     parts.push(y.to_string());
                 }
                 if j.playback.as_ref().is_some_and(|p| p.transcoded) {
-                    parts.push("umgerechnet".into());
+                    parts.push(tr("umgerechnet").into());
                 }
                 parts.join(" · ")
             }
-            Vod::File(_) => "Aufnahme".to_string(),
+            Vod::File(_) => tr("Aufnahme").to_string(),
         }
     }
 
@@ -124,7 +128,7 @@ impl Vod {
                 format!("{} · {}", f.sender, f.topic),
                 [
                     crate::mediathek::day_time(f.timestamp),
-                    format!("{} Min.", (f.duration + 30) / 60),
+                    tf!("{min} Min.", min = (f.duration + 30) / 60),
                 ]
                 .join(" · "),
             ],
@@ -138,7 +142,7 @@ impl Vod {
                     first.push(y.to_string());
                 }
                 if it.runtime_secs > 0 {
-                    first.push(format!("{} Min.", (it.runtime_secs + 30) / 60));
+                    first.push(tf!("{min} Min.", min = (it.runtime_secs + 30) / 60));
                 }
                 let mut lines = vec![first.join(" · ")];
                 if !it.genres.is_empty() {
@@ -146,9 +150,12 @@ impl Vod {
                 }
                 if let Some(p) = &j.playback {
                     lines.push(if p.transcoded {
-                        "Vom Server umgerechnet (Bandbreite begrenzt)".to_string()
+                        tr("Vom Server umgerechnet (Bandbreite begrenzt)").to_string()
                     } else {
-                        format!("Originaldatei, {:.1} Mbit/s", p.bitrate as f64 / 1e6)
+                        tf!(
+                            "Originaldatei, {rate} Mbit/s",
+                            rate = format!("{:.1}", p.bitrate as f64 / 1e6)
+                        )
                     });
                 }
                 lines

@@ -5,7 +5,7 @@
 use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
-use tvjoe_core::epg;
+use tvjoe_core::{epg, tf, tr};
 
 use crate::app::{App, hm};
 
@@ -121,9 +121,9 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
             line.append(
                 &gtk::Label::builder()
                     .label(if matched.is_some() {
-                        "keine Sendungen im Zeitraum"
+                        tr("keine Sendungen im Zeitraum")
                     } else {
-                        "kein EPG zugeordnet"
+                        tr("kein EPG zugeordnet")
                     })
                     .css_classes(["tvjoe-sub"])
                     .build(),
@@ -172,7 +172,7 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
                     let dot = dot.clone();
                     match crate::ablage::timer_for(cid, sat, start) {
                         Some(t) => out.push((
-                            "Planung löschen".into(),
+                            tr("Planung löschen").into(),
                             Box::new(move || {
                                 crate::ablage::unplan(&app, &t);
                                 dot.set_visible(false);
@@ -189,7 +189,7 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
                                 stop,
                             };
                             out.push((
-                                "Aufnahme planen".into(),
+                                tr("Aufnahme planen").into(),
                                 Box::new(move || {
                                     crate::ablage::plan(&app, &t);
                                     dot.set_visible(true);
@@ -233,7 +233,7 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
     } else {
         rows.append(
             &gtk::Label::builder()
-                .label("Kein Programm geladen. Bitte in „Sender verwalten“ eine EPG-Quelle (XMLTV) eintragen oder bei SAT-Sendern „Aus dem SAT-Empfang“ wählen. Ist eine eingetragen, wird sie gerade noch geladen.")
+                .label(tr("Kein Programm geladen. Bitte in „Sender verwalten“ eine EPG-Quelle (XMLTV) eintragen oder bei SAT-Sendern „Aus dem SAT-Empfang“ wählen. Ist eine eingetragen, wird sie gerade noch geladen."))
                 .css_classes(["tvjoe-sub"])
                 .wrap(true)
                 .max_width_chars(70)
@@ -260,7 +260,11 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
     stack.add_named(&crate::ablageview::overview_page(app), Some("ablage"));
     let tabs = gtk::Box::builder().css_classes(["linked"]).build();
     let mut first: Option<gtk::ToggleButton> = None;
-    for (name, text) in [("programm", "Programm"), ("geplant", "Geplant"), ("ablage", "Ablage")] {
+    for (name, text) in [
+        ("programm", tr("Programm")),
+        ("geplant", tr("Geplant")),
+        ("ablage", tr("Ablage")),
+    ] {
         let b = gtk::ToggleButton::builder()
             .label(text)
             .active(first.is_none())
@@ -278,7 +282,7 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
         tabs.append(&b);
     }
     let grid = Rc::new(Grid {
-        title: format!("Programm {} bis {} Uhr", hm(from), hm(to)),
+        title: tf!("Programm {von} bis {bis} Uhr", von = hm(from), bis = hm(to)),
         body: stack,
         tabs,
     });

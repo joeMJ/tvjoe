@@ -13,6 +13,8 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk::glib;
 
+use tvjoe_core::tr;
+
 use crate::app::App;
 
 pub trait View {
@@ -62,7 +64,7 @@ impl Layer {
     pub fn new() -> Rc<Self> {
         let button = gtk::Button::builder()
             .icon_name("window-close-symbolic")
-            .tooltip_text("Schließen (Esc)")
+            .tooltip_text(tr("Schließen (Esc)"))
             .css_classes(["flat"])
             .build();
         let title = gtk::Label::builder().css_classes(["tvjoe-name"]).build();
@@ -212,9 +214,9 @@ fn show_in_window(app: &Rc<App>, view: Rc<dyn View>) {
     let back = gtk::Button::builder()
         .icon_name("go-previous-symbolic")
         .tooltip_text(if view.can_go_back() {
-            "Zurück (Esc)"
+            tr("Zurück (Esc)")
         } else {
-            "Schließen (Esc)"
+            tr("Schließen (Esc)")
         })
         .build();
     header.pack_start(&back);
@@ -240,9 +242,9 @@ fn show_in_window(app: &Rc<App>, view: Rc<dyn View>) {
             w.close();
         }
         b.set_tooltip_text(Some(if v.can_go_back() {
-            "Zurück (Esc)"
+            tr("Zurück (Esc)")
         } else {
-            "Schließen (Esc)"
+            tr("Schließen (Esc)")
         }));
     });
     let keys = gtk::EventControllerKey::new();
@@ -255,9 +257,9 @@ fn show_in_window(app: &Rc<App>, view: Rc<dyn View>) {
             w.close();
         }
         b.set_tooltip_text(Some(if v.can_go_back() {
-            "Zurück (Esc)"
+            tr("Zurück (Esc)")
         } else {
-            "Schließen (Esc)"
+            tr("Schließen (Esc)")
         }));
         glib::Propagation::Stop
     });
@@ -288,9 +290,9 @@ pub fn update_header(app: &App) {
     match layer.current.borrow().as_ref() {
         Some(cur) => {
             app.layer_back.set_tooltip_text(Some(if cur.can_go_back() {
-                "Zurück (Esc)"
+                tr("Zurück (Esc)")
             } else {
-                "Schließen (Esc)"
+                tr("Schließen (Esc)")
             }));
             app.layer_back.set_visible(true);
         }
@@ -304,9 +306,9 @@ pub fn update_header(app: &App) {
             .and_then(|tv| find_back_button(&tv))
         {
             b.set_tooltip_text(Some(if v.can_go_back() {
-                "Zurück (Esc)"
+                tr("Zurück (Esc)")
             } else {
-                "Schließen (Esc)"
+                tr("Schließen (Esc)")
             }));
         }
     }

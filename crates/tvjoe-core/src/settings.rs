@@ -46,6 +46,8 @@ pub struct Settings {
     /// Beim Start den letzten Sender abspielen.
     pub resume_last: bool,
     pub last_channel: Option<u64>,
+    /// Sprache der Oberfläche (`de`, `en`); leer = Systemsprache. Wirkt nach dem Neustart.
+    pub language: String,
     /// Lautstärke in Prozent (0–130).
     pub volume: u32,
     /// Zeilensprung entfernen (mpv `deinterlace=auto`: nur als Zeilensprung gekennzeichnete
@@ -208,6 +210,7 @@ impl Default for Settings {
             satip_host: String::new(),
             satip_active: false,
             satip_last_channel: None,
+            language: String::new(),
             jellyfin_hidden: crate::jellyfin_lib::HIDDEN_DEFAULT
                 .iter()
                 .map(|s| s.to_string())

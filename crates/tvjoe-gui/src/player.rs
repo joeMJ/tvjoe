@@ -15,6 +15,7 @@ use std::time::Duration;
 use gtk::glib;
 use gtk::prelude::*;
 use libmpv2::Mpv;
+use tvjoe_core::{tf, tr};
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 
 use crate::crop::{self, Area};
@@ -553,7 +554,7 @@ impl Player {
                     (Some(t), Some(l)) => format!("{t} ({l})"),
                     (Some(t), None) => t,
                     (None, Some(l)) => language_name(&l).to_string(),
-                    (None, None) => format!("Spur {id}"),
+                    (None, None) => tf!("Spur {id}", id = id),
                 };
                 (id, label)
             })
@@ -676,11 +677,11 @@ impl Player {
 /// Deutscher Name einer Sprachkennung (ISO 639), sonst die Kennung.
 fn language_name(code: &str) -> &str {
     match code {
-        "de" | "deu" | "ger" => "Deutsch",
-        "en" | "eng" => "Englisch",
-        "fr" | "fra" | "fre" => "Französisch",
-        "mis" | "qaa" | "und" => "Original",
-        "qad" => "Audiodeskription",
+        "de" | "deu" | "ger" => tr("Deutsch"),
+        "en" | "eng" => tr("Englisch"),
+        "fr" | "fra" | "fre" => tr("Französisch"),
+        "mis" | "qaa" | "und" => tr("Original"),
+        "qad" => tr("Audiodeskription"),
         _ => code,
     }
 }

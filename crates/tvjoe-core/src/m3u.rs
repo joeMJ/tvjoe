@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::check::{self, Finding, FindingKind};
+use crate::tr;
 
 /// Quelltyp eines Eintrags (`tvjoe-type`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -171,9 +172,9 @@ pub enum ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::NotUtf8 => "Die Datei ist nicht UTF-8-kodiert.",
-            Self::NotExtM3u => "Die Datei beginnt nicht mit #EXTM3U.",
-            Self::NoEntries => "Die Datei enthält keine auswertbaren Einträge.",
+            Self::NotUtf8 => tr("Die Datei ist nicht UTF-8-kodiert."),
+            Self::NotExtM3u => tr("Die Datei beginnt nicht mit #EXTM3U."),
+            Self::NoEntries => tr("Die Datei enthält keine auswertbaren Einträge."),
         })
     }
 }

@@ -3,6 +3,8 @@
 
 use std::time::Duration;
 
+use crate::tr;
+
 pub type Agent = ureq::Agent;
 
 pub fn agent(timeout: Duration) -> Agent {
@@ -129,7 +131,7 @@ pub fn probe(agent: &Agent, url: &str) -> Probe {
     {
         Some("http" | "https") => {}
         Some(_) => return Probe::Skipped,
-        None => return Probe::Failed("keine URL".into()),
+        None => return Probe::Failed(tr("keine URL").into()),
     }
     let path = url
         .split(['?', '#'])

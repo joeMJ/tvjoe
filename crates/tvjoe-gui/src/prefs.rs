@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use gtk::glib;
-use tvjoe_core::{Fallback, Quality, Strategy, VERSION, epg, paths, update};
+use tvjoe_core::{Fallback, Quality, Strategy, VERSION, epg, i18n, paths, tf, tr, update};
 
 use crate::app::App;
 
@@ -17,7 +17,7 @@ pub fn open(app: &Rc<App>) {
 pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>) {
     let s = app.settings().clone();
     let dialog = adw::PreferencesDialog::new();
-    dialog.set_title("Einstellungen");
+    dialog.set_title(tr("Einstellungen"));
     let new_page = |name: &str, title: &str, icon: &str| {
         adw::PreferencesPage::builder()
             .name(name)
@@ -26,22 +26,22 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             .build()
     };
 
-    let control = adw::PreferencesGroup::builder().title("Bedienung").build();
+    let control = adw::PreferencesGroup::builder().title(tr("Bedienung")).build();
     let pause = adw::SpinRow::with_range(300.0, 5000.0, 100.0);
-    pause.set_title("Ziffernblock-Pause");
-    pause.set_subtitle("Millisekunden bis zum Umschalten nach der letzten Ziffer");
+    pause.set_title(tr("Ziffernblock-Pause"));
+    pause.set_subtitle(tr("Millisekunden bis zum Umschalten nach der letzten Ziffer"));
     pause.set_value(f64::from(s.numpad_pause_ms));
     let overlay = adw::SpinRow::with_range(1.0, 30.0, 1.0);
-    overlay.set_title("Einblendung");
-    overlay.set_subtitle("Sekunden, die Sendername und Programm sichtbar bleiben");
+    overlay.set_title(tr("Einblendung"));
+    overlay.set_subtitle(tr("Sekunden, die Sendername und Programm sichtbar bleiben"));
     overlay.set_value(f64::from(s.overlay_secs));
     let resume = adw::SwitchRow::builder()
-        .title("Letzten Sender beim Start")
+        .title(tr("Letzten Sender beim Start"))
         .active(s.resume_last)
         .build();
     let inhibit = adw::SwitchRow::builder()
-        .title("Bildschirmsperre auch im Fenster verhindern")
-        .subtitle("Im Vollbild wird sie immer verhindert, solange tvjoe läuft")
+        .title(tr("Bildschirmsperre auch im Fenster verhindern"))
+        .subtitle(tr("Im Vollbild wird sie immer verhindert, solange tvjoe läuft"))
         .active(s.inhibit_windowed)
         .build();
     control.add(&pause);
@@ -49,15 +49,30 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     control.add(&resume);
     control.add(&inhibit);
     let sidebar = adw::SwitchRow::builder()
-        .title("Senderliste beim Start zeigen")
-        .subtitle("Sie liegt über dem Bild; L blendet sie ein und aus")
+        .title(tr("Senderliste beim Start zeigen"))
+        .subtitle(tr("Sie liegt über dem Bild; L blendet sie ein und aus"))
         .active(s.sidebar_on_start)
         .build();
     control.add(&sidebar);
+    // Sprache: leer = Systemsprache; wirkt nach dem Neustart.
+    let mut lang_names = vec![tr("Systemsprache")];
+    lang_names.extend(i18n::LANGUAGES.iter().map(|(_, name)| *name));
+    let language = adw::ComboRow::builder()
+        .title(tr("Sprache"))
+        .subtitle(tr("Wirkt nach dem Neustart von tvjoe"))
+        .model(&gtk::StringList::new(&lang_names))
+        .selected(
+            i18n::LANGUAGES
+                .iter()
+                .position(|(code, _)| *code == s.language)
+                .map_or(0, |i| i as u32 + 1),
+        )
+        .build();
+    control.add(&language);
 
     let osd = adw::PreferencesGroup::builder()
-        .title("Senderanzeige")
-        .description("Einblendung unten im Bild beim Umschalten, mit I oder Mausklick aufs Bild")
+        .title(tr("Senderanzeige"))
+        .description(tr("Einblendung unten im Bild beim Umschalten, mit I oder Mausklick aufs Bild"))
         .build();
     let switch = |title: &str, active: bool| {
         let row = adw::SwitchRow::builder()
@@ -67,24 +82,24 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         osd.add(&row);
         row
     };
-    let osd_number = switch("Kanalnummer", s.osd_number);
+    let osd_number = switch(tr("Kanalnummer"), s.osd_number);
     let osd_origin = switch(
-        "Quellsymbol vor der Qualität (Internet, Satellit)",
+        tr("Quellsymbol vor der Qualität (Internet, Satellit)"),
         s.osd_origin,
     );
-    let osd_logo = switch("Senderlogo bei Internet-Sendern (schwarzweiß)", s.osd_logo);
-    osd_logo.set_subtitle("Auch in der Info und in der Senderliste");
-    let sat_logo = switch("Senderlogo bei SAT-Sendern (schwarzweiß)", s.sat_logo);
-    sat_logo.set_subtitle("Auch in der Info und in der Senderliste");
+    let osd_logo = switch(tr("Senderlogo bei Internet-Sendern (schwarzweiß)"), s.osd_logo);
+    osd_logo.set_subtitle(tr("Auch in der Info und in der Senderliste"));
+    let sat_logo = switch(tr("Senderlogo bei SAT-Sendern (schwarzweiß)"), s.sat_logo);
+    sat_logo.set_subtitle(tr("Auch in der Info und in der Senderliste"));
     let osd_category = switch(
-        "Kategorie (Vollprogramm, Spartenprogramm …)",
+        tr("Kategorie (Vollprogramm, Spartenprogramm …)"),
         s.osd_category,
     );
-    let osd_quality = switch("Qualität", s.osd_quality);
-    let osd_epg = switch("Jetzt und Danach", s.osd_epg);
-    let osd_description = switch("Beschreibung der laufenden Sendung", s.osd_description);
+    let osd_quality = switch(tr("Qualität"), s.osd_quality);
+    let osd_epg = switch(tr("Jetzt und Danach"), s.osd_epg);
+    let osd_description = switch(tr("Beschreibung der laufenden Sendung"), s.osd_description);
 
-    let quality = adw::PreferencesGroup::builder().title("Qualität").build();
+    let quality = adw::PreferencesGroup::builder().title(tr("Qualität")).build();
     let levels = [
         None,
         Some(Quality::Uhd),
@@ -93,55 +108,55 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         Some(Quality::Sd),
     ];
     let level = adw::ComboRow::builder()
-        .title("Qualität")
-        .subtitle("Gilt für alle Sender; Taste Q schaltet ebenfalls um")
+        .title(tr("Qualität"))
+        .subtitle(tr("Gilt für alle Sender; Taste Q schaltet ebenfalls um"))
         .model(&gtk::StringList::new(&[
-            "Höchste", "UHD", "1080p", "720p", "SD",
+            tr("Höchste"), "UHD", "1080p", "720p", "SD",
         ]))
         .selected(levels.iter().position(|l| *l == s.quality).unwrap_or(0) as u32)
         .build();
     let cap = adw::SwitchRow::builder()
-        .title("Nie höher als die gewählte Stufe")
-        .subtitle("Fehlt sie, wird die nächstniedrigere genommen")
+        .title(tr("Nie höher als die gewählte Stufe"))
+        .subtitle(tr("Fehlt sie, wird die nächstniedrigere genommen"))
         .active(s.quality_cap)
         .build();
     let deinterlace = adw::SwitchRow::builder()
-        .title("Zeilensprung entfernen")
-        .subtitle("Gegen Kammstreifen bei Bewegung (z. B. SD-Sender über SAT); wirkt nur bei Zeilensprung-Bildern")
+        .title(tr("Zeilensprung entfernen"))
+        .subtitle(tr("Gegen Kammstreifen bei Bewegung (z. B. SD-Sender über SAT); wirkt nur bei Zeilensprung-Bildern"))
         .active(s.deinterlace)
         .build();
     quality.add(&level);
     quality.add(&cap);
     let subtitles = adw::SwitchRow::builder()
-        .title("Untertitel")
-        .subtitle("Sofern der Sender welche mitschickt; Taste U wählt die Spur für die laufende Sendung")
+        .title(tr("Untertitel"))
+        .subtitle(tr("Sofern der Sender welche mitschickt; Taste U wählt die Spur für die laufende Sendung"))
         .active(s.subtitles)
         .build();
     quality.add(&deinterlace);
     let loudness = adw::SwitchRow::builder()
-        .title("Lautstärke angleichen")
-        .subtitle("Hebt den Ton um 7 dB an (Fernsehnorm −23 LUFS auf etwa −16 LUFS wie bei Musik und Videoportalen); ein Begrenzer verhindert Übersteuern")
+        .title(tr("Lautstärke angleichen"))
+        .subtitle(tr("Hebt den Ton um 7 dB an (Fernsehnorm −23 LUFS auf etwa −16 LUFS wie bei Musik und Videoportalen); ein Begrenzer verhindert Übersteuern"))
         .active(s.loudness)
         .build();
     quality.add(&subtitles);
     quality.add(&loudness);
     let crop_bars = adw::SwitchRow::builder()
-        .title("Schwarze Balken abschneiden")
-        .subtitle("Erkennt mitgesendete Balken im Bild; das Fenster lässt sich dann kleiner ziehen, ohne dass das Bild schrumpft. Knopf neben Vollbild")
+        .title(tr("Schwarze Balken abschneiden"))
+        .subtitle(tr("Erkennt mitgesendete Balken im Bild; das Fenster lässt sich dann kleiner ziehen, ohne dass das Bild schrumpft. Knopf neben Vollbild"))
         .active(s.crop_bars)
         .build();
     let fill = adw::SwitchRow::builder()
-        .title("Bild füllen")
-        .subtitle("Vergrößert, bis das Bild an allen Seiten anstößt; Überstand fällt weg (z. B. Breitbildmonitor im Vollbild). Taste Z")
+        .title(tr("Bild füllen"))
+        .subtitle(tr("Vergrößert, bis das Bild an allen Seiten anstößt; Überstand fällt weg (z. B. Breitbildmonitor im Vollbild). Taste Z"))
         .active(s.fill)
         .build();
     quality.add(&crop_bars);
     quality.add(&fill);
     let strategy = adw::ComboRow::builder()
-        .title("Beim Senderwechsel")
+        .title(tr("Beim Senderwechsel"))
         .model(&gtk::StringList::new(&[
-            "Qualität halten",
-            "Immer die höchste",
+            tr("Qualität halten"),
+            tr("Immer die höchste"),
         ]))
         .selected(match s.strategy {
             Strategy::Keep => 0,
@@ -149,11 +164,11 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         })
         .build();
     let fallback = adw::ComboRow::builder()
-        .title("Fehlt die Stufe, ausweichen")
-        .subtitle("Bei gleichem Abstand")
+        .title(tr("Fehlt die Stufe, ausweichen"))
+        .subtitle(tr("Bei gleichem Abstand"))
         .model(&gtk::StringList::new(&[
-            "Nach unten (sparsamer)",
-            "Nach oben",
+            tr("Nach unten (sparsamer)"),
+            tr("Nach oben"),
         ]))
         .selected(match s.fallback {
             Fallback::Down => 0,
@@ -164,87 +179,88 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     quality.add(&fallback);
 
     let storage = adw::PreferencesGroup::builder()
-        .title("Pufferspeicher")
-        .description("Im Arbeitsspeicher: hält beim Fernsehen eine Pause (Leertaste) und gleicht ein schwaches Netz aus. Gilt ab dem nächsten Senderwechsel.")
+        .title(tr("Pufferspeicher"))
+        .description(tr("Im Arbeitsspeicher: hält beim Fernsehen eine Pause (Leertaste) und gleicht ein schwaches Netz aus. Gilt ab dem nächsten Senderwechsel."))
         .build();
     let buffer_mb = adw::SpinRow::with_range(64.0, 8192.0, 64.0);
-    buffer_mb.set_title("Größe");
-    buffer_mb.set_subtitle("MB; drei Viertel davon halten die Pause, bei 1080p (etwa 5 Mbit/s) reichen 512 MB für rund zehn Minuten");
+    buffer_mb.set_title(tr("Größe"));
+    buffer_mb.set_subtitle(tr("MB; drei Viertel davon halten die Pause, bei 1080p (etwa 5 Mbit/s) reichen 512 MB für rund zehn Minuten"));
     buffer_mb.set_value(f64::from(s.buffer_mb));
     let start_buffer = adw::SpinRow::with_range(3.0, 10.0, 1.0);
-    start_buffer.set_title("Startpuffer");
-    start_buffer.set_subtitle("Sekunden Vorrat vor dem Abspielen und nach einem Abriss; mehr ist robuster, der Senderwechsel dauert entsprechend länger");
+    start_buffer.set_title(tr("Startpuffer"));
+    start_buffer.set_subtitle(tr("Sekunden Vorrat vor dem Abspielen und nach einem Abriss; mehr ist robuster, der Senderwechsel dauert entsprechend länger"));
     start_buffer.set_value(f64::from(s.start_buffer_secs));
     storage.add(&buffer_mb);
     storage.add(&start_buffer);
 
     let guide = adw::PreferencesGroup::builder()
-        .title("Programm (EPG)")
+        .title(tr("Programm (EPG)"))
         .build();
     let hours = adw::SpinRow::with_range(0.0, 168.0, 1.0);
-    hours.set_title("Neu laden nach");
-    hours.set_subtitle("Stunden; 0 = nur über „EPG-Quellen…“ in der Verwaltung");
+    hours.set_title(tr("Neu laden nach"));
+    hours.set_subtitle(tr("Stunden; 0 = nur über „EPG-Quellen…“ in der Verwaltung"));
     hours.set_value(f64::from(s.epg_refresh_hours));
     guide.add(&hours);
     let sat_hours = adw::SpinRow::with_range(1.0, 24.0, 1.0);
-    sat_hours.set_title("SAT-Programmdaten sammeln alle");
-    sat_hours.set_subtitle("Stunden; nur für Sender mit EPG-Quelle „SAT“ (Sender verwalten → EPG). Belegt je Transponder etwa 40 Sekunden einen Tuner");
+    sat_hours.set_title(tr("SAT-Programmdaten sammeln alle"));
+    sat_hours.set_subtitle(tr("Stunden; nur für Sender mit EPG-Quelle „SAT“ (Sender verwalten → EPG). Belegt je Transponder etwa 40 Sekunden einen Tuner"));
     sat_hours.set_value(f64::from(s.sat_epg_hours));
     guide.add(&sat_hours);
 
     let updates = adw::PreferencesGroup::builder()
-        .title("Updates")
-        .description(format!(
-            "Installiert: {VERSION}. Die Prüfung fragt höchstens einmal täglich bei GitHub ({}) nach und übermittelt dabei die IP-Adresse. Heruntergeladen wird nur nach Bestätigung.",
-            update::REPO
+        .title(tr("Updates"))
+        .description(tf!(
+            "Installiert: {version}. Die Prüfung fragt höchstens einmal täglich bei GitHub ({repo}) nach und übermittelt dabei die IP-Adresse. Heruntergeladen wird nur nach Bestätigung.",
+            version = VERSION,
+            repo = update::REPO
         ))
         .build();
     let check = adw::SwitchRow::builder()
-        .title("Nach neuen Versionen suchen")
+        .title(tr("Nach neuen Versionen suchen"))
         .active(s.update_check)
         .build();
-    let now_row = adw::ActionRow::builder().title("Jetzt prüfen").build();
+    let now_row = adw::ActionRow::builder().title(tr("Jetzt prüfen")).build();
     let now_button = gtk::Button::builder()
-        .label("Prüfen")
+        .label(tr("Prüfen"))
         .valign(gtk::Align::Center)
         .build();
     now_row.add_suffix(&now_button);
     updates.add(&check);
     updates.add(&now_row);
 
-    let p_control = new_page("bedienung", "Bedienung", "input-keyboard-symbolic");
+    let p_control = new_page("bedienung", tr("Bedienung"), "input-keyboard-symbolic");
     p_control.add(&control);
     // Eine geladene Sicherung wird erst nach dem Schließen übernommen (nach den Werten
     // dieses Dialogs, damit sie diese ersetzt).
     let pending: Rc<std::cell::RefCell<Option<tvjoe_core::backup::Backup>>> = Rc::default();
     p_control.add(&crate::backup::prefs_group(app, &dialog, &pending));
-    let p_osd = new_page("anzeige", "Senderanzeige", "video-display-symbolic");
+    let p_osd = new_page("anzeige", tr("Senderanzeige"), "video-display-symbolic");
     p_osd.add(&osd);
-    let p_quality = new_page("qualitaet", "Qualität", "emblem-photos-symbolic");
+    let p_quality = new_page("qualitaet", tr("Qualität"), "emblem-photos-symbolic");
     p_quality.add(&quality);
     p_quality.add(&storage);
-    let p_guide = new_page("programm", "Programm", "x-office-calendar-symbolic");
+    let p_guide = new_page("programm", tr("Programm"), "x-office-calendar-symbolic");
     p_guide.add(&guide);
     let (p_media, apply_media) = crate::mediathek::prefs_page(app);
     let (p_jellyfin, apply_jellyfin) = crate::jellyfin::prefs_page(app);
     let (p_satip, apply_satip) = crate::satip::prefs_page(app);
     let (p_ablage, apply_ablage) = crate::ablage::prefs_page(app);
-    let p_updates = new_page("updates", "Updates", "software-update-available-symbolic");
+    let p_updates = new_page("updates", tr("Updates"), "software-update-available-symbolic");
     p_updates.add(&updates);
 
     // Am Ende: Über tvjoe (Version, Lizenzen, Verweis auf das README bei GitHub).
     let about = adw::PreferencesGroup::new();
     let about_row = adw::ActionRow::builder()
-        .title("Über tvjoe")
-        .subtitle(format!("Version {VERSION}, Lizenzen"))
+        .title(tr("Über tvjoe"))
+        .subtitle(tf!("Version {version}, Lizenzen", version = VERSION))
         .activatable(true)
         .build();
     about_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
     about.add(&about_row);
     // Fehler und Wünsche: öffnet den Issue-Tracker bei GitHub im Browser.
     let issue_row = adw::ActionRow::builder()
-        .title("Fehler melden / Wunsch")
-        .subtitle("Öffnet die Issues von tvjoe bei GitHub im Browser (GitHub-Konto nötig)")
+        .title(tr("Fehler melden / Wunsch"))
+        .subtitle(tr("Öffnet die Issues von tvjoe bei GitHub im Browser (GitHub-Konto nötig)"))
         .activatable(true)
         .build();
     issue_row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
@@ -299,6 +315,13 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             s.resume_last = resume.is_active();
             s.inhibit_windowed = inhibit.is_active();
             s.sidebar_on_start = sidebar.is_active();
+            s.language = match language.selected() {
+                0 => String::new(),
+                i => i18n::LANGUAGES
+                    .get(i as usize - 1)
+                    .map(|(code, _)| code.to_string())
+                    .unwrap_or_default(),
+            };
             s.strategy = if strategy.selected() == 1 {
                 Strategy::Highest
             } else {
@@ -375,55 +398,56 @@ fn about_dialog() -> adw::AboutDialog {
         .copyright("© 2026 John Lose")
         .license_type(gtk::License::Apache20)
         .website(README_URL)
-        .comments(
+        .comments(tr(
             "Streaming-Client für Live-TV und die Mediatheken der öffentlich-rechtlichen Sender.\n\n\
              Die Filmliste der Mediathek stammt von MediathekView (mediathekview.de); \
              die Videos kommen direkt von den Sendern.\n\n\
              Privates Hobbyprojekt – nicht gepflegt.",
-        )
+        ))
         .build();
-    d.add_link("README bei GitHub", README_URL);
+    d.add_link(tr("README bei GitHub"), README_URL);
     d.add_link("MediathekView", "https://mediathekview.de/");
-    d.add_link("Bibliotheken Dritter (THIRD_PARTY.md)", THIRD_PARTY_URL);
+    d.add_link(tr("Bibliotheken Dritter (THIRD_PARTY.md)"), THIRD_PARTY_URL);
     d.add_acknowledgement_section(
-        Some("Filmliste der Mediathek"),
+        Some(tr("Filmliste der Mediathek")),
         &["MediathekView https://mediathekview.de/"],
     );
     d.add_legal_section(
-        "GTK 4 und libadwaita",
+        tr("GTK 4 und libadwaita"),
         Some("The GTK Team, GNOME"),
         gtk::License::Lgpl21,
         None,
     );
     d.add_legal_section(
         "mpv / libmpv",
-        Some("mpv-Entwickler"),
+        Some(tr("mpv-Entwickler")),
         gtk::License::Custom,
-        Some(
+        Some(tr(
             "Quelltext GPL-2+ bzw. LGPL-2.1+. Die Ubuntu-Pakete von libmpv stehen laut deren \
              copyright-Datei unter GPL-3+ (gelinkt gegen libsmbclient); für die tvjoe-Pakete gelten \
              diese Bedingungen zusätzlich.",
-        ),
+        )),
     );
     d.add_legal_section(
-        "SQLite (eingebaut)",
+        tr("SQLite (eingebaut)"),
         None,
         gtk::License::Custom,
-        Some("Public Domain, siehe https://sqlite.org/copyright.html"),
+        Some(tr("Public Domain, siehe https://sqlite.org/copyright.html")),
     );
     d.add_legal_section(
-        "xz / liblzma (eingebaut)",
+        tr("xz / liblzma (eingebaut)"),
         None,
         gtk::License::Bsd,
         Some("0BSD"),
     );
     d.add_legal_section(
-        "Rust-Bibliotheken",
+        tr("Rust-Bibliotheken"),
         None,
         gtk::License::Custom,
-        Some(&format!(
+        Some(&tf!(
             "Rund 150 Pakete, überwiegend MIT bzw. Apache-2.0, dazu ISC, BSD-3-Clause, Zlib, \
-             Unicode-3.0, CDLA-Permissive-2.0 und LGPL-2.1 (libmpv2). Vollständige Liste: {THIRD_PARTY_URL}"
+             Unicode-3.0, CDLA-Permissive-2.0 und LGPL-2.1 (libmpv2). Vollständige Liste: {url}",
+            url = THIRD_PARTY_URL
         )),
     );
     d
@@ -466,14 +490,14 @@ pub fn check_for_update(app: &Rc<App>, manual: bool) {
             Ok(None) if manual => {
                 let d = alert(
                     &app,
-                    "Keine neuere Version",
-                    &format!("Installiert ist {VERSION}."),
+                    tr("Keine neuere Version"),
+                    &tf!("Installiert ist {version}.", version = VERSION),
                 );
-                d.add_response("close", "OK");
+                d.add_response("close", tr("OK"));
             }
             Err(e) if manual => {
-                let d = alert(&app, "Prüfung fehlgeschlagen", &e);
-                d.add_response("close", "OK");
+                let d = alert(&app, tr("Prüfung fehlgeschlagen"), &e);
+                d.add_response("close", tr("OK"));
             }
             _ => {}
         }
@@ -490,14 +514,14 @@ fn offer(app: &Rc<App>, release: update::Release) {
         .collect();
     let d = alert(
         app,
-        &format!("tvjoe {} ist verfügbar", release.tag_name),
-        &format!("Installiert ist {VERSION}.\n\n{notes}"),
+        &tf!("tvjoe {version} ist verfügbar", version = release.tag_name),
+        &(tf!("Installiert ist {version}.", version = VERSION) + "\n\n" + &notes),
     );
-    d.add_response("close", "Später");
+    d.add_response("close", tr("Später"));
     // Windows: keine .deb-Pakete; die neue MSI lädt man von der Release-Seite und installiert sie
     // über die alte.
     if cfg!(windows) {
-        d.add_response("open", "Zur Release-Seite");
+        d.add_response("open", tr("Zur Release-Seite"));
         d.set_response_appearance("open", adw::ResponseAppearance::Suggested);
         let url = release.html_url.clone();
         let parent = app.window.clone();
@@ -506,7 +530,7 @@ fn offer(app: &Rc<App>, release: update::Release) {
         });
         return;
     }
-    d.add_response("download", "Herunterladen…");
+    d.add_response("download", tr("Herunterladen…"));
     d.set_response_appearance("download", adw::ResponseAppearance::Suggested);
     let weak = Rc::downgrade(app);
     d.connect_response(Some("download"), move |_, _| {
@@ -526,8 +550,8 @@ fn offer(app: &Rc<App>, release: update::Release) {
             match result {
                 Ok(path) => confirm_install(&app, &path),
                 Err(e) => {
-                    let d = alert(&app, "Download fehlgeschlagen", &e);
-                    d.add_response("close", "OK");
+                    let d = alert(&app, tr("Download fehlgeschlagen"), &e);
+                    d.add_response("close", tr("OK"));
                 }
             }
         });
@@ -538,14 +562,14 @@ fn confirm_install(app: &Rc<App>, path: &std::path::Path) {
     let cmd = update::install_command(path);
     let d = alert(
         app,
-        "Paket geprüft",
-        &format!(
-            "Die Prüfsumme (SHA-256) stimmt. Installation mit:\n\n{}\n\nDanach tvjoe neu starten.",
-            cmd.join(" ")
+        tr("Paket geprüft"),
+        &tf!(
+            "Die Prüfsumme (SHA-256) stimmt. Installation mit:\n\n{befehl}\n\nDanach tvjoe neu starten.",
+            befehl = cmd.join(" ")
         ),
     );
-    d.add_response("close", "Abbrechen");
-    d.add_response("install", "Installieren");
+    d.add_response("close", tr("Abbrechen"));
+    d.add_response("install", tr("Installieren"));
     d.set_response_appearance("install", adw::ResponseAppearance::Suggested);
     let weak = Rc::downgrade(app);
     d.connect_response(Some("install"), move |_, _| {
@@ -563,15 +587,15 @@ fn confirm_install(app: &Rc<App>, path: &std::path::Path) {
             let Ok(ok) = rx.recv().await else { return };
             let Some(app) = weak.upgrade() else { return };
             let d = if ok {
-                alert(&app, "Installiert", "Bitte tvjoe neu starten.")
+                alert(&app, tr("Installiert"), tr("Bitte tvjoe neu starten."))
             } else {
                 alert(
                     &app,
-                    "Installation nicht abgeschlossen",
-                    "Abgebrochen oder fehlgeschlagen.",
+                    tr("Installation nicht abgeschlossen"),
+                    tr("Abgebrochen oder fehlgeschlagen."),
                 )
             };
-            d.add_response("close", "OK");
+            d.add_response("close", tr("OK"));
         });
     });
 }

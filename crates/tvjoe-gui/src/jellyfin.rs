@@ -12,7 +12,7 @@ use adw::prelude::*;
 use gtk::glib;
 use tvjoe_core::jellyfin::{self, Account};
 use tvjoe_core::jellyfin_lib::JellyfinLibrary;
-use tvjoe_core::{Settings, epg, paths};
+use tvjoe_core::{Settings, epg, paths, tf, tr};
 
 use crate::app::App;
 use crate::trace;
@@ -106,7 +106,7 @@ fn library_status() -> String {
         .filter(|p| p.exists())
         .and_then(|p| JellyfinLibrary::open(&p).ok())
     else {
-        return "Noch nicht abgeglichen".to_string();
+        return tr("Noch nicht abgeglichen").to_string();
     };
     let when = lib
         .last_sync()
@@ -114,12 +114,13 @@ fn library_status() -> String {
         .and_then(|d| d.format("%d.%m. %H:%M").ok())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "–".into());
-    format!(
-        "Stand {when} · {} Filme, {} Sammlungen, {} Serien, {} Folgen",
-        lib.count("Movie"),
-        lib.count("BoxSet"),
-        lib.count("Series"),
-        lib.count("Episode")
+    tf!(
+        "Stand {when} · {filme} Filme, {sammlungen} Sammlungen, {serien} Serien, {folgen} Folgen",
+        when = when,
+        filme = lib.count("Movie"),
+        sammlungen = lib.count("BoxSet"),
+        serien = lib.count("Series"),
+        folgen = lib.count("Episode")
     )
 }
 
@@ -295,24 +296,24 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
         .build();
 
     let server_group = adw::PreferencesGroup::builder()
-        .title("Server")
-        .description("Eigener Jellyfin-Server; die Anmeldung läuft über Quick Connect, tvjoe fragt nie nach einem Passwort")
+        .title(tr("Server"))
+        .description(tr("Eigener Jellyfin-Server; die Anmeldung läuft über Quick Connect, tvjoe fragt nie nach einem Passwort"))
         .build();
     let server = adw::EntryRow::builder()
-        .title("Adresse (z. B. https://jellyfin.example.org)")
+        .title(tr("Adresse (z. B. https://jellyfin.example.org)"))
         .text(server_of(&s))
         .build();
-    let login_row = adw::ActionRow::builder().title("Anmeldung").build();
+    let login_row = adw::ActionRow::builder().title(tr("Anmeldung")).build();
     let login_hint = adw::ActionRow::builder()
-        .title("So geht die Anmeldung")
-        .subtitle("„Anmelden…“ zeigt einen Code. In Jellyfin oben rechts auf das Benutzersymbol klicken, „Quick Connect“ wählen und den Code bestätigen.")
+        .title(tr("So geht die Anmeldung"))
+        .subtitle(tr("„Anmelden…“ zeigt einen Code. In Jellyfin oben rechts auf das Benutzersymbol klicken, „Quick Connect“ wählen und den Code bestätigen."))
         .build();
     let login = gtk::Button::builder()
-        .label("Anmelden…")
+        .label(tr("Anmelden…"))
         .valign(gtk::Align::Center)
         .build();
     let logout = gtk::Button::builder()
-        .label("Abmelden")
+        .label(tr("Abmelden"))
         .valign(gtk::Align::Center)
         .build();
     login_row.add_suffix(&login);
@@ -325,12 +326,16 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
         let (row, login, logout) = (login_row.clone(), login.clone(), logout.clone());
         move || match account() {
             Some(a) => {
-                row.set_subtitle(&format!("Angemeldet als {} bei {}", a.user_name, a.server));
+                row.set_subtitle(&tf!(
+                    "Angemeldet als {user} bei {server}",
+                    user = a.user_name,
+                    server = a.server
+                ));
                 login.set_visible(false);
                 logout.set_visible(true);
             }
             None => {
-                row.set_subtitle("Nicht angemeldet");
+                row.set_subtitle(tr("Nicht angemeldet"));
                 login.set_visible(true);
                 logout.set_visible(false);
             }
@@ -359,13 +364,16 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     });
 
     let traffic = adw::PreferencesGroup::builder()
-        .title("Bandbreite")
-        .description("Mit Begrenzung rechnet der Server Filme auf H.264 in der gewählten Bitrate um (kostet Rechenleistung auf dem Server); ohne kommt die Originaldatei und wird hier per Grafikeinheit dekodiert")
+        .title(tr("Bandbreite"))
+        .description(tr("Mit Begrenzung rechnet der Server Filme auf H.264 in der gewählten Bitrate um (kostet Rechenleistung auf dem Server); ohne kommt die Originaldatei und wird hier per Grafikeinheit dekodiert"))
         .build();
     let limit = adw::ComboRow::builder()
-        .title("Bandbreite begrenzen")
+        .title(tr("Bandbreite begrenzen"))
         .model(&gtk::StringList::new(&[
-            "Aus", "2 Mbit/s", "4 Mbit/s", "8 Mbit/s",
+            tr("Aus"),
+            "2 Mbit/s",
+            "4 Mbit/s",
+            "8 Mbit/s",
         ]))
         .selected(
             LIMITS
@@ -378,7 +386,7 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
 
     // Bibliotheken aus dem letzten Abgleich, je ein Schalter.
     let libs_group = adw::PreferencesGroup::builder()
-        .title("Bibliotheken")
+        .title(tr("Bibliotheken"))
         .description(library_status())
         .build();
     let libs = paths::jellyfin_db()
@@ -389,7 +397,7 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     if libs.is_empty() {
         libs_group.add(
             &adw::ActionRow::builder()
-                .title("Erscheinen nach dem ersten Abgleich")
+                .title(tr("Erscheinen nach dem ersten Abgleich"))
                 .build(),
         );
     }
@@ -428,8 +436,8 @@ fn quick_connect(parent: &impl IsA<gtk::Widget>, server: String, done: Rc<dyn Fn
     let device_id = account()
         .map(|a| a.device_id)
         .unwrap_or_else(jellyfin::new_device_id);
-    let dialog = adw::AlertDialog::new(Some("Bei Jellyfin anmelden"), Some("Verbinde …"));
-    dialog.add_response("cancel", "Abbrechen");
+    let dialog = adw::AlertDialog::new(Some(tr("Bei Jellyfin anmelden")), Some(tr("Verbinde …")));
+    dialog.add_response("cancel", tr("Abbrechen"));
     dialog.set_close_response("cancel");
     dialog.present(Some(parent));
 
@@ -450,7 +458,7 @@ fn quick_connect(parent: &impl IsA<gtk::Widget>, server: String, done: Rc<dyn Fn
         let run = || -> Result<Account, String> {
             if !jellyfin::quick_connect_enabled(&server)? {
                 return Err(
-                    "Quick Connect ist auf dem Server ausgeschaltet (Dashboard → Allgemein)."
+                    tr("Quick Connect ist auf dem Server ausgeschaltet (Dashboard → Allgemein).")
                         .into(),
                 );
             }
@@ -458,14 +466,14 @@ fn quick_connect(parent: &impl IsA<gtk::Widget>, server: String, done: Rc<dyn Fn
             let _ = tx.send_blocking(Step::Code(qc.code.clone()));
             for _ in 0..150 {
                 if stop_thread.load(std::sync::atomic::Ordering::Relaxed) {
-                    return Err("abgebrochen".into());
+                    return Err(tr("abgebrochen").into());
                 }
                 std::thread::sleep(Duration::from_secs(2));
                 if jellyfin::quick_connect_confirmed(&server, &device_id, &qc)? {
                     return jellyfin::quick_connect_finish(&server, &device_id, &qc);
                 }
             }
-            Err("Zeit abgelaufen – bitte erneut anmelden.".into())
+            Err(tr("Zeit abgelaufen – bitte erneut anmelden.").into())
         };
         let _ = tx.send_blocking(Step::Done(run()));
     });
@@ -476,32 +484,26 @@ fn quick_connect(parent: &impl IsA<gtk::Widget>, server: String, done: Rc<dyn Fn
                 break;
             }
             match step {
-                Step::Code(code) => dialog.set_body(&format!(
-                    "Code: {code}\n\n\
-                     So bestätigst du ihn:\n\
-                     1. Jellyfin im Browser oder in der App öffnen, angemeldet als der Benutzer, \
-                     mit dem tvjoe arbeiten soll.\n\
-                     2. Oben rechts auf das runde Benutzersymbol klicken.\n\
-                     3. Im aufklappenden Menü „Quick Connect“ wählen (zwischen „Metadaten-Manager“ \
-                     und „Abmelden“), den Code eingeben und bestätigen.\n\n\
-                     tvjoe wartet bis zu 5 Minuten und schließt diesen Dialog dann selbst."
+                Step::Code(code) => dialog.set_body(&tf!(
+                    "Code: {code}\n\nSo bestätigst du ihn:\n1. Jellyfin im Browser oder in der App öffnen, angemeldet als der Benutzer, mit dem tvjoe arbeiten soll.\n2. Oben rechts auf das runde Benutzersymbol klicken.\n3. Im aufklappenden Menü „Quick Connect“ wählen (zwischen „Metadaten-Manager“ und „Abmelden“), den Code eingeben und bestätigen.\n\ntvjoe wartet bis zu 5 Minuten und schließt diesen Dialog dann selbst.",
+                    code = code
                 )),
                 Step::Done(Ok(account)) => {
                     let saved = paths::jellyfin_account_path()
-                        .ok_or_else(|| "kein Konfigurationsordner".to_string())
+                        .ok_or_else(|| tr("kein Konfigurationsordner").to_string())
                         .and_then(|p| account.save(&p));
                     match saved {
                         Ok(()) => {
                             trace(&format!("Jellyfin: angemeldet als {}", account.user_name));
                             dialog.close();
                         }
-                        Err(e) => dialog.set_body(&format!("Speichern fehlgeschlagen: {e}")),
+                        Err(e) => dialog.set_body(&tf!("Speichern fehlgeschlagen: {fehler}", fehler = e)),
                     }
                     done();
                     break;
                 }
                 Step::Done(Err(e)) => {
-                    dialog.set_body(&format!("Anmeldung nicht möglich: {e}"));
+                    dialog.set_body(&tf!("Anmeldung nicht möglich: {fehler}", fehler = e));
                     break;
                 }
             }
