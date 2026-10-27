@@ -34,6 +34,7 @@ SAT>IP-Empfänger.
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md) – Installation unter Ubuntu und Windows
 - [`docs/ERSTE-SCHRITTE.md`](docs/ERSTE-SCHRITTE.md) – Senderliste übernehmen, Programm eintragen, sortieren, sichern
 - [`docs/SAT-IP.md`](docs/SAT-IP.md) – SAT>IP-Empfänger einrichten, Suchlauf, Firewall, unterwegs per WireGuard
+- [`docs/ADAPTER.md`](docs/ADAPTER.md) – Empfangsquellen und Adapter: Treiber, mitgelieferte Geräte, eigene Beschreibung anlegen
 - [`docs/MEDIATHEK.md`](docs/MEDIATHEK.md) – Mediathek der öffentlich-rechtlichen Sender und Jellyfin
 - [`docs/DATENSCHUTZ.md`](docs/DATENSCHUTZ.md) – alle Netzzugriffe
 - [`docs/BAUEN.md`](docs/BAUEN.md) – selbst bauen, Kommandozeile
