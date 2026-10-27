@@ -55,7 +55,7 @@ Die MSI und die Programme sind mit demselben selbst ausgestellten Zertifikat sig
 Wer es schon für remotejoe eingetragen hat, muss nichts weiter tun.
 
 **SAT>IP:** Die Windows-Firewall verwirft den Datenstrom des SAT>IP-Geräts zunächst stillschweigend.
-Unter **Einstellungen → SAT>IP → Prüfen** bietet tvjoe dann **Freigabe eintragen …** an, siehe
+Unter **Einstellungen → Empfang → EyeTV Netstream 4Sat → Prüfen** bietet tvjoe dann **Freigabe eintragen …** an, siehe
 [SAT-IP.md](SAT-IP.md#firewall).
 
 **Aktualisieren:** Die Updateprüfung (Einstellungen → Updates) meldet eine neue Version und öffnet die

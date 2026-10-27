@@ -109,8 +109,8 @@ The detailed documentation is in German:
   the end), active/favourite, export as M3U8. Inactive channels do not count for the numbers; new
   channels from an import or scan are added inactive at the end and do not disturb the order.
 - **SAT source** through a SAT>IP receiver (e.g. EyeTV Netstream 4Sat, Astra 19.2° East): check of
-  device and reception, scan into a separate SAT channel list, reception display, guide through
-  the existing XMLTV source – see [`docs/SAT-IP.md`](docs/SAT-IP.md).
+  device and reception, scan into a separate SAT channel list, reception display, guide from the
+  signal (EIT) and/or from XMLTV – see [`docs/SAT-IP.md`](docs/SAT-IP.md).
 - **Programme guide** from XMLTV (also `.xml.gz`), guide grid.
 - **Mediathek** of the public broadcasters: series with seasons, films, search; versions merged;
   continue watching, next episode automatically.

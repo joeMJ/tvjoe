@@ -18,11 +18,12 @@ M3U-Liste gehört immer zur TV-Senderliste.
 
 ## Programm eintragen (XMLTV)
 
-In der Verwaltung **EPG-Quellen …**: eine XMLTV-Datei oder -Adresse eintragen (auch `.xml.gz`).
-tvjoe ordnet die Sender über die Kennung aus der M3U oder über den Namen zu; die Spalte **EPG**
-der Verwaltung zeigt, wie (automatisch, unscharf, manuell). Über das Kontextmenü
-**EPG-Zuordnung …** lässt sich ein Sender von Hand zuordnen. Wie oft das Programm neu geladen
-wird, steht unter **Einstellungen → Programm**.
+Unter **Einstellungen → Empfang → XMLTV-Quellen** (oder in der Verwaltung **EPG-Quellen …**) eine
+XMLTV-Datei oder -Adresse anlegen und betiteln (auch `.xml.gz`). Auf der Seite der Empfangsquelle
+(z. B. **Internet-TV**) wählen, welche XMLTV-Quellen sie nutzt, und wie oft sie neu geladen werden;
+ohne Quelle laufen die Sender ohne Programm. tvjoe ordnet die Sender über die Kennung aus der M3U
+oder über den Namen zu; die Spalte **EPG** der Verwaltung zeigt, wie (automatisch, unscharf,
+manuell). Über das Kontextmenü **EPG-Zuordnung …** lässt sich ein Sender von Hand zuordnen.
 
 ## Senderliste sortieren
 
@@ -41,9 +42,9 @@ Die Senderliste über dem Bild nimmt Verschiebungen per Ziehen ebenfalls an.
 
 ## Anzeige einstellen
 
-- **Einstellungen → Senderanzeige:** was die Einblendung zeigt (Nummer, Quellsymbol, Logo,
-  Kategorie, Qualität, Jetzt/Danach, Beschreibung). Die Logos lassen sich für Internet- und
-  SAT-Sender getrennt abschalten; das gilt auch für Info und Senderliste.
+- **Einstellungen → Senderanzeige:** was die Einblendung zeigt (Nummer, Quellsymbol, Kategorie,
+  Qualität, Jetzt/Danach, Beschreibung). Die Senderlogos schaltet jede Empfangsquelle auf ihrer
+  Seite unter **Einstellungen → Empfang** ein und aus; das gilt auch für Info und Senderliste.
 - **Einstellungen → Qualität:** gewünschte Stufe, Obergrenze, Verhalten bei Störungen und
   **Zeilensprung entfernen** (gegen Kammstreifen bei Bewegung, z. B. SD-Sender über SAT; wirkt nur
   bei Zeilensprung-Bildern und kostet bei Software-Decoding etwas Rechenzeit).

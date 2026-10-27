@@ -1,9 +1,9 @@
 # SAT>IP: Satellit über das Heimnetz
 
-tvjoe kann einen SAT>IP-Empfänger im Heimnetz als eigene Quelle „SAT“ nutzen. Getestet ist die
-EyeTV Netstream 4Sat (Firmware 1.1.0) am Satelliten Astra 19,2° Ost. Die SAT-Quelle hat eine
-eigene Senderliste neben der TV-Liste aus M3U; umgeschaltet wird mit dem Schüssel-Knopf im
-Quellenumschalter der Kopfleiste.
+tvjoe kann einen SAT>IP-Empfänger im Heimnetz als eigene Empfangsquelle „SAT“ nutzen. Getestet
+ist die EyeTV Netstream 4Sat (Firmware 1.1.0) am Satelliten Astra 19,2° Ost. Die SAT-Quelle hat
+eine eigene Senderliste, Sortierung und ein eigenes Programm neben Internet-TV aus M3U;
+umgeschaltet wird mit dem Schüssel-Knopf im Quellenumschalter der Kopfleiste.
 
 <p align="center">
   <img src="screenshots/sat.webp" alt="SAT-Sender im Hauptfenster" width="760">
@@ -13,9 +13,9 @@ Quellenumschalter der Kopfleiste.
 
 ## Einrichten
 
-**Einstellungen → SAT>IP:**
+**Einstellungen → Empfang**, dort die Zeile **EyeTV Netstream 4Sat** einschalten und öffnen:
 
-1. **SAT-Quelle verwenden** einschalten.
+1. **Gerätebeschreibung:** welches Gerät (siehe [Eigene Gerätebeschreibung](#eigene-gerätebeschreibung)).
 2. **Adresse des SAT>IP-Geräts** eintragen (IP-Adresse; das Gerät meldet sich nicht von selbst).
 3. **Prüfen:** tvjoe stimmt je Tuner einen Transponder ab, zeigt Name, Firmware, Tuner mit Signal
    und Qualität und prüft, ob der Datenstrom ankommt.
@@ -27,7 +27,7 @@ Quellenumschalter der Kopfleiste.
 <p align="center">
   <img src="screenshots/einstellungen-sat.webp" alt="Einstellungen, Reiter SAT>IP mit Adresse, Prüfen und Suchlauf" width="760">
   <br>
-  <em>Einstellungen → SAT>IP (Beispieladresse)</em>
+  <em>Einrichtung des SAT>IP-Geräts (Beispieladresse; Bild aus einer älteren Fassung mit eigenem Reiter „SAT>IP“)</em>
 </p>
 
 Ein erneuter Suchlauf behält Nummern, eigene Namen, Favoriten und den Aktiv-Zustand. Neu
@@ -37,14 +37,27 @@ laufender SAT-Quelle), siehe [ERSTE-SCHRITTE.md](ERSTE-SCHRITTE.md#senderliste-s
 
 ## Programm, Logos, Empfang
 
-- **Programm:** Die SAT-Sender werden über ihren Namen derselben XMLTV-Quelle zugeordnet wie die
-  TV-Sender. Ein eigenes Programm aus dem Satelliten (EIT) liest tvjoe nicht.
+- **Programm:** Je Sender in der Verwaltung wählbar: **Aus dem SAT-Empfang** (Programminformation
+  EIT aus dem Signal, je nach Sender für mehrere Tage; gesammelt im Abstand „Aus dem Signal
+  sammeln alle“) oder eine XMLTV-Quelle. Welche XMLTV-Quellen die SAT-Quelle nutzt, steht auf
+  ihrer Seite unter **Einstellungen → Empfang**; keine ist Pflicht.
 - **Logos:** Für SAT-Sender ohne Logo nimmt tvjoe das Logo des gleichen Senders aus der TV-Liste,
   das Senderlogo aus der XMLTV-Quelle oder eines aus der
-  [Kodinerds-Logosammlung](https://github.com/jnk22/kodinerds-iptv). Logos lassen sich unter
-  **Einstellungen → Senderanzeige** für SAT getrennt abschalten.
+  [Kodinerds-Logosammlung](https://github.com/jnk22/kodinerds-iptv). Logos lassen sich auf der
+  Seite der SAT-Quelle (**Einstellungen → Empfang**) getrennt abschalten.
 - **Empfang:** Die Einblendung zeigt nach dem Umschalten in einer eigenen Zeile Signal und
   Qualität, die Info (Taste I) zusätzlich Tuner und Frequenz.
+
+## Eigene Gerätebeschreibung
+
+Die Eigenheiten eines Geräts stehen in einer Beschreibung (TOML), nicht im Programm. Mitgeliefert
+ist `netstream-4sat.toml` ([data/adapter](../data/adapter/netstream-4sat.toml)): Treiber `satip`,
+Zahl der Tuner, Empfangsarten, Satellit mit Orbitalposition und Starttransponder des Suchlaufs.
+Eine eigene Beschreibung kommt in den Ordner `adapter` der Konfiguration (Linux
+`~/.config/tvjoe/adapter/`, Windows `%APPDATA%\tvjoe\adapter\`); gleiche Kennung (`id`)
+ersetzt die mitgelieferte. Sie erscheint dann unter **Gerätebeschreibung**. Eine Beschreibung kann
+nur vorhandene Treiber nutzen; RTP über TCP und dauerhafte RTSP-Verbindungen kann der
+SAT>IP-Treiber noch nicht.
 
 ## Wie die Wiedergabe funktioniert
 

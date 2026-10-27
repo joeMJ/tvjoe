@@ -108,7 +108,7 @@ SAT>IP-Empfänger.
   mit; neue Sender aus Import oder Suchlauf kommen inaktiv ans Ende und stören die Sortierung nicht.
 - **SAT-Quelle** über einen SAT>IP-Empfänger (z. B. EyeTV Netstream 4Sat, Astra 19,2° Ost):
   Prüfen von Gerät und Empfang, Suchlauf in eine eigene SAT-Senderliste, Empfangsanzeige,
-  Programm über die vorhandene XMLTV-Quelle – siehe [`docs/SAT-IP.md`](docs/SAT-IP.md).
+  Programm aus dem Signal (EIT) und/oder aus XMLTV – siehe [`docs/SAT-IP.md`](docs/SAT-IP.md).
 - **Programmführer** aus XMLTV (auch `.xml.gz`), Programmraster.
 - **Mediathek** der öffentlich-rechtlichen Sender: Serien mit Staffeln, Filme, Suche; Fassungen
   zusammengefasst; Weitersehen, nächste Folge automatisch.
