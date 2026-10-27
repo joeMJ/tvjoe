@@ -423,13 +423,17 @@ pub fn sync_jobs(app: &crate::app::App) {
     let Ok(ix) = crate::dienst::index() else { return };
     let mut keep: HashSet<String> = HashSet::new();
     for t in ix.timers() {
-        let Some((_, url, bitrate)) = app.record_source(t.channel_id, t.sat) else {
+        // Der Dienst kennt Internet-TV und SAT>IP (weitere Empfangsquellen nicht).
+        if t.source > tvjoe_core::settings::SRC_SAT {
+            continue;
+        }
+        let Some((_, url, bitrate)) = app.record_source(t.channel_id, t.source) else {
             continue;
         };
         let job = Job {
             id: t.id,
             channel_id: t.channel_id,
-            sat: t.sat,
+            sat: t.source == tvjoe_core::settings::SRC_SAT,
             channel: t.channel.clone(),
             title: t.title.clone(),
             url,

@@ -11,6 +11,7 @@ use gtk::{gdk, gio, glib};
 use tvjoe_core::{Channel, NumberTaken, Quality, net, paths, tf, tr};
 
 use crate::app::App;
+use tvjoe_core::settings::SRC_TV;
 
 pub struct Manager {
     pub app: Rc<App>,
@@ -878,13 +879,11 @@ impl Manager {
     }
 }
 
-/// M3U-Übernahme gilt der TV-Senderliste: läuft die SAT-Quelle, nach Hinweis auf TV
-/// umschalten und die Verwaltung der TV-Liste öffnen.
 /// Übernahme in die Internet-TV-Senderliste aus den Einstellungen (Empfang → Internet-TV):
 /// ggf. auf Internet-TV umschalten, Verwaltung öffnen, Übernahme aus Datei bzw. URL starten.
 pub fn import_tv(app: &Rc<App>, from_url: bool) {
-    if app.is_sat() {
-        app.switch_live(false);
+    if app.active_source() != SRC_TV {
+        app.switch_live(SRC_TV);
     }
     if let Some(m) = open_manager(app) {
         if from_url {
@@ -895,8 +894,10 @@ pub fn import_tv(app: &Rc<App>, from_url: bool) {
     }
 }
 
+/// M3U-Übernahme gilt der TV-Senderliste: läuft eine andere Empfangsquelle, nach Hinweis auf
+/// TV umschalten und die Verwaltung der TV-Liste öffnen.
 fn with_tv_list(parent: &gtk::Button, m: &Rc<Manager>, f: fn(&Rc<Manager>)) {
-    if !m.app.is_sat() {
+    if m.app.active_source() == SRC_TV {
         f(m);
         return;
     }
@@ -910,7 +911,7 @@ fn with_tv_list(parent: &gtk::Button, m: &Rc<Manager>, f: fn(&Rc<Manager>)) {
     d.set_close_response("cancel");
     let app = m.app.clone();
     d.connect_response(Some("ok"), move |_, _| {
-        app.switch_live(false);
+        app.switch_live(SRC_TV);
         if let Some(m) = open_manager(&app) {
             f(&m);
         }

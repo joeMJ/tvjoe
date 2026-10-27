@@ -100,9 +100,10 @@ pub struct Entry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Timer {
     pub id: i64,
-    /// Sender in der Fernseh- bzw. SAT-Liste.
+    /// Sender in der Senderliste der Empfangsquelle `source` (Nummer: Internet-TV 0, SAT 1,
+    /// weitere ab 2; Spalte `sat` der Tabelle, früher 0/1 für TV/SAT).
     pub channel_id: u64,
-    pub sat: bool,
+    pub source: u32,
     pub channel: String,
     pub title: String,
     /// Sendezeit laut Programm (Sekunden seit 1970), ohne Vor- und Nachlauf.
@@ -336,7 +337,7 @@ impl Index {
                  VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     t.channel_id as i64,
-                    t.sat,
+                    t.source,
                     t.channel,
                     t.title,
                     t.start,
@@ -375,7 +376,7 @@ impl Index {
             Ok(Timer {
                 id: r.get(0)?,
                 channel_id: r.get::<_, i64>(1)? as u64,
-                sat: r.get(2)?,
+                source: r.get(2)?,
                 channel: r.get(3)?,
                 title: r.get(4)?,
                 start: r.get(5)?,
@@ -387,10 +388,10 @@ impl Index {
     }
 
     /// Geplante Aufnahme einer Sendung (Sender und Beginn).
-    pub fn timer_for(&self, channel_id: u64, sat: bool, start: i64) -> Option<Timer> {
+    pub fn timer_for(&self, channel_id: u64, source: u32, start: i64) -> Option<Timer> {
         self.timers()
             .into_iter()
-            .find(|t| t.channel_id == channel_id && t.sat == sat && t.start == start)
+            .find(|t| t.channel_id == channel_id && t.source == source && t.start == start)
     }
 }
 
@@ -639,14 +640,14 @@ mod tests {
         let t = Timer {
             id: 0,
             channel_id: 7,
-            sat: true,
+            source: 1,
             channel: "3sat HD".into(),
             title: "Kulturzeit".into(),
             start: 100,
             stop: 200,
         };
         let id = ix.add_timer(&t).unwrap();
-        assert!(ix.timer_for(7, true, 100).is_some());
+        assert!(ix.timer_for(7, 1, 100).is_some());
         ix.remove_timer(id);
         assert!(ix.timers().is_empty());
     }

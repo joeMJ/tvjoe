@@ -12,6 +12,11 @@ pub const SATELLITE: &str = "tvjoe-satellite-symbolic";
 
 const SATELLITE_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g fill="#2e3436"><path d="M1.5 2.8C0.2 8.6 4.6 13.4 10.8 12.6Z"/><path d="M5.1 7.4L10.4 2.1L11.6 3.3L6.3 8.6Z"/><circle cx="11.9" cy="2.3" r="1.3"/><path d="M4.9 11h1.8l1.1 3.1H3.8z"/><rect x="2" y="14" width="8" height="1.6" rx="0.5"/></g></svg>"##;
 
+/// Dachantenne (Empfangsquellen über eine DVB-Karte: Antenne, Kabel, Satellit am Kabel).
+pub const ANTENNA: &str = "tvjoe-antenna-symbolic";
+
+const ANTENNA_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g fill="#2e3436"><rect x="7.2" y="4" width="1.6" height="11.5" rx="0.5"/><rect x="1" y="4" width="14" height="1.5" rx="0.5"/><rect x="2" y="1" width="1.4" height="7" rx="0.5"/><rect x="5.2" y="1.5" width="1.4" height="6" rx="0.5"/><rect x="9.4" y="2" width="1.4" height="5" rx="0.5"/><rect x="12.6" y="2.5" width="1.4" height="4" rx="0.5"/></g></svg>"##;
+
 /// Schwarze Balken abschneiden (Bildrahmen mit Balken oben und unten).
 pub const CROP: &str = "tvjoe-crop-symbolic";
 
@@ -33,7 +38,7 @@ pub fn dir() -> Option<PathBuf> {
 /// Eigene Symbole ablegen (beim Start).
 pub fn install() {
     let Some(dir) = dir() else { return };
-    for (name, svg) in [(SATELLITE, SATELLITE_SVG), (CROP, CROP_SVG)] {
+    for (name, svg) in [(SATELLITE, SATELLITE_SVG), (ANTENNA, ANTENNA_SVG), (CROP, CROP_SVG)] {
         let path = dir.join(format!("{name}.svg"));
         if std::fs::read_to_string(&path).ok().as_deref() != Some(svg) {
             let _ = std::fs::write(&path, svg);

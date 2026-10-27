@@ -112,7 +112,7 @@ pub fn prefs_page(
 /// Unterzeile einer Empfangsquelle: Art, ggf. Gerät, Zahl der Sender.
 fn source_summary(app: &App, a: &Adapter) -> String {
     let sat = a.id == ADAPTER_SAT;
-    let n = app.list_len(sat) as u64;
+    let n = app.list_len(a.num) as u64;
     let channels = trn("{n} Sender", "{n} Sender", n);
     if sat {
         if a.host.trim().is_empty() {
@@ -367,7 +367,7 @@ fn fill_lists(app: &Rc<App>, group: &adw::PreferencesGroup, rows: &Rc<RefCell<Ve
     for r in rows.borrow_mut().drain(..) {
         group.remove(&r);
     }
-    let sources = app.with_list(false, |lib| {
+    let sources = app.with_list(tvjoe_core::settings::SRC_TV, |lib| {
         lib.sources
             .iter()
             .map(|s| {

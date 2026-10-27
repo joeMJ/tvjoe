@@ -23,6 +23,16 @@ pub fn settings_path() -> Option<PathBuf> {
     config_dir().map(|d| d.join("settings.toml"))
 }
 
+/// Senderliste einer Empfangsquelle: Internet-TV `library.toml`, SAT `satip.toml`, weitere
+/// `listen/<kennung>.toml`.
+pub fn source_library_path(adapter_id: &str) -> Option<PathBuf> {
+    match adapter_id {
+        crate::settings::ADAPTER_TV => library_path(),
+        crate::settings::ADAPTER_SAT => satip_library_path(),
+        id => config_dir().map(|d| d.join("listen").join(format!("{id}.toml"))),
+    }
+}
+
 /// Senderliste der SAT-Quelle (aus dem Suchlauf).
 pub fn satip_library_path() -> Option<PathBuf> {
     config_dir().map(|d| d.join("satip.toml"))

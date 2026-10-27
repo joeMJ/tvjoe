@@ -91,7 +91,7 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
         rows.append(&ticks);
     }
 
-    let sat = app.is_sat();
+    let src = app.active_source();
     let lib = app.library();
     if let Some(guide) = guide.as_deref() {
     for ch in lib
@@ -146,7 +146,7 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
             let dot = gtk::Label::builder()
                 .label("●")
                 .css_classes(["tvjoe-rec"])
-                .visible(crate::ablage::timer_for(ch.id, sat, p.start).is_some())
+                .visible(crate::ablage::timer_for(ch.id, src, p.start).is_some())
                 .build();
             let content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
             content.append(&dot);
@@ -170,7 +170,7 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
                     let mut out: Vec<(String, Box<dyn Fn()>)> = Vec::new();
                     let Some(app) = weak.upgrade() else { return out };
                     let dot = dot.clone();
-                    match crate::ablage::timer_for(cid, sat, start) {
+                    match crate::ablage::timer_for(cid, src, start) {
                         Some(t) => out.push((
                             tr("Planung löschen").into(),
                             Box::new(move || {
@@ -182,7 +182,7 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
                             let t = tvjoe_core::ablage::Timer {
                                 id: 0,
                                 channel_id: cid,
-                                sat,
+                                source: src,
                                 channel: name.clone(),
                                 title: title.clone(),
                                 start,

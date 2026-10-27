@@ -353,7 +353,7 @@ fn run_scan(
                         Ok(services) => {
                             let text = save_scan(&host, &services);
                             if let Some(app) = app.upgrade() {
-                                app.reload_sat_list();
+                                app.reload_list(tvjoe_core::settings::SRC_SAT);
                             }
                             text
                         }

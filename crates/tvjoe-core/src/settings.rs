@@ -152,12 +152,18 @@ pub struct Settings {
     /// werden, damit ältere Fassungen sie lesen.
     #[serde(rename = "adapter", skip_serializing_if = "Vec::is_empty")]
     pub adapters: Vec<Adapter>,
+    /// Zuletzt gezeigte Empfangsquelle (Nummer); fehlt sie, gilt `satip_active`.
+    pub active_source: Option<u32>,
 }
 
 /// Kennung der Empfangsquelle mit der Senderliste `library.toml` (Internet-TV).
 pub const ADAPTER_TV: &str = "tv";
 /// Kennung der Empfangsquelle mit der Senderliste `satip.toml` (SAT>IP).
 pub const ADAPTER_SAT: &str = "sat";
+/// Nummer der Empfangsquelle Internet-TV (auch in gespeicherten Planungen: früher „SAT nein“).
+pub const SRC_TV: u32 = 0;
+/// Nummer der Empfangsquelle SAT>IP (früher „SAT ja“).
+pub const SRC_SAT: u32 = 1;
 
 /// Eine XMLTV-Quelle (Datei oder URL) mit eigenem Titel.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,8 +178,12 @@ pub struct XmltvSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Adapter {
-    /// `tv` oder `sat` (bestimmt die Senderliste).
+    /// `tv`, `sat` oder für weitere Quellen z. B. `dvb-2` (bestimmt die Senderliste).
     pub id: String,
+    /// Feste Nummer (Internet-TV 0, SAT 1, weitere ab 2); kennzeichnet Planungen und Aufnahmen.
+    pub num: u32,
+    /// Zuletzt gesehener Sender.
+    pub last_channel: Option<u64>,
     /// Kennung der Beschreibung (`iptv-m3u`, `netstream-4sat`, …).
     pub kind: String,
     pub enabled: bool,
@@ -195,6 +205,8 @@ impl Default for Adapter {
     fn default() -> Self {
         Self {
             id: String::new(),
+            num: 0,
+            last_channel: None,
             kind: String::new(),
             enabled: true,
             host: String::new(),
@@ -274,6 +286,7 @@ impl Default for Settings {
             language: String::new(),
             xmltv_sources: Vec::new(),
             adapters: Vec::new(),
+            active_source: None,
             jellyfin_hidden: crate::jellyfin_lib::HIDDEN_DEFAULT
                 .iter()
                 .map(|s| s.to_string())
@@ -324,6 +337,8 @@ impl Settings {
         if self.adapter(ADAPTER_TV).is_none() {
             self.adapters.push(Adapter {
                 id: ADAPTER_TV.into(),
+                num: SRC_TV,
+                last_channel: self.last_channel,
                 kind: "iptv-m3u".into(),
                 enabled: true,
                 xmltv: all.clone(),
@@ -336,6 +351,8 @@ impl Settings {
         if self.adapter(ADAPTER_SAT).is_none() {
             self.adapters.push(Adapter {
                 id: ADAPTER_SAT.into(),
+                num: SRC_SAT,
+                last_channel: self.satip_last_channel,
                 kind: "netstream-4sat".into(),
                 enabled: self.satip_enabled,
                 host: self.satip_host.clone(),
@@ -346,22 +363,44 @@ impl Settings {
                 record_max: self.record_max_sat,
             });
         }
+        // Einträge aus 0.0.17 (ohne Nummer und letzten Sender) ergänzen.
+        let (tv_last, sat_last) = (self.last_channel, self.satip_last_channel);
+        for a in &mut self.adapters {
+            match a.id.as_str() {
+                ADAPTER_TV => {
+                    a.num = SRC_TV;
+                    a.last_channel = a.last_channel.or(tv_last);
+                }
+                ADAPTER_SAT => {
+                    a.num = SRC_SAT;
+                    a.last_channel = a.last_channel.or(sat_last);
+                }
+                _ => {}
+            }
+        }
+        if self.active_source.is_none() {
+            self.active_source = Some(if self.satip_active { SRC_SAT } else { SRC_TV });
+        }
     }
 
     /// Ältere Felder aus den Empfangsquellen setzen (für ältere Fassungen beim Zurückwechseln).
     fn sync_legacy(&mut self) {
         if let Some(tv) = self.adapter(ADAPTER_TV).cloned() {
+            self.last_channel = tv.last_channel;
             self.epg_refresh_hours = tv.xmltv_hours;
             self.osd_logo = tv.logos;
             self.record_max_internet = tv.record_max;
         }
         if let Some(sat) = self.adapter(ADAPTER_SAT).cloned() {
             self.satip_enabled = sat.enabled;
+            self.satip_last_channel = sat.last_channel;
             self.satip_host = sat.host.clone();
             self.sat_epg_hours = sat.signal_epg_hours;
             self.sat_logo = sat.logos;
             self.record_max_sat = sat.record_max;
         }
+        // Ältere Fassungen kennen nur Internet-TV und SAT.
+        self.satip_active = self.active_source == Some(SRC_SAT);
         // Ältere Fassungen kennen nur eine gemeinsame Liste: alle genutzten Quellen.
         let mut used = Vec::new();
         for a in &self.adapters {
@@ -377,6 +416,43 @@ impl Settings {
     /// Empfangsquelle nach Kennung.
     pub fn adapter(&self, id: &str) -> Option<&Adapter> {
         self.adapters.iter().find(|a| a.id == id)
+    }
+
+    /// Empfangsquelle nach Nummer.
+    pub fn source(&self, num: u32) -> Option<&Adapter> {
+        self.adapters.iter().find(|a| a.num == num)
+    }
+
+    /// Empfangsquelle nach Nummer, veränderbar.
+    pub fn source_mut(&mut self, num: u32) -> Option<&mut Adapter> {
+        self.migrate();
+        self.adapters.iter_mut().find(|a| a.num == num)
+    }
+
+    /// Nummern der eingeschalteten Empfangsquellen, aufsteigend.
+    pub fn enabled_sources(&self) -> Vec<u32> {
+        let mut v: Vec<u32> = self.adapters.iter().filter(|a| a.enabled).map(|a| a.num).collect();
+        if self.adapters.is_empty() {
+            v.push(SRC_TV);
+            if self.satip_enabled {
+                v.push(SRC_SAT);
+            }
+        }
+        v.sort_unstable();
+        v
+    }
+
+    /// Neue Empfangsquelle nach einer Beschreibung anlegen (Nummer ab 2); gibt die Nummer zurück.
+    pub fn add_source(&mut self, kind: &str, prefix: &str) -> u32 {
+        self.migrate();
+        let num = self.adapters.iter().map(|a| a.num).max().unwrap_or(SRC_SAT).max(SRC_SAT) + 1;
+        self.adapters.push(Adapter {
+            id: format!("{prefix}-{num}"),
+            num,
+            kind: kind.to_string(),
+            ..Adapter::default()
+        });
+        num
     }
 
     /// Empfangsquelle nach Kennung (legt fehlende aus den älteren Feldern an).

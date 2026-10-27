@@ -18,6 +18,7 @@ use tvjoe_core::ablage::{self, Art, Index, Progress, State, Timer};
 use tvjoe_core::jellyfin_lib::Item;
 use tvjoe_core::mediathek::Film;
 use tvjoe_core::paths;
+use tvjoe_core::settings::{SRC_SAT, SRC_TV};
 use tvjoe_core::{tf, tr, trn};
 
 use crate::app::App;
@@ -68,7 +69,8 @@ enum Recorder {
 
 struct Rec {
     id: i64,
-    sat: bool,
+    /// Empfangsquelle (Nummer).
+    source: u32,
     channel_id: u64,
     /// Ende (Sekunden seit 1970) mit Nachlauf.
     stop_at: i64,
@@ -951,7 +953,7 @@ fn run_fetch(
 /// die laufende Aufnahme dieses Senders beenden.
 pub fn toggle_record(app: &Rc<App>) {
     let Some(a) = get() else { return };
-    let Some((cid, sat)) = app.current_live() else {
+    let Some((cid, src)) = app.current_live() else {
         app.message(tr("Aufnehmen geht beim Fernsehen (nicht bei Abrufvideos)"));
         return;
     };
@@ -963,24 +965,24 @@ pub fn toggle_record(app: &Rc<App>) {
             .index
             .timers()
             .into_iter()
-            .find(|t| t.channel_id == cid && t.sat == sat && t.start <= now + 60 && now < t.stop + post);
+            .find(|t| t.channel_id == cid && t.source == src && t.start <= now + 60 && now < t.stop + post);
         if let Some(t) = current {
             a.index.remove_timer(t.id);
             app.message(&tf!("Aufnahme wird beendet: {title}", title = t.title));
             return;
         }
         let (title, stop) = app
-            .programme_now(cid, sat)
+            .programme_now(cid, src)
             .map(|(t, _, stop)| (t, stop))
             .unwrap_or_else(|| (String::new(), now + 4 * 3600));
         let name = app
-            .record_source(cid, sat)
+            .record_source(cid, src)
             .map(|(n, _, _)| n)
             .unwrap_or_default();
         let timer = Timer {
             id: 0,
             channel_id: cid,
-            sat,
+            source: src,
             channel: name.clone(),
             title: if title.is_empty() { name } else { title },
             // Vorlauf zählt der Dienst ab: so beginnt die Aufnahme sofort.
@@ -1005,30 +1007,42 @@ pub fn toggle_record(app: &Rc<App>) {
         .recs
         .borrow()
         .iter()
-        .position(|r| r.channel_id == cid && r.sat == sat);
+        .position(|r| r.channel_id == cid && r.source == src);
     if let Some(i) = running {
         a.stop(i);
         return;
     }
     let now = ablage::now();
     let post = i64::from(app.settings().record_post_min) * 60;
-    let (title, stop_at) = match app.programme_now(cid, sat) {
+    let (title, stop_at) = match app.programme_now(cid, src) {
         Some((title, _, stop)) => (title, stop + post),
         // Ohne Programm: höchstens vier Stunden, vorher mit R beenden.
         None => (String::new(), now + 4 * 3600),
     };
-    a.start_rec(app, cid, sat, &title, stop_at, None);
+    a.start_rec(app, cid, src, &title, stop_at, None);
+}
+
+/// Kennung einer Empfangsquelle in der Ablage und im Aufnahmeordner (`tv`, `sat`, `dvb-2` …).
+pub fn source_key(app: &App, src: u32) -> String {
+    app.settings()
+        .source(src)
+        .map(|a| a.id.clone())
+        .unwrap_or_else(|| if src == SRC_SAT { "sat".into() } else { "tv".into() })
 }
 
 /// Läuft eine Aufnahme dieses Senders?
-pub fn is_recording(channel_id: u64, sat: bool) -> bool {
+pub fn is_recording(channel_id: u64, src: u32) -> bool {
     get().is_some_and(|a| {
-        let source = if sat { "sat" } else { "tv" };
+        let source = a
+            .app
+            .upgrade()
+            .map(|app| source_key(&app, src))
+            .unwrap_or_default();
         let prefix = format!("{channel_id}@");
         a.recs
             .borrow()
             .iter()
-            .any(|r| r.channel_id == channel_id && r.sat == sat)
+            .any(|r| r.channel_id == channel_id && r.source == src)
             // Aufnahmen des Dienstes (eigener Vorgang, im Verzeichnis „lädt“).
             || a.index
                 .running_recordings()
@@ -1038,8 +1052,8 @@ pub fn is_recording(channel_id: u64, sat: bool) -> bool {
 }
 
 /// Geplante Aufnahme einer Sendung.
-pub fn timer_for(channel_id: u64, sat: bool, start: i64) -> Option<Timer> {
-    get()?.index.timer_for(channel_id, sat, start)
+pub fn timer_for(channel_id: u64, src: u32, start: i64) -> Option<Timer> {
+    get()?.index.timer_for(channel_id, src, start)
 }
 
 /// Aufnahme einer Sendung planen.
@@ -1133,7 +1147,7 @@ impl Ablage {
         &self,
         app: &Rc<App>,
         cid: u64,
-        sat: bool,
+        src: u32,
         title: &str,
         stop_at: i64,
         timer_id: Option<i64>,
@@ -1141,34 +1155,32 @@ impl Ablage {
         let (max, min_free, queue_bytes) = {
             let s = app.settings();
             (
-                {
-                    let id = if sat {
-                        tvjoe_core::settings::ADAPTER_SAT
-                    } else {
-                        tvjoe_core::settings::ADAPTER_TV
-                    };
-                    s.adapter(id).map_or(0, |a| a.record_max)
-                },
+                s.source(src).map_or(0, |a| a.record_max),
                 gb(s.min_free_gb),
                 u64::from(s.buffer_mb) << 19,
             )
         };
-        let running = self.recs.borrow().iter().filter(|r| r.sat == sat).count();
+        let running = self.recs.borrow().iter().filter(|r| r.source == src).count();
         if max > 0 && running >= max as usize {
-            app.message(&if sat {
-                tf!(
+            app.message(&match src {
+                SRC_SAT => tf!(
                     "Keine weitere SAT-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Empfang)",
                     max = max
-                )
-            } else {
-                tf!(
+                ),
+                SRC_TV => tf!(
                     "Keine weitere Internet-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Empfang)",
                     max = max
-                )
+                ),
+                _ => tf!(
+                    "Keine weitere Aufnahme über „{source}“: höchstens {max} gleichzeitig (Einstellungen → Empfang)",
+                    source = app.source_title(src),
+                    max = max
+                ),
             });
             return;
         }
-        let dir = sub_dir(app, Art::Recording, if sat { "sat" } else { "tv" });
+        let key = source_key(app, src);
+        let dir = sub_dir(app, Art::Recording, &key);
         if free_bytes(&dir).is_some_and(|f| f < min_free) {
             app.message(&tf!(
                 "Aufnahme nicht gestartet: zu wenig Platz in {dir}",
@@ -1176,17 +1188,16 @@ impl Ablage {
             ));
             return;
         }
-        let Some((name, url, bitrate)) = app.record_source(cid, sat) else {
+        let Some((name, url, bitrate)) = app.record_source(cid, src) else {
             app.message(tr("Aufnahme nicht gestartet: Sender nicht gefunden"));
             return;
         };
         let title = if title.is_empty() { name.clone() } else { title.to_string() };
         let now = ablage::now();
         let path = ablage::unique_path(&dir.join(ablage::show_name(&name, &title, &stamp(now), "ts")));
-        let source = if sat { "sat" } else { "tv" };
         let id = match self.index.add(
             Art::Recording,
-            source,
+            &key,
             &format!("{cid}@{now}"),
             &title,
             &name,
@@ -1198,7 +1209,7 @@ impl Ablage {
                 return;
             }
         };
-        let rec = if sat {
+        let rec = if app.driver_of(src) == tvjoe_core::adapter::Driver::Satip {
             match tvjoe_core::satip::Recorder::start(&url, &path, queue_bytes) {
                 Ok(r) => Recorder::Sat(r),
                 Err(e) => {
@@ -1226,7 +1237,7 @@ impl Ablage {
         self.index.set_state(id, State::Loading, None);
         self.recs.borrow_mut().push(Rec {
             id,
-            sat,
+            source: src,
             channel_id: cid,
             stop_at,
             timer_id,
@@ -1304,7 +1315,7 @@ impl Ablage {
                     self.index.remove_timer(t.id);
                 }
             } else if now >= begin && !running && !low {
-                self.start_rec(&app, t.channel_id, t.sat, &t.title, end, Some(t.id));
+                self.start_rec(&app, t.channel_id, t.source, &t.title, end, Some(t.id));
             }
         }
     }

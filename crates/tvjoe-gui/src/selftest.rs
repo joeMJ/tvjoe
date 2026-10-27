@@ -508,7 +508,7 @@ const README_STEPS: &[Step] = &[
         "readme-04-sat",
         |p| {
             p.app.toggle_info();
-            p.app.switch_live(true);
+            p.app.switch_live(tvjoe_core::settings::SRC_SAT);
             main_window(p)
         },
         6000,
@@ -516,7 +516,7 @@ const README_STEPS: &[Step] = &[
     (
         "readme-05-einstellungen-sat",
         |p| {
-            crate::prefs::open_at(&p.app, Some("satip"), &p.app.window);
+            crate::prefs::open_at(&p.app, Some("empfang"), &p.app.window);
             main_window(p)
         },
         2000,
@@ -527,7 +527,7 @@ const README_STEPS: &[Step] = &[
             if let Some(d) = adw::prelude::AdwApplicationWindowExt::visible_dialog(&p.app.window) {
                 adw::prelude::AdwDialogExt::close(&d);
             }
-            p.app.switch_live(false);
+            p.app.switch_live(tvjoe_core::settings::SRC_TV);
             crate::grid::open(&p.app);
             main_window(p)
         },

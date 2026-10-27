@@ -112,12 +112,11 @@ pub fn run_one(timer_id: i64) -> i32 {
 /// Eine geplante Aufnahme bis Sendungsende plus Nachlauf bzw. bis zur Löschung aus dem Plan.
 fn record(t: &Timer) -> Result<(), String> {
     let s = settings();
-    let lib_path = if t.sat {
-        paths::satip_library_path()
-    } else {
-        paths::library_path()
-    };
-    let lib = lib_path
+    let source = s
+        .source(t.source)
+        .map(|a| a.id.clone())
+        .unwrap_or_else(|| tvjoe_core::settings::ADAPTER_TV.into());
+    let lib = paths::source_library_path(&source)
         .and_then(|p| Library::load(&p).ok())
         .ok_or(tr("Senderliste nicht lesbar"))?;
     let ch = lib.channel(t.channel_id).ok_or(tr("Sender nicht gefunden"))?;
@@ -139,10 +138,9 @@ fn record(t: &Timer) -> Result<(), String> {
         "ts",
     )));
     let ix = index()?;
-    let source = if t.sat { "sat" } else { "tv" };
     let id = ix.add(
         Art::Recording,
-        source,
+        &source,
         &format!("{}@{now}", t.channel_id),
         &t.title,
         &name,
@@ -165,7 +163,8 @@ fn record(t: &Timer) -> Result<(), String> {
             || low()
     };
     let queue = u64::from(s.buffer_mb) << 19;
-    let result = record_stream(&url, bitrate, t.sat, &path, queue, &should_stop);
+    let sat = tvjoe_core::satip::split_url(&url).is_some();
+    let result = record_stream(&url, bitrate, sat, &path, queue, &should_stop);
     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     ix.set_size(id, size, size);
     match &result {
