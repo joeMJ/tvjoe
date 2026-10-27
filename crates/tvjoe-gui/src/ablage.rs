@@ -395,8 +395,8 @@ pub fn local_file(source: &str, key: &str) -> Option<PathBuf> {
     Some(e.path)
 }
 
-/// Einträge einer Herkunft in der Ablage (ohne Fehlgeschlagene), neueste zuerst; je Kennung
-/// nur einmal (Download vor Zwischenspeicher).
+/// Heruntergeladenes einer Herkunft (laufend, wartend oder fertig mit vorhandener Datei; ohne
+/// Zwischengespeichertes), neueste zuerst, je Kennung einmal.
 pub fn stored(source: &str) -> Vec<ablage::Entry> {
     let Some(a) = get() else { return Vec::new() };
     let mut seen = std::collections::HashSet::new();
@@ -404,12 +404,24 @@ pub fn stored(source: &str) -> Vec<ablage::Entry> {
         .index
         .all()
         .into_iter()
-        .filter(|e| e.source == source && e.state != State::Failed)
+        .filter(|e| {
+            e.source == source
+                && e.art == Art::Download
+                && match e.state {
+                    State::Failed => false,
+                    State::Done => e.path.exists(),
+                    _ => true,
+                }
+        })
         .collect();
-    all.sort_by_key(|e| (e.art != Art::Download, -e.created));
-    let mut out: Vec<ablage::Entry> = all.into_iter().filter(|e| seen.insert(e.key.clone())).collect();
-    out.sort_by_key(|e| -e.created);
-    out
+    all.sort_by_key(|e| -e.created);
+    all.retain(|e| seen.insert(e.key.clone()));
+    all
+}
+
+/// Kennungen des Heruntergeladenen einer Herkunft (Schalter „Geladen“).
+pub fn stored_keys(source: &str) -> std::collections::HashSet<String> {
+    stored(source).into_iter().map(|e| e.key).collect()
 }
 
 /// Zustand einer Sendung für Kontextmenü und Kennzeichen.

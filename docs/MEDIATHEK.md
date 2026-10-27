@@ -11,7 +11,12 @@ kommen direkt von den Servern der Sender.
 </p>
 
 - **Episoden, Filme, Suche:** Sendereihen erscheinen als Serien mit Staffeln, Filme einzeln.
-  Oben die Sender als Logos zum Filtern; **Neueste** bzw. **A–Z** sortiert.
+  Oben die Sender als Logos zum Filtern; **Neueste** bzw. **A–Z** sortiert (je Reiter gemerkt).
+- **Geladen:** Der Schalter oben rechts zeigt in allen Reitern nur Heruntergeladenes, gruppiert wie
+  sonst (Serien mit ihren Folgen); dasselbe gibt es bei Jellyfin (Filme, Sammlungen, Serien mit
+  Staffeln).
+- **Fernsehen anhalten:** Solange Mediathek oder Jellyfin offen ist, ruht das Fernsehen; beim
+  Schließen läuft der Sender weiter. Abschaltbar unter **Einstellungen → Bedienung**.
 - **Fassungen:** Untertitel, Originalton und Audiodeskription eines Beitrags sind zu einer Kachel
   zusammengefasst und lassen sich auf der Seite des Beitrags wählen.
 - **Abspielen:** Pause, Spulen, Tonspur (A); tvjoe merkt sich die Stelle und spielt beim nächsten

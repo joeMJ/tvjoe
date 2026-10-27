@@ -1,6 +1,7 @@
 //! Updateprüfung über GitHub-Releases (Projektplan 5c): standardmäßig aus, keine Telemetrie.
 //! Die Abfrage übermittelt die IP-Adresse an GitHub. Herunterladen nur nach Bestätigung;
-//! das Paket wird gegen `SHA256SUMS` aus demselben Release geprüft.
+//! das Paket wird gegen `SHA256SUMS` aus demselben Release geprüft (Windows-MSI: gegen die
+//! eigene Datei `<name>.sha256`).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -95,9 +96,43 @@ impl Release {
             .find(|a| a.name.ends_with(".deb") && a.name.contains(&format!("_{distro}_{arch}")))
     }
 
+    /// Windows-Installer, Namensschema `tvjoe-<version>-windows-<arch>.msi`.
+    pub fn msi_for(&self, arch: &str) -> Option<&Asset> {
+        self.assets
+            .iter()
+            .find(|a| a.name.ends_with(&format!("-windows-{arch}.msi")))
+    }
+
     pub fn sums(&self) -> Option<&Asset> {
         self.assets.iter().find(|a| a.name == "SHA256SUMS")
     }
+
+    /// Prüfsummendatei zu einem Paket: `SHA256SUMS`, sonst `<name>.sha256`.
+    fn sums_for(&self, name: &str) -> Option<&Asset> {
+        let own = format!("{name}.sha256");
+        self.assets
+            .iter()
+            .find(|a| a.name == own)
+            .or_else(|| self.sums())
+    }
+}
+
+/// Paket dieses Systems im Release.
+fn package<'a>(release: &'a Release) -> Result<&'a Asset, String> {
+    if cfg!(windows) {
+        let arch = std::env::consts::ARCH;
+        return release
+            .msi_for(arch)
+            .ok_or_else(|| tf!("Kein Windows-Installer für {arch} im Release", arch = arch));
+    }
+    let distro = distro_tag().ok_or(tr("Distribution unbekannt (/etc/os-release)"))?;
+    release.package_for(&distro, deb_arch()).ok_or_else(|| {
+        tf!(
+            "Kein Paket für {distro}/{arch} im Release",
+            distro = distro,
+            arch = deb_arch()
+        )
+    })
 }
 
 /// Prüfsumme zu einem Dateinamen aus einer `sha256sum`-Ausgabe.
@@ -154,18 +189,9 @@ pub fn check() -> Result<Option<Release>, String> {
 
 /// Lädt das passende Paket und prüft es gegen `SHA256SUMS`. Gibt den Pfad der Datei zurück.
 pub fn download(release: &Release, dir: &Path) -> Result<PathBuf, String> {
-    let distro = distro_tag().ok_or(tr("Distribution unbekannt (/etc/os-release)"))?;
-    let asset = release
-        .package_for(&distro, deb_arch())
-        .ok_or_else(|| {
-            tf!(
-                "Kein Paket für {distro}/{arch} im Release",
-                distro = distro,
-                arch = deb_arch()
-            )
-        })?;
+    let asset = package(release)?;
     let sums = release
-        .sums()
+        .sums_for(&asset.name)
         .ok_or(tr("Release ohne SHA256SUMS – Download abgelehnt"))?;
     let agent = agent();
     let sums_text = String::from_utf8(net::fetch(&agent, &sums.browser_download_url, 1024 * 1024)?)
@@ -188,7 +214,16 @@ pub fn download(release: &Release, dir: &Path) -> Result<PathBuf, String> {
 }
 
 /// Befehl zur Installation eines heruntergeladenen Pakets (wird vor dem Ausführen angezeigt).
+/// Windows: Installer mit Fortschrittsanzeige, pro Benutzer (ohne Administratorrechte).
 pub fn install_command(package: &Path) -> Vec<String> {
+    if cfg!(windows) {
+        return vec![
+            "msiexec".into(),
+            "/i".into(),
+            package.to_string_lossy().into_owned(),
+            "/passive".into(),
+        ];
+    }
     vec![
         "pkexec".into(),
         "apt-get".into(),
@@ -209,7 +244,9 @@ mod tests {
         "assets": [
             {"name": "tvjoe_0.2.0_ubuntu24.04_amd64.deb", "browser_download_url": "https://x.invalid/a.deb", "size": 10},
             {"name": "tvjoe_0.2.0_ubuntu26.04_amd64.deb", "browser_download_url": "https://x.invalid/b.deb", "size": 11},
-            {"name": "SHA256SUMS", "browser_download_url": "https://x.invalid/SHA256SUMS", "size": 1}
+            {"name": "SHA256SUMS", "browser_download_url": "https://x.invalid/SHA256SUMS", "size": 1},
+            {"name": "tvjoe-0.2.0-windows-x86_64.msi", "browser_download_url": "https://x.invalid/c.msi", "size": 12},
+            {"name": "tvjoe-0.2.0-windows-x86_64.msi.sha256", "browser_download_url": "https://x.invalid/c.sha256", "size": 1}
         ]
     }"#;
 
@@ -237,6 +274,14 @@ mod tests {
         assert!(r.package_for("ubuntu22.04", "amd64").is_none());
         assert!(r.package_for("ubuntu26.04", "arm64").is_none());
         assert!(r.sums().is_some());
+        let msi = r.msi_for("x86_64").unwrap();
+        assert_eq!(msi.browser_download_url, "https://x.invalid/c.msi");
+        assert_eq!(
+            r.sums_for(&msi.name).unwrap().browser_download_url,
+            "https://x.invalid/c.sha256"
+        );
+        assert_eq!(r.sums_for("tvjoe_0.2.0_ubuntu26.04_amd64.deb").unwrap().name, "SHA256SUMS");
+        assert!(r.msi_for("aarch64").is_none());
     }
 
     #[test]

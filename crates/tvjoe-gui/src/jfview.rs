@@ -4,7 +4,7 @@
 //! Daten aus dem Zwischenspeicher (`jellyfin_lib`), Plakate vom Server (im Cache abgelegt).
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -14,10 +14,10 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::glib;
 use tvjoe_core::jellyfin_lib::{Item, JellyfinLibrary};
-use tvjoe_core::{net, paths, tf, tr};
+use tvjoe_core::{net, paths, tf, tr, trn};
 
 use crate::app::App;
-use crate::trace;
+use crate::{icons, trace};
 
 const POSTER_W: i32 = 170;
 const POSTER_H: i32 = 255;
@@ -33,8 +33,6 @@ enum Tab {
     Collections,
     Series,
     Search,
-    /// In der Ablage.
-    Stored,
 }
 
 thread_local! {
@@ -195,13 +193,50 @@ fn play(app: &Rc<App>, item: &Item, start: Option<f64>, rest: Vec<Item>) {
 // ---------------------------------------------------------------------------------------------
 // Ansicht
 
+/// Heruntergeladenes aus der Ablage: Filme und Folgen direkt, Serien über ihre Folgen,
+/// Sammlungen über ihre Teile.
+struct Stored {
+    keys: HashSet<String>,
+    /// Serie → Zahl der heruntergeladenen Folgen.
+    series: HashMap<String, i64>,
+}
+
+impl Stored {
+    fn load() -> Self {
+        let keys = crate::ablage::stored_keys("jellyfin");
+        let mut series: HashMap<String, i64> = HashMap::new();
+        if let Some(d) = db() {
+            for id in keys.iter().filter_map(|k| d.item(k)?.series_id) {
+                *series.entry(id).or_default() += 1;
+            }
+        }
+        Self { keys, series }
+    }
+
+    fn keeps(&self, db: &JellyfinLibrary, it: &Item) -> bool {
+        match it.kind.as_str() {
+            "Series" => self.series.contains_key(&it.id),
+            "BoxSet" => self.parts(db, &it.id) > 0,
+            _ => self.keys.contains(&it.id),
+        }
+    }
+
+    /// Heruntergeladene Teile einer Sammlung.
+    fn parts(&self, db: &JellyfinLibrary, id: &str) -> i64 {
+        db.collection(id)
+            .iter()
+            .filter(|p| self.keys.contains(&p.id))
+            .count() as i64
+    }
+}
+
 struct JfView {
     app: Weak<App>,
     body: gtk::Widget,
     header_start: gtk::Box,
     header_center: gtk::Widget,
     header_end: gtk::Box,
-    tabs: [gtk::ToggleButton; 5],
+    tabs: [gtk::ToggleButton; 4],
     search: gtk::SearchEntry,
     search_bar: gtk::Box,
     libbar: gtk::Box,
@@ -300,17 +335,18 @@ impl crate::layer::View for JfView {
     fn can_go_back(&self) -> bool {
         self.detail_open.get()
     }
+    fn media(&self) -> Option<crate::layer::Media> {
+        Some(crate::layer::Media::Jellyfin)
+    }
 }
 
 impl JfView {
     fn new(app: &Rc<App>) -> Rc<Self> {
-        let tab = |l: &str| gtk::ToggleButton::builder().label(l).build();
         let tabs = [
-            tab(tr("Filme")),
-            tab(tr("Sammlungen")),
-            tab(tr("Serien")),
-            tab(tr("Suche")),
-            tab(tr("Heruntergeladen")),
+            icons::toggle(icons::FILM, tr("Filme")),
+            icons::toggle(icons::COLLECTION, tr("Sammlungen")),
+            icons::toggle(icons::SERIES, tr("Serien")),
+            icons::toggle("system-search-symbolic", tr("Suche")),
         ];
         for t in &tabs[1..] {
             t.set_group(Some(&tabs[0]));
@@ -340,11 +376,17 @@ impl JfView {
             .build();
         sort_box.append(&newest);
         sort_box.append(&az);
+        // Schalter „Geladen“: nur Heruntergeladenes, in allen Reitern wie sonst gruppiert (Nutzer, 2026-10-27).
+        let stored_only = icons::toggle(icons::DOWNLOADED, tr("Geladen"));
+        stored_only.set_valign(gtk::Align::Center);
+        stored_only.add_css_class("tvjoe-filter");
+        stored_only.set_active(app.settings().jellyfin_stored_only);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
             .tooltip_text(tr("Einstellungen von Jellyfin"))
             .build();
         let header_end = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        header_end.append(&stored_only);
         header_end.append(&sort_box);
         header_end.append(&prefs_button);
 
@@ -443,7 +485,7 @@ impl JfView {
                 }
             });
         }
-        for (i, t) in [Tab::Movies, Tab::Collections, Tab::Series, Tab::Search, Tab::Stored]
+        for (i, t) in [Tab::Movies, Tab::Collections, Tab::Series, Tab::Search]
             .into_iter()
             .enumerate()
         {
@@ -453,12 +495,11 @@ impl JfView {
                 if b.is_active() {
                     v.tab.set(t);
                     v.search_bar.set_visible(t == Tab::Search);
-                    v.libbar_scroller.set_visible(t == Tab::Movies);
                     if t == Tab::Search {
                         v.search.grab_focus();
                     }
                     v.close_detail();
-                    v.reload();
+                    v.rebuild();
                 }
             });
         }
@@ -488,6 +529,16 @@ impl JfView {
             v.reload();
         });
         let weak = Rc::downgrade(&v);
+        stored_only.connect_toggled(move |b| {
+            let Some(v) = weak.upgrade() else { return };
+            if let Some(app) = v.app.upgrade() {
+                app.settings_mut().jellyfin_stored_only = b.is_active();
+                app.save_settings();
+            }
+            v.close_detail();
+            v.reload();
+        });
+        let weak = Rc::downgrade(&v);
         prefs_button.connect_clicked(move |_| {
             let Some(v) = weak.upgrade() else { return };
             if let Some(app) = v.app.upgrade() {
@@ -508,6 +559,14 @@ impl JfView {
         self.app.upgrade().is_some_and(|a| a.settings().jellyfin_az)
     }
 
+    /// Schalter „Geladen“: Kennungen des Heruntergeladenen, sonst `None`.
+    fn stored_only(&self) -> Option<Stored> {
+        self.app
+            .upgrade()
+            .is_some_and(|a| a.settings().jellyfin_stored_only)
+            .then(Stored::load)
+    }
+
     fn rebuild(self: &Rc<Self>) {
         self.build_libbar();
         self.reload();
@@ -526,13 +585,20 @@ impl JfView {
             .filter(|l| l.kind != "tvshows" && l.kind != "boxsets" && !hidden.contains(&l.name))
             .map(|l| l.name)
             .collect();
+        // Nur bei mehreren Film-Bibliotheken; bei einer zeigten „Alle“ und sie dasselbe.
+        let many = libs.len() > 1;
+        self.libbar_scroller
+            .set_visible(many && self.tab.get() == Tab::Movies);
         if self
             .library
             .borrow()
             .as_ref()
-            .is_some_and(|l| !libs.contains(l))
+            .is_some_and(|l| !many || !libs.contains(l))
         {
             self.library.replace(None);
+        }
+        if !many {
+            return;
         }
         let all = gtk::ToggleButton::builder()
             .label(tr("Alle"))
@@ -604,6 +670,7 @@ impl JfView {
         };
         self.show_status(&db);
         let hidden = self.hidden();
+        let stored = self.stored_only();
         let items = match self.tab.get() {
             Tab::Movies => db.single_movies(&hidden, self.library.borrow().as_deref(), self.az()),
             Tab::Collections => db.collections(&hidden, self.az()),
@@ -617,10 +684,10 @@ impl JfView {
                 }
                 db.search(text.trim(), &hidden, 300)
             }
-            Tab::Stored => crate::ablage::stored("jellyfin")
-                .into_iter()
-                .filter_map(|e| db.item(&e.key))
-                .collect(),
+        };
+        let items: Vec<Item> = match &stored {
+            Some(st) => items.into_iter().filter(|it| st.keeps(&db, it)).collect(),
+            None => items,
         };
         while let Some(c) = self.flow.first_child() {
             self.flow.remove(&c);
@@ -630,18 +697,34 @@ impl JfView {
             self.items.borrow_mut().clear();
             self.show_empty(
                 tr("Keine Einträge"),
-                tr("Für diese Auswahl gibt es nichts."),
+                if stored.is_some() {
+                    tr("Für diese Auswahl ist nichts heruntergeladen.")
+                } else {
+                    tr("Für diese Auswahl gibt es nichts.")
+                },
             );
             return;
         }
         let generation = self.images.as_ref().map_or(0, Images::next_generation);
         for it in &items {
             let sub = match it.kind.as_str() {
-                "BoxSet" => tf!(
+                // Mit „Geladen“: nur die heruntergeladenen Teile bzw. Folgen.
+                "BoxSet" => trn(
+                    "Sammlung · {n} Film",
                     "Sammlung · {n} Filme",
-                    n = db.collection_count(&it.id)
+                    match &stored {
+                        Some(st) => st.parts(&db, &it.id),
+                        None => db.collection_count(&it.id),
+                    } as u64,
                 ),
-                "Series" => tf!("Serie · {n} Folgen", n = db.episode_count(&it.id)),
+                "Series" => trn(
+                    "Serie · {n} Folge",
+                    "Serie · {n} Folgen",
+                    match &stored {
+                        Some(st) => st.series.get(&it.id).copied().unwrap_or(0),
+                        None => db.episode_count(&it.id),
+                    } as u64,
+                ),
                 "Episode" => format!(
                     "{} · {}",
                     it.series_name.clone().unwrap_or_default(),
@@ -681,11 +764,11 @@ impl JfView {
         match it.kind.as_str() {
             "BoxSet" => {
                 let parts = db().map(|d| d.collection(&it.id)).unwrap_or_default();
-                self.show_list(it, parts, false);
+                self.show_list(it, self.only_stored(parts), false);
             }
             "Series" => {
                 let eps = db().map(|d| d.episodes(&it.id)).unwrap_or_default();
-                self.show_list(it, eps, true);
+                self.show_list(it, self.only_stored(eps), true);
             }
             "Episode" => {
                 let series = it
@@ -698,6 +781,14 @@ impl JfView {
                 }
             }
             _ => self.show_movie(it),
+        }
+    }
+
+    /// Teile einer Sammlung bzw. Folgen einer Serie; mit dem Schalter nur Heruntergeladenes.
+    fn only_stored(&self, list: Vec<Item>) -> Vec<Item> {
+        match self.stored_only() {
+            Some(st) => list.into_iter().filter(|it| st.keys.contains(&it.id)).collect(),
+            None => list,
         }
     }
 
@@ -886,9 +977,9 @@ impl JfView {
         right.set_hexpand(true);
         right.append(&label(&head.name, "tvjoe-mt-detail-title"));
         let count = if series {
-            tf!("{n} Folgen", n = list.len())
+            trn("{n} Folge", "{n} Folgen", list.len() as u64)
         } else {
-            tf!("{n} Filme", n = list.len())
+            trn("{n} Film", "{n} Filme", list.len() as u64)
         };
         let mut meta = vec![count];
         if !head.genres.is_empty() {

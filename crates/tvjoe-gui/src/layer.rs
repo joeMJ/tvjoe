@@ -44,6 +44,26 @@ pub trait View {
     }
     /// Die Ansicht wurde geschlossen (Ebene oder Fenster).
     fn closed(&self) {}
+    /// Mediathek bzw. Jellyfin (weiße Linie, Fernsehen anhalten); sonst `None`.
+    fn media(&self) -> Option<Media> {
+        None
+    }
+}
+
+/// Mediatheken mit eigenem Knopf in der Kopfleiste.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Media {
+    Oer,
+    Jellyfin,
+}
+
+/// Offene Mediathek: die Ebene, sonst das zuletzt geöffnete Fenster.
+pub fn open_media(app: &App) -> Option<Media> {
+    let layer = &app.layer;
+    if let Some(m) = layer.current.borrow().as_ref().and_then(|v| v.media()) {
+        return Some(m);
+    }
+    layer.windows.borrow().iter().rev().find_map(|(v, _)| v.media())
 }
 
 /// Ebene über dem Bild; gehört zum Hauptfenster.
@@ -183,6 +203,7 @@ fn show_in_layer(app: &Rc<App>, view: Rc<dyn View>) {
     update_header(app);
     layer.root.set_visible(true);
     app.set_layer_active(true);
+    app.media_changed();
     let (mw, _, _, _) = layer.root.measure(gtk::Orientation::Horizontal, -1);
     let (mh, _, _, _) = layer.root.measure(gtk::Orientation::Vertical, mw);
     crate::trace(&format!(
@@ -269,8 +290,11 @@ fn show_in_window(app: &Rc<App>, view: Rc<dyn View>) {
     win.connect_close_request(move |w| {
         if let Some(app) = weak.upgrade() {
             app.layer.windows.borrow_mut().retain(|(_, x)| x != w);
+            v.closed();
+            app.media_changed();
+        } else {
+            v.closed();
         }
-        v.closed();
         glib::Propagation::Proceed
     });
     let (mw, _, _, _) = tv.measure(gtk::Orientation::Horizontal, -1);
@@ -282,6 +306,7 @@ fn show_in_window(app: &Rc<App>, view: Rc<dyn View>) {
     ));
     app.layer.windows.borrow_mut().push((view, win.clone()));
     win.present();
+    app.media_changed();
 }
 
 /// Kopfzeile nach dem Zustand der Ansicht (Kreuz oder Pfeil zurück).
@@ -369,6 +394,7 @@ pub fn close_layer(app: &Rc<App>) {
     app.layer_back.set_visible(false);
     app.set_layer_active(false);
     cur.closed();
+    app.media_changed();
 }
 
 /// Nach dem Abspielen aus einer Ansicht: als Ebene schließt sie sich, ein Fenster bleibt.

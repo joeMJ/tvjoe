@@ -58,8 +58,10 @@ Wer es schon für remotejoe eingetragen hat, muss nichts weiter tun.
 Unter **Einstellungen → Empfang → EyeTV Netstream 4Sat → Prüfen** bietet tvjoe dann **Freigabe eintragen …** an, siehe
 [SAT-IP.md](SAT-IP.md#firewall).
 
-**Aktualisieren:** Die Updateprüfung (Einstellungen → Updates) meldet eine neue Version und öffnet die
-Release-Seite; die neue MSI einfach über die alte installieren.
+**Aktualisieren:** Die Updateprüfung (Einstellungen → Updates) meldet eine neue Version, lädt auf
+Wunsch die MSI, prüft sie gegen die `.sha256`-Datei und startet den Installer; tvjoe beendet sich
+dafür. Das geht ab 0.1.2; ältere Fassungen öffnen nur die Release-Seite bzw. melden „Distribution
+unbekannt“ – dann die neue MSI einmal von Hand über die alte installieren.
 
 **Deinstallieren:** unter „Apps und Features“ (bzw. „Installierte Apps“) bei **tvjoe**. Einstellungen
 und Senderlisten (`%APPDATA%\tvjoe`) sowie der Zwischenspeicher (`%LOCALAPPDATA%\tvjoe`) bleiben

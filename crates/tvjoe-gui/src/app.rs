@@ -220,6 +220,8 @@ pub struct App {
     epg_timer: Cell<bool>,
     /// Laufender Mediathek-Beitrag (statt eines Senders).
     vod: RefCell<Option<Vod>>,
+    /// Für die offene Mediathek angehaltener Sender (läuft beim Schließen wieder an).
+    held_live: Cell<Option<u64>>,
     /// Zeitgeber für die Fortschrittszeile läuft.
     vod_timer: Cell<bool>,
     vod_ticks: Cell<u32>,
@@ -432,6 +434,7 @@ impl App {
             guides: RefCell::new(HashMap::new()),
             epg_timer: Cell::new(false),
             vod: RefCell::new(None),
+            held_live: Cell::new(None),
             vod_timer: Cell::new(false),
             vod_ticks: Cell::new(0),
             vod_next: RefCell::new(Vec::new()),
@@ -762,13 +765,37 @@ impl App {
         });
     }
 
-    /// Weiße Linie unter der laufenden Quelle (TV, SAT, Mediathek, Jellyfin).
+    /// Mediathek oder Jellyfin geöffnet bzw. geschlossen: weiße Linie nachziehen; nach der
+    /// Einstellung das Fernsehen anhalten und beim Schließen wieder starten.
+    pub fn media_changed(self: &Rc<Self>) {
+        let open = crate::layer::open_media(self).is_some();
+        if open {
+            if self.settings.borrow().stop_live_for_media {
+                if let Some((id, _)) = self.current_live() {
+                    self.held_live.set(Some(id));
+                    self.stop_live();
+                }
+            }
+        } else if let Some(id) = self.held_live.take() {
+            // Inzwischen etwas anderes gestartet (Film, Sender): nicht dazwischenfunken.
+            if self.vod.borrow().is_none() && self.current.get().is_none() {
+                self.play_channel(id);
+            }
+        }
+        self.update_source_indicator();
+    }
+
+    /// Weiße Linie unter der laufenden Quelle (TV, SAT, Mediathek, Jellyfin); ist eine
+    /// Mediathek offen, unter deren Knopf (Nutzer, 2026-10-27).
     fn update_source_indicator(&self) {
-        let live = self.vod.borrow().is_none() && self.current.get().is_some();
-        let (oer, jelly) = match self.vod.borrow().as_ref() {
-            Some(Vod::Oer(_)) => (true, false),
-            Some(Vod::Jelly(_)) => (false, true),
-            Some(Vod::File(_)) | None => (false, false),
+        let media = crate::layer::open_media(self);
+        let live = media.is_none() && self.vod.borrow().is_none() && self.current.get().is_some();
+        let (oer, jelly) = match (media, self.vod.borrow().as_ref()) {
+            (Some(crate::layer::Media::Oer), _) => (true, false),
+            (Some(crate::layer::Media::Jellyfin), _) => (false, true),
+            (None, Some(Vod::Oer(_))) => (true, false),
+            (None, Some(Vod::Jelly(_))) => (false, true),
+            (None, Some(Vod::File(_)) | None) => (false, false),
         };
         let mut buttons: Vec<(gtk::Button, bool)> = self
             .source_buttons

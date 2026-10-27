@@ -20,7 +20,7 @@ use tvjoe_core::mediathek::{self, Film, Filter, Group, Kind, Mediathek, Version}
 use tvjoe_core::{epg, net, normalize_id, paths, tf, tr, trn};
 
 use crate::app::{App, hm};
-use crate::trace;
+use crate::{icons, trace};
 
 /// Höchstzahl Kacheln je Ansicht.
 const LIMIT: usize = 200;
@@ -52,8 +52,6 @@ enum Mode {
     Episodes,
     Films,
     Search,
-    /// In der Ablage (heruntergeladen, zwischengespeichert, teilweise).
-    Stored,
 }
 
 thread_local! {
@@ -458,7 +456,7 @@ struct MtWindow {
     header_start: gtk::Box,
     header_center: gtk::Widget,
     header_end: gtk::Box,
-    tabs: [gtk::ToggleButton; 4],
+    tabs: [gtk::ToggleButton; 3],
     search: gtk::SearchEntry,
     search_bar: gtk::Box,
     senders: gtk::Box,
@@ -468,8 +466,12 @@ struct MtWindow {
     flow: gtk::FlowBox,
     /// Filminfo bzw. Serienseite offen (Knopf links oben führt zurück).
     detail_open: Cell<bool>,
-    /// Sortierung der Serien („Neueste“ / „A–Z“), nur im Reiter „Episoden“.
+    /// Sortierung („Neueste“ / „A–Z“) der Reiter „Episoden“ und „Filme“, je Reiter gemerkt.
     sort_box: gtk::Box,
+    az: gtk::ToggleButton,
+    newest: gtk::ToggleButton,
+    /// Beim Reiterwechsel wird die Sortierung nur angezeigt, nicht gespeichert.
+    syncing: Cell<bool>,
     mode: Cell<Mode>,
     sender: RefCell<Option<String>>,
     /// Sendungen der Ansicht (Fassungen zusammengefasst).
@@ -570,6 +572,9 @@ impl crate::layer::View for MtWindow {
     fn can_go_back(&self) -> bool {
         self.detail_open.get()
     }
+    fn media(&self) -> Option<crate::layer::Media> {
+        Some(crate::layer::Media::Oer)
+    }
 }
 
 /// Mindestfläche (zwei Kachelspalten, Kopfzeile mit Reitern und Sortierung).
@@ -577,12 +582,10 @@ const MIN_SIZE: (i32, i32) = (900, 600);
 
 impl MtWindow {
     fn new(app: &Rc<App>) -> Rc<Self> {
-        let tab = |label: &str| gtk::ToggleButton::builder().label(label).build();
         let tabs = [
-            tab(tr("Episoden")),
-            tab(tr("Filme")),
-            tab(tr("Suche")),
-            tab(tr("Heruntergeladen")),
+            icons::toggle(icons::SERIES, tr("Episoden")),
+            icons::toggle(icons::FILM, tr("Filme")),
+            icons::toggle("system-search-symbolic", tr("Suche")),
         ];
         for t in &tabs[1..] {
             t.set_group(Some(&tabs[0]));
@@ -654,7 +657,7 @@ impl MtWindow {
 
         let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
         body.append(&search_bar);
-        // Sortierung der Serien („Neueste“ / „A–Z“).
+        // Sortierung („Neueste“ / „A–Z“) für Episoden und Filme.
         let newest = gtk::ToggleButton::builder().label(tr("Neueste")).build();
         let az = gtk::ToggleButton::builder()
             .label("A–Z")
@@ -672,6 +675,12 @@ impl MtWindow {
             .build();
         sort_box.append(&newest);
         sort_box.append(&az);
+        // Schalter „Geladen“: nur Heruntergeladenes, in allen Reitern wie sonst gruppiert (Nutzer, 2026-10-27).
+        let stored_only = icons::toggle(icons::DOWNLOADED, tr("Geladen"));
+        stored_only.set_valign(gtk::Align::Center);
+        stored_only.add_css_class("tvjoe-filter");
+        stored_only.set_active(app.settings().mediathek_stored_only);
+        header_end.append(&stored_only);
         header_end.append(&sort_box);
         header_end.append(&prefs_button);
         body.append(&sender_scroller);
@@ -705,6 +714,9 @@ impl MtWindow {
             flow,
             detail_open: Cell::new(false),
             sort_box,
+            az: az.clone(),
+            newest: newest.clone(),
+            syncing: Cell::new(false),
             mode: Cell::new(Mode::Episodes),
             sender: RefCell::new(None),
             films: RefCell::new(Vec::new()),
@@ -725,7 +737,7 @@ impl MtWindow {
             });
         }
 
-        for (i, mode) in [Mode::Episodes, Mode::Films, Mode::Search, Mode::Stored]
+        for (i, mode) in [Mode::Episodes, Mode::Films, Mode::Search]
             .into_iter()
             .enumerate()
         {
@@ -735,7 +747,8 @@ impl MtWindow {
                 if b.is_active() {
                     w.mode.set(mode);
                     w.search_bar.set_visible(mode == Mode::Search);
-                    w.sort_box.set_visible(mode == Mode::Episodes);
+                    w.sort_box.set_visible(mode != Mode::Search);
+                    w.show_sort();
                     if mode == Mode::Search {
                         w.search.grab_focus();
                     }
@@ -770,8 +783,26 @@ impl MtWindow {
         let weak = Rc::downgrade(&w);
         az.connect_toggled(move |b| {
             let Some(w) = weak.upgrade() else { return };
+            if w.syncing.get() {
+                return;
+            }
             if let Some(app) = w.app.upgrade() {
-                app.settings_mut().mediathek_series_az = b.is_active();
+                let mut s = app.settings_mut();
+                if w.mode.get() == Mode::Films {
+                    s.mediathek_films_az = b.is_active();
+                } else {
+                    s.mediathek_series_az = b.is_active();
+                }
+                drop(s);
+                app.save_settings();
+            }
+            w.reload();
+        });
+        let weak = Rc::downgrade(&w);
+        stored_only.connect_toggled(move |b| {
+            let Some(w) = weak.upgrade() else { return };
+            if let Some(app) = w.app.upgrade() {
+                app.settings_mut().mediathek_stored_only = b.is_active();
                 app.save_settings();
             }
             w.reload();
@@ -1009,12 +1040,17 @@ impl MtWindow {
         let Some(app) = self.app.upgrade() else {
             return;
         };
-        let all = self
-            .db
-            .borrow()
-            .as_ref()
-            .map(|db| without_trailers(db.topic_films(sender, topic, &filter_of(&app), epg::now())))
-            .unwrap_or_default();
+        let all = if self.stored_only() {
+            self.films_of_topic(sender, topic)
+        } else {
+            self.db
+                .borrow()
+                .as_ref()
+                .map(|db| {
+                    without_trailers(db.topic_films(sender, topic, &filter_of(&app), epg::now()))
+                })
+                .unwrap_or_default()
+        };
         let mut episodes = mediathek::group(all);
         if episodes.is_empty() {
             return;
@@ -1515,6 +1551,77 @@ impl MtWindow {
         self.stack.set_visible_child_name("empty");
     }
 
+    /// Heruntergeladene Folgen einer Sendung (Schalter „Geladen“).
+    fn films_of_topic(&self, sender: &str, topic: &str) -> Vec<Film> {
+        self.db
+            .borrow()
+            .as_ref()
+            .map(|db| {
+                self.stored_films(db)
+                    .into_iter()
+                    .filter(|f| f.sender == sender && f.topic == topic)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Sortierknöpfe auf den gemerkten Stand des Reiters setzen.
+    fn show_sort(&self) {
+        let Some(app) = self.app.upgrade() else { return };
+        let az = match self.mode.get() {
+            Mode::Films => app.settings().mediathek_films_az,
+            _ => app.settings().mediathek_series_az,
+        };
+        self.syncing.set(true);
+        if az {
+            self.az.set_active(true);
+        } else {
+            self.newest.set_active(true);
+        }
+        self.syncing.set(false);
+    }
+
+    fn stored_only(&self) -> bool {
+        self.app
+            .upgrade()
+            .is_some_and(|a| a.settings().mediathek_stored_only)
+    }
+
+    /// Heruntergeladenes, neueste Sendung zuerst; was nicht mehr in der Filmliste steht, aus
+    /// den Angaben der Ablage (spielt dann aus der lokalen Datei).
+    fn stored_films(&self, db: &Mediathek) -> Vec<Film> {
+        let mut films: Vec<Film> = crate::ablage::stored("oer")
+            .into_iter()
+            .map(|e| {
+                db.film_by_url(&e.key).unwrap_or_else(|| {
+                    let (sender, topic) = e
+                        .subtitle
+                        .split_once(" · ")
+                        .map(|(a, b)| (a.to_string(), b.to_string()))
+                        .unwrap_or_default();
+                    let kind = mediathek::classify(&topic, &e.title, 0);
+                    Film {
+                        id: -e.id,
+                        sender,
+                        topic,
+                        title: e.title.clone(),
+                        timestamp: e.created,
+                        duration: 0,
+                        description: String::new(),
+                        url: e.key.clone(),
+                        url_low: None,
+                        url_hd: None,
+                        website: None,
+                        subtitle: None,
+                        kind,
+                    }
+                })
+            })
+            .collect();
+        films.sort_by_key(|f| -f.timestamp);
+        films
+    }
+
     /// Kacheln der aktuellen Ansicht neu laden.
     fn reload(self: &Rc<Self>) {
         self.show_status();
@@ -1545,86 +1652,80 @@ impl MtWindow {
                 self.show_empty(title, &text);
                 return;
             }
-            match self.mode.get() {
-                Mode::Episodes => db.latest_filtered(
-                    Some(Kind::Episode),
-                    sender.as_deref(),
-                    &filter,
-                    epg::now(),
-                    FETCH_EPISODES,
-                ),
-                Mode::Films => db.latest_filtered(
-                    Some(Kind::Film),
-                    sender.as_deref(),
-                    &filter,
-                    epg::now(),
-                    FETCH,
-                ),
-                Mode::Search => {
-                    let text = self.search.text();
-                    if text.trim().chars().count() < 2 {
-                        self.films.borrow_mut().clear();
-                        self.show_empty(tr("Suche"), tr("Mindestens zwei Zeichen eingeben."));
-                        return;
-                    }
-                    db.search_filtered(text.trim(), sender.as_deref(), &filter, FETCH)
+            if self.stored_only() {
+                // Episoden: Folgen; Filme: alles andere, damit nichts Heruntergeladenes fehlt.
+                let text = self.search.text().trim().to_lowercase();
+                let mode = self.mode.get();
+                if mode == Mode::Search && text.chars().count() < 2 {
+                    self.films.borrow_mut().clear();
+                    self.show_empty(tr("Suche"), tr("Mindestens zwei Zeichen eingeben."));
+                    return;
                 }
-                // Aus der Ablage; was nicht mehr in der Filmliste steht, aus den Angaben der
-                // Ablage (spielt dann aus der lokalen Datei).
-                Mode::Stored => crate::ablage::stored("oer")
+                self.stored_films(db)
                     .into_iter()
-                    .map(|e| {
-                        db.film_by_url(&e.key).unwrap_or_else(|| {
-                            let (sender, topic) = e
-                                .subtitle
-                                .split_once(" · ")
-                                .map(|(a, b)| (a.to_string(), b.to_string()))
-                                .unwrap_or_default();
-                            Film {
-                                id: -e.id,
-                                sender,
-                                topic,
-                                title: e.title.clone(),
-                                timestamp: e.created,
-                                duration: 0,
-                                description: String::new(),
-                                url: e.key.clone(),
-                                url_low: None,
-                                url_hd: None,
-                                website: None,
-                                subtitle: None,
-                                kind: Kind::Other,
-                            }
-                        })
-                    })
                     .filter(|f| sender.as_deref().is_none_or(|s| f.sender == s))
-                    .collect(),
+                    .filter(|f| match mode {
+                        Mode::Episodes => f.kind == Kind::Episode,
+                        Mode::Films => f.kind != Kind::Episode,
+                        Mode::Search => [&f.title, &f.topic, &f.description]
+                            .iter()
+                            .any(|t| t.to_lowercase().contains(&text)),
+                    })
+                    .collect()
+            } else {
+                match self.mode.get() {
+                    Mode::Episodes => db.latest_filtered(
+                        Some(Kind::Episode),
+                        sender.as_deref(),
+                        &filter,
+                        epg::now(),
+                        FETCH_EPISODES,
+                    ),
+                    Mode::Films => db.latest_filtered(
+                        Some(Kind::Film),
+                        sender.as_deref(),
+                        &filter,
+                        epg::now(),
+                        FETCH,
+                    ),
+                    Mode::Search => {
+                        let text = self.search.text();
+                        if text.trim().chars().count() < 2 {
+                            self.films.borrow_mut().clear();
+                            self.show_empty(tr("Suche"), tr("Mindestens zwei Zeichen eingeben."));
+                            return;
+                        }
+                        db.search_filtered(text.trim(), sender.as_deref(), &filter, FETCH)
+                    }
+                }
             }
         };
         // Episoden: eine Kachel je Serie (Sender + Thema, neueste Folge vorn), ohne Sport.
         let series = self.mode.get() == Mode::Episodes;
+        let stored = self.stored_only();
         let mut films = if series {
             let mut seen = std::collections::HashSet::new();
             films
                 .into_iter()
-                .filter(|f| !mediathek::is_sport_topic(&f.topic))
+                .filter(|f| stored || !mediathek::is_sport_topic(&f.topic))
                 .filter(|f| seen.insert((f.sender.clone(), f.topic.clone())))
                 .map(|f| Group { films: vec![f] })
                 .collect()
         } else {
             mediathek::group(films)
         };
+        // Umlaute wie ihr Grundbuchstabe („Ärzte“ unter A).
+        let az_key = |t: &str| {
+            t.to_lowercase()
+                .replace('ä', "a")
+                .replace('ö', "o")
+                .replace('ü', "u")
+                .replace('ß', "ss")
+        };
         if series && app.settings().mediathek_series_az {
-            // Umlaute wie ihr Grundbuchstabe („Ärzte“ unter A).
-            films.sort_by_cached_key(|g| {
-                g.main()
-                    .topic
-                    .to_lowercase()
-                    .replace('ä', "a")
-                    .replace('ö', "o")
-                    .replace('ü', "u")
-                    .replace('ß', "ss")
-            });
+            films.sort_by_cached_key(|g| az_key(&g.main().topic));
+        } else if self.mode.get() == Mode::Films && app.settings().mediathek_films_az {
+            films.sort_by_cached_key(|g| az_key(&g.main().display_title()));
         }
         films.truncate(if series { LIMIT_SERIES } else { LIMIT });
         self.set_detail(false);
@@ -1636,7 +1737,11 @@ impl MtWindow {
             self.films.borrow_mut().clear();
             self.show_empty(
                 tr("Keine Beiträge"),
-                tr("Für diese Auswahl gibt es keine Beiträge."),
+                if stored {
+                    tr("Für diese Auswahl ist nichts heruntergeladen.")
+                } else {
+                    tr("Für diese Auswahl gibt es keine Beiträge.")
+                },
             );
             return;
         }
@@ -1655,6 +1760,9 @@ impl MtWindow {
                 .filter(|(_, d)| *d > 0.0)
                 .map(|(p, d)| p / d);
             let count = series.then(|| {
+                if stored {
+                    return stored_count(&self.films_of_topic(&film.sender, &film.topic));
+                }
                 self.db.borrow().as_ref().map_or(0, |db| {
                     let all = without_trailers(db.topic_films(
                         &film.sender,
@@ -1690,6 +1798,11 @@ impl MtWindow {
             adj.set_value(0.0);
         }
     }
+}
+
+/// Zahl der Folgen (Fassungen zusammengefasst).
+fn stored_count(films: &[Film]) -> i64 {
+    mediathek::group(films.to_vec()).len() as i64
 }
 
 /// „Staffel 2 herunterladen (10)“; ohne Staffelangaben „Alle Folgen herunterladen (n)“.

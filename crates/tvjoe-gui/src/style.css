@@ -216,6 +216,12 @@
   padding: 2px 10px;
 }
 
+/* Schalter „Geladen“: gedrückt deutlich in Akzentfarbe */
+.tvjoe-filter:checked {
+  background-color: #3584e4;
+  color: #ffffff;
+}
+
 /* Ablage: Kennzeichen auf Kacheln und Folgen (heruntergeladen, lädt, teilweise) */
 .tvjoe-store-badge {
   background-color: rgba(0, 0, 0, 0.7);

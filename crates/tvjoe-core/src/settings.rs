@@ -124,6 +124,10 @@ pub struct Settings {
     pub mediathek_hidden: Vec<String>,
     /// Mediathek: Serien von A bis Z statt nach der neuesten Folge.
     pub mediathek_series_az: bool,
+    /// Mediathek: Filme von A bis Z statt nach dem Sendedatum.
+    pub mediathek_films_az: bool,
+    /// Mediathek: nur Heruntergeladenes zeigen (Schalter in der Kopfleiste).
+    pub mediathek_stored_only: bool,
     /// ÖR-Mediathek eingeschaltet (Knopf in der Kopfleiste, Laden der Filmliste).
     pub mediathek_oer: bool,
     /// Jellyfin eingeschaltet.
@@ -136,6 +140,11 @@ pub struct Settings {
     pub jellyfin_hidden: Vec<String>,
     /// Jellyfin: Filme und Serien von A bis Z statt zuletzt hinzugefügt.
     pub jellyfin_az: bool,
+    /// Jellyfin: nur Heruntergeladenes zeigen (Schalter in der Kopfleiste).
+    pub jellyfin_stored_only: bool,
+    /// Lineares Fernsehen anhalten, solange Mediathek oder Jellyfin offen ist; beim Schließen
+    /// läuft der zuletzt gesehene Sender wieder an.
+    pub stop_live_for_media: bool,
     /// SAT-Quelle (SAT>IP, z. B. Netstream 4Sat) eingeschaltet.
     pub satip_enabled: bool,
     /// Adresse des SAT>IP-Geräts.
@@ -274,11 +283,15 @@ impl Default for Settings {
                 .map(|s| s.to_string())
                 .collect(),
             mediathek_series_az: false,
+            mediathek_films_az: false,
+            mediathek_stored_only: false,
             mediathek_oer: true,
             jellyfin_enabled: false,
             jellyfin_server: String::new(),
             jellyfin_max_kbps: 0,
             jellyfin_az: false,
+            jellyfin_stored_only: false,
+            stop_live_for_media: true,
             satip_enabled: false,
             satip_host: String::new(),
             satip_active: false,

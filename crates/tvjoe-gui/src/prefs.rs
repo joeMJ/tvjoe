@@ -58,6 +58,12 @@ pub fn open_at(
         .active(s.sidebar_on_start)
         .build();
     control.add(&sidebar);
+    let stop_live = adw::SwitchRow::builder()
+        .title(tr("Lineares Fernsehen stoppen, wenn Mediathek geöffnet"))
+        .subtitle(tr("Gilt für Mediathek und Jellyfin; beim Schließen läuft der Sender wieder an. Aufnahmen laufen weiter."))
+        .active(s.stop_live_for_media)
+        .build();
+    control.add(&stop_live);
     // Sprache: leer = Systemsprache; wirkt nach dem Neustart.
     let mut lang_names = vec![tr("Systemsprache")];
     lang_names.extend(i18n::LANGUAGES.iter().map(|(_, name)| *name));
@@ -305,6 +311,7 @@ pub fn open_at(
             s.resume_last = resume.is_active();
             s.inhibit_windowed = inhibit.is_active();
             s.sidebar_on_start = sidebar.is_active();
+            s.stop_live_for_media = stop_live.is_active();
             s.language = match language.selected() {
                 0 => String::new(),
                 i => i18n::LANGUAGES
@@ -517,18 +524,6 @@ fn offer(app: &Rc<App>, release: update::Release) {
         &(tf!("Installiert ist {version}.", version = VERSION) + "\n\n" + &notes),
     );
     d.add_response("close", tr("Später"));
-    // Windows: keine .deb-Pakete; die neue MSI lädt man von der Release-Seite und installiert sie
-    // über die alte.
-    if cfg!(windows) {
-        d.add_response("open", tr("Zur Release-Seite"));
-        d.set_response_appearance("open", adw::ResponseAppearance::Suggested);
-        let url = release.html_url.clone();
-        let parent = app.window.clone();
-        d.connect_response(Some("open"), move |_, _| {
-            gtk::UriLauncher::new(&url).launch(Some(&parent), gtk::gio::Cancellable::NONE, |_| {});
-        });
-        return;
-    }
     d.add_response("download", tr("Herunterladen…"));
     d.set_response_appearance("download", adw::ResponseAppearance::Suggested);
     let weak = Rc::downgrade(app);
@@ -559,6 +554,32 @@ fn offer(app: &Rc<App>, release: update::Release) {
 
 fn confirm_install(app: &Rc<App>, path: &std::path::Path) {
     let cmd = update::install_command(path);
+    // Windows: Installer starten und tvjoe beenden, damit er die Dateien ersetzen kann.
+    if cfg!(windows) {
+        let d = alert(
+            app,
+            tr("Installer geprüft"),
+            &tf!(
+                "Die Prüfsumme (SHA-256) stimmt. tvjoe beendet sich und startet den Installer:\n\n{befehl}\n\nDanach tvjoe wieder öffnen.",
+                befehl = cmd.join(" ")
+            ),
+        );
+        d.add_response("close", tr("Abbrechen"));
+        d.add_response("install", tr("Installieren"));
+        d.set_response_appearance("install", adw::ResponseAppearance::Suggested);
+        let weak = Rc::downgrade(app);
+        d.connect_response(Some("install"), move |_, _| {
+            let Some(app) = weak.upgrade() else { return };
+            match std::process::Command::new(&cmd[0]).args(&cmd[1..]).spawn() {
+                Ok(_) => app.window.close(),
+                Err(e) => {
+                    let d = alert(&app, tr("Installation nicht gestartet"), &e.to_string());
+                    d.add_response("close", tr("OK"));
+                }
+            }
+        });
+        return;
+    }
     let d = alert(
         app,
         tr("Paket geprüft"),

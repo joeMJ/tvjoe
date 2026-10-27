@@ -22,6 +22,39 @@ pub const CROP: &str = "tvjoe-crop-symbolic";
 
 const CROP_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g fill="#2e3436"><path fill-rule="evenodd" d="M3.5 1h9A2.5 2.5 0 0 1 15 3.5v9a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 1 12.5v-9A2.5 2.5 0 0 1 3.5 1zM3.5 2.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1z"/><path d="M3.5 2.5h9a1 1 0 0 1 1 1v2h-11v-2a1 1 0 0 1 1-1z"/><path d="M2.5 10.5h11v2a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></g></svg>"##;
 
+/// Film (Filmstreifen): Reiter „Filme“.
+pub const FILM: &str = "tvjoe-film-symbolic";
+
+const FILM_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="#2e3436" fill-rule="evenodd" d="M2.5 1.5h11A1.5 1.5 0 0 1 15 3v10a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13V3a1.5 1.5 0 0 1 1.5-1.5zM4.6 3v10h6.8V3zM2.3 3.1v1.6h1.3V3.1zm0 2.8v1.6h1.3V5.9zm0 2.8v1.6h1.3V8.7zm0 2.8v1.6h1.3v-1.6zm10.1-8.4v1.6h1.3V3.1zm0 2.8v1.6h1.3V5.9zm0 2.8v1.6h1.3V8.7zm0 2.8v1.6h1.3v-1.6z"/></svg>"##;
+
+/// Folgen (Bildschirme hintereinander mit Abspielzeichen): Reiter „Episoden“ und „Serien“.
+pub const SERIES: &str = "tvjoe-series-symbolic";
+
+const SERIES_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g fill="#2e3436"><path fill-rule="evenodd" d="M2.2 5.5h9.6a1.2 1.2 0 0 1 1.2 1.2v7.1a1.2 1.2 0 0 1-1.2 1.2H2.2A1.2 1.2 0 0 1 1 13.8V6.7a1.2 1.2 0 0 1 1.2-1.2zM5.5 7.8v4.9l4-2.45z"/><path d="M3.5 3h10.3A1.2 1.2 0 0 1 15 4.2v7.3h-1.3V4.3H3.5z"/><path d="M6 0.6h8.8A1.2 1.2 0 0 1 16 1.8V9h-1.2V1.8H6z" opacity="0.6"/></g></svg>"##;
+
+/// Sammlung (Plakate hintereinander): Reiter „Sammlungen“.
+pub const COLLECTION: &str = "tvjoe-collection-symbolic";
+
+const COLLECTION_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g fill="#2e3436"><rect x="1" y="4.5" width="8.5" height="11" rx="1.1"/><path d="M3.4 2.6h7.3a1.1 1.1 0 0 1 1.1 1.1v10.1h-1.3V3.9H3.4z"/><path d="M5.8 0.5h7.3a1.1 1.1 0 0 1 1.1 1.1v10.1h-1.3V1.8H5.8z" opacity="0.6"/></g></svg>"##;
+
+/// Heruntergeladen (Pfeil in die Ablage): Schalter „Geladen“.
+pub const DOWNLOADED: &str = "tvjoe-downloaded-symbolic";
+
+const DOWNLOADED_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g fill="#2e3436"><path d="M7.2 1h1.6v6.9l2.3-2.3 1.1 1.1L8 10.9 3.8 6.7l1.1-1.1 2.3 2.3z"/><path d="M1 9.5h1.6v3.9h10.8V9.5H15V15H1z"/></g></svg>"##;
+
+/// Umschaltknopf mit Symbol und Beschriftung (Reiter, Schalter in der Kopfleiste).
+pub fn toggle(icon: &str, label: &str) -> gtk::ToggleButton {
+    gtk::ToggleButton::builder()
+        .child(
+            &adw::ButtonContent::builder()
+                .icon_name(icon)
+                .label(label)
+                .use_underline(false)
+                .build(),
+        )
+        .build()
+}
+
 /// Ordner der eigenen Symbole (angelegt; sein Wurzelordner ist im Symbolthema eingetragen).
 pub fn dir() -> Option<PathBuf> {
     let base = paths::cache_dir()?.join("icons");
@@ -38,7 +71,15 @@ pub fn dir() -> Option<PathBuf> {
 /// Eigene Symbole ablegen (beim Start).
 pub fn install() {
     let Some(dir) = dir() else { return };
-    for (name, svg) in [(SATELLITE, SATELLITE_SVG), (ANTENNA, ANTENNA_SVG), (CROP, CROP_SVG)] {
+    for (name, svg) in [
+        (SATELLITE, SATELLITE_SVG),
+        (ANTENNA, ANTENNA_SVG),
+        (CROP, CROP_SVG),
+        (FILM, FILM_SVG),
+        (SERIES, SERIES_SVG),
+        (COLLECTION, COLLECTION_SVG),
+        (DOWNLOADED, DOWNLOADED_SVG),
+    ] {
         let path = dir.join(format!("{name}.svg"));
         if std::fs::read_to_string(&path).ok().as_deref() != Some(svg) {
             let _ = std::fs::write(&path, svg);
