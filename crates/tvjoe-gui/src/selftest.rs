@@ -341,21 +341,23 @@ const SEITE_STEPS: &[Step] = &[
         |p| {
             let d = crate::prefs::open_at(&p.app, Some("empfang"), &p.app.window);
             PREFS.with(|s| *s.borrow_mut() = Some(d.clone()));
-            fn find(w: &gtk::Widget) -> Option<gtk::MenuButton> {
-                if let Some(b) = w.downcast_ref::<gtk::MenuButton>() {
-                    return Some(b.clone());
+            fn find(w: &gtk::Widget, tip: &str) -> Option<gtk::Button> {
+                if let Some(b) = w.downcast_ref::<gtk::Button>() {
+                    if b.tooltip_text().as_deref() == Some(tip) {
+                        return Some(b.clone());
+                    }
                 }
                 let mut c = w.first_child();
                 while let Some(child) = c {
-                    if let Some(b) = find(&child) {
+                    if let Some(b) = find(&child, tip) {
                         return Some(b);
                     }
                     c = child.next_sibling();
                 }
                 None
             }
-            if let Some(b) = find(d.upcast_ref()) {
-                b.popup();
+            if let Some(b) = find(d.upcast_ref(), tvjoe_core::tr("Empfangsquelle hinzufügen")) {
+                b.emit_clicked();
             }
             main_window(p)
         },
@@ -364,26 +366,6 @@ const SEITE_STEPS: &[Step] = &[
     (
         "99-seite",
         |p| {
-            PREFS.with(|d| {
-                if let Some(d) = d.borrow().as_ref() {
-                    fn find(w: &gtk::Widget) -> Option<gtk::MenuButton> {
-                        if let Some(b) = w.downcast_ref::<gtk::MenuButton>() {
-                            return Some(b.clone());
-                        }
-                        let mut c = w.first_child();
-                        while let Some(child) = c {
-                            if let Some(b) = find(&child) {
-                                return Some(b);
-                            }
-                            c = child.next_sibling();
-                        }
-                        None
-                    }
-                    if let Some(b) = find(d.upcast_ref()) {
-                        b.popdown();
-                    }
-                }
-            });
             let title = std::env::var("TVJOE_SELFTEST_SEITE").unwrap_or_default();
             activate_row(&title);
             main_window(p)

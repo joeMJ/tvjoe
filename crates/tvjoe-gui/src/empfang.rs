@@ -86,57 +86,26 @@ pub fn prefs_page(
         .filter(|d| d.driver != Driver::LinuxDvb || cfg!(target_os = "linux"))
         .cloned()
         .collect();
+    // Eigene Unterseite statt Aufklappmenü: ein Popover im Dialog brachte GTK unter Windows zum
+    // Absturz.
     if !addable.is_empty() {
-        let add = gtk::MenuButton::builder()
+        let add = gtk::Button::builder()
             .icon_name("list-add-symbolic")
             .tooltip_text(tr("Empfangsquelle hinzufügen"))
             .valign(gtk::Align::Center)
             .css_classes(["flat"])
             .build();
-        let pop = gtk::Popover::new();
-        let items = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .spacing(2)
-            .build();
-        for d in addable {
-            let b = gtk::Button::builder()
-                .label(&d.name)
-                .css_classes(["flat"])
-                .build();
-            let (app, dialog, state, descs, group, pop) = (
-                app.clone(),
-                dialog.clone(),
-                state.clone(),
-                descs.clone(),
-                sources.clone(),
-                pop.clone(),
-            );
-            b.connect_clicked(move |_| {
-                pop.popdown();
-                let num = {
-                    let mut e = state.borrow_mut();
-                    let num = e.adapters.iter().map(|a| a.num).max().unwrap_or(SRC_SAT).max(SRC_SAT) + 1;
-                    let prefix = match d.driver {
-                        Driver::LinuxDvb => "dvb",
-                        Driver::Satip => "sat",
-                        Driver::Hdhomerun => "hdhr",
-                        Driver::Iptv => "iptv",
-                    };
-                    e.adapters.push(Adapter {
-                        id: format!("{prefix}-{num}"),
-                        num,
-                        kind: d.id.clone(),
-                        ..Adapter::default()
-                    });
-                    num
-                };
-                let row = source_row(&app, &dialog, &state, &descs, &group, num);
-                ActionRowExt::activate(&row);
-            });
-            items.append(&b);
-        }
-        pop.set_child(Some(&items));
-        add.set_popover(Some(&pop));
+        let (app, dialog, state, descs, group) = (
+            app.clone(),
+            dialog.clone(),
+            state.clone(),
+            descs.clone(),
+            sources.clone(),
+        );
+        add.connect_clicked(move |_| {
+            let page = add_page(&app, &dialog, &state, &descs, &group, &addable);
+            dialog.push_subpage(&page);
+        });
         sources.set_header_suffix(Some(&add));
     }
     let nums: Vec<u32> = state.borrow().adapters.iter().map(|a| a.num).collect();
@@ -163,6 +132,74 @@ pub fn prefs_page(
         s.xmltv_sources = e.xmltv.clone();
     };
     (page, apply)
+}
+
+/// Unterseite „Empfangsquelle hinzufügen“: je Beschreibung eine Zeile; die Wahl legt die
+/// Empfangsquelle an und öffnet ihre Seite.
+fn add_page(
+    app: &Rc<App>,
+    dialog: &adw::PreferencesDialog,
+    state: &State,
+    descs: &Rc<Vec<Description>>,
+    group: &adw::PreferencesGroup,
+    addable: &[Description],
+) -> adw::NavigationPage {
+    let content = adw::PreferencesPage::new();
+    let list = adw::PreferencesGroup::builder()
+        .description(tr("Experimentell und ohne Gerät ungetestet sind alle außer der EyeTV Netstream 4Sat."))
+        .build();
+    for d in addable {
+        let row = adw::ActionRow::builder()
+            .title(&d.name)
+            .subtitle(match d.driver {
+                Driver::Satip => "SAT>IP",
+                Driver::LinuxDvb => tr("DVB-Karte"),
+                Driver::Hdhomerun => "HDHomeRun",
+                Driver::Iptv => tr("M3U-Listen"),
+            })
+            .activatable(true)
+            .build();
+        row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+        let (app, dialog, state, descs, group, d) = (
+            app.clone(),
+            dialog.clone(),
+            state.clone(),
+            descs.clone(),
+            group.clone(),
+            d.clone(),
+        );
+        row.connect_activated(move |_| {
+            let num = {
+                let mut e = state.borrow_mut();
+                let num = e.adapters.iter().map(|a| a.num).max().unwrap_or(SRC_SAT).max(SRC_SAT) + 1;
+                let prefix = match d.driver {
+                    Driver::LinuxDvb => "dvb",
+                    Driver::Satip => "sat",
+                    Driver::Hdhomerun => "hdhr",
+                    Driver::Iptv => "iptv",
+                };
+                e.adapters.push(Adapter {
+                    id: format!("{prefix}-{num}"),
+                    num,
+                    kind: d.id.clone(),
+                    ..Adapter::default()
+                });
+                num
+            };
+            dialog.pop_subpage();
+            let row = source_row(&app, &dialog, &state, &descs, &group, num);
+            ActionRowExt::activate(&row);
+        });
+        list.add(&row);
+    }
+    content.add(&list);
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&adw::HeaderBar::new());
+    toolbar.set_content(Some(&content));
+    adw::NavigationPage::builder()
+        .title(tr("Empfangsquelle hinzufügen"))
+        .child(&toolbar)
+        .build()
 }
 
 /// Zeile einer Empfangsquelle in der Übersicht (Schalter, Pfeil zur Seite); gibt die Zeile zurück.
