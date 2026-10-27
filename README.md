@@ -14,9 +14,9 @@
   <a href="https://www.johnlose.de/unterstutzung-fur-john-joe-lose/"><img src="docs/knoepfe/danke.svg" alt="Say thanks to John" width="300"></a>
 </p>
 <p align="center">
-  <a href="docs/INSTALLATION.md#installation-windows"><img src="docs/knoepfe/windows.svg" alt="Install on Windows" width="260"></a>
+  <a href="docs/INSTALLATION.md#installation-windows"><img src="docs/knoepfe/windows-en.svg" alt="Install on Windows" width="260"></a>
   &nbsp;
-  <a href="docs/INSTALLATION.md#installation-ubuntu"><img src="docs/knoepfe/ubuntu.svg" alt="Install on Ubuntu" width="260"></a>
+  <a href="docs/INSTALLATION.md#installation-ubuntu"><img src="docs/knoepfe/ubuntu-en.svg" alt="Install on Ubuntu" width="260"></a>
 </p>
 
 tvjoe does not ship any channel lists; channels come from your own lists or from your own SAT>IP

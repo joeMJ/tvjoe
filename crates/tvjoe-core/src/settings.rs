@@ -165,7 +165,7 @@ impl Default for Settings {
             crop_bars: true,
             fill: false,
             buffer_mb: 512,
-            start_buffer_secs: 3,
+            start_buffer_secs: 1,
             storage_dir: None,
             cache_limit_gb: 20,
             min_free_gb: 5,

@@ -186,7 +186,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     buffer_mb.set_title(tr("Größe"));
     buffer_mb.set_subtitle(tr("MB; drei Viertel davon halten die Pause, bei 1080p (etwa 5 Mbit/s) reichen 512 MB für rund zehn Minuten"));
     buffer_mb.set_value(f64::from(s.buffer_mb));
-    let start_buffer = adw::SpinRow::with_range(3.0, 10.0, 1.0);
+    let start_buffer = adw::SpinRow::with_range(1.0, 10.0, 1.0);
     start_buffer.set_title(tr("Startpuffer"));
     start_buffer.set_subtitle(tr("Sekunden Vorrat vor dem Abspielen und nach einem Abriss; mehr ist robuster, der Senderwechsel dauert entsprechend länger"));
     start_buffer.set_value(f64::from(s.start_buffer_secs));
