@@ -612,7 +612,7 @@ pub fn install(s: &tvjoe_core::Settings) -> Result<(), String> {
          New-Item -ItemType Directory -Force -Path $dst | Out-Null; \
          robocopy $src $dst /MIR /R:2 /W:1 /NFL /NDL /NJH /NJS | Out-Null; if ($LASTEXITCODE -ge 8) {{ exit 2 }}; \
          [IO.File]::WriteAllText((Join-Path $dst {cfgfile}), {toml}); \
-         $bin = '\"' + (Join-Path $dst {exe}) + '\" --windows-dienst'; \
+         $bin = '\\\"' + (Join-Path $dst {exe}) + '\\\" --windows-dienst'; \
          sc.exe create {name} binPath= $bin start= auto obj= 'NT SERVICE\\{name}' DisplayName= 'tvjoe Aufnahmedienst' | Out-Null; \
          if ($LASTEXITCODE -ne 0) {{ exit 3 }}; \
          sc.exe description {name} 'Geplante Aufnahmen von tvjoe (Aufträge aus dem Benutzerordner)' | Out-Null; \
