@@ -729,6 +729,10 @@ impl App {
             self.info.hide();
             self.split.set_show_sidebar(false);
         }
+        // Meldungen bei offener Ebene klein links oben, etwa ein Viertel der Breite
+        // (Nutzer, 2026-10-27: der Balken lag über Reitern und Knöpfen).
+        let width = (self.video.width() / 4).max(280);
+        self.msg.set_compact(on.then_some(width));
     }
 
     pub fn guide(&self) -> Option<Rc<Guide>> {

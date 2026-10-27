@@ -2,7 +2,7 @@
 //! links Nummer | Logo in Schwarzweiß | Name, darunter Quellsymbol, Kategorie und Qualität;
 //! rechts „Jetzt“ mit gekürzter Beschreibung und „Danach“. Alle Teile sind einzeln abschaltbar.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -553,6 +553,10 @@ impl Osd {
 
 /// Meldungsstreifen oben im Bild: eine Zeile über die Bildbreite, gleiches Aussehen wie die
 /// Meldungszeile bisher unten (Lautstärke, Ton, Qualität, Störungen, Ziffernwahl ohne Sender).
+/// Abstand des kleinen Meldungskastens von oben: Kopfzeile der Ansicht (etwa 55 px) und
+/// Filter- bzw. Senderleiste (etwa 55 px) frei lassen.
+const COMPACT_TOP: i32 = 124;
+
 pub struct MessageBar {
     pub root: gtk::Box,
     text: gtk::Label,
@@ -560,6 +564,8 @@ pub struct MessageBar {
     /// Bleibende Meldung (fehlendes OpenGL): andere Meldungen erscheinen nur vorübergehend,
     /// danach steht wieder sie da.
     standing: RefCell<Option<String>>,
+    /// Klein links oben (Programm, Mediathek offen): die Kopfzeile darunter bleibt bedienbar.
+    compact: Cell<bool>,
 }
 
 impl MessageBar {
@@ -586,7 +592,35 @@ impl MessageBar {
             text,
             timer: RefCell::new(None),
             standing: RefCell::new(None),
+            compact: Cell::new(false),
         })
+    }
+
+    /// Klein links oben mit Breite `width` (Ebene offen) bzw. wieder als Balken über die Breite.
+    pub fn set_compact(&self, width: Option<i32>) {
+        self.compact.set(width.is_some());
+        match width {
+            Some(w) => {
+                self.root.set_halign(gtk::Align::Start);
+                self.root.set_size_request(w, -1);
+                // Unter Kopfzeile und Filterzeile der Ansicht (Reiter, Senderleiste), damit
+                // nichts Bedienbares verdeckt wird.
+                self.root.set_margin_top(COMPACT_TOP);
+                // Breite vorgeben: der Text nutzt die Kastenbreite (abzüglich des Innenabstands
+                // von 2 × 22 px) und bricht dort um, statt den Kasten zu verbreitern.
+                self.text.set_max_width_chars(1);
+                self.text.set_size_request((w - 44).max(100), -1);
+            }
+            None => {
+                self.root.set_halign(gtk::Align::Fill);
+                self.root.set_size_request(-1, -1);
+                self.root.set_margin_top(16);
+                self.text.set_max_width_chars(-1);
+                self.text.set_size_request(-1, -1);
+            }
+        }
+        let current = self.text.label().to_string();
+        self.set_text(&current);
     }
 
     /// Bleibende Meldung setzen und zeigen.
@@ -626,8 +660,9 @@ impl MessageBar {
 
     fn set_text(&self, text: &str) {
         self.text.set_label(text);
-        // Kurze Meldungen groß (Lautstärke, Ton …), lange in der Schrift der Beschreibung.
-        let long = text.chars().count() > 60;
+        // Kurze Meldungen groß (Lautstärke, Ton …), lange und im kleinen Kasten in der Schrift
+        // der Beschreibung.
+        let long = self.compact.get() || text.chars().count() > 60;
         for (class, on) in [("tvjoe-osd-name", !long), ("tvjoe-osd-now", long)] {
             if on {
                 self.text.add_css_class(class);
