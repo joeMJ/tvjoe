@@ -750,7 +750,8 @@ pub struct ScannedService {
     pub hd: bool,
     pub radio: bool,
     pub scrambled: bool,
-    pub tp: Transponder,
+    /// Abstimmung (SAT>IP-Adresse ab `src` bzw. `freq`, ohne `pids`).
+    pub query: String,
     /// PAT, PMT, PCR und alle abspielbaren Spuren.
     pub pids: Vec<u16>,
 }
@@ -761,7 +762,7 @@ impl ScannedService {
         let pids: Vec<String> = self.pids.iter().map(u16::to_string).collect();
         format!(
             "rtsp://{host}:{PORT}/?{}&pids={}",
-            self.tp.query(),
+            self.query,
             pids.join(",")
         )
     }
@@ -945,10 +946,10 @@ pub fn transponders(host: &str, sat: &crate::adapter::Satellite) -> Result<Vec<T
 }
 
 /// Einen Transponder durchsuchen: PAT, SDT und alle PMTs lesen. `None`, wenn kein Empfang.
-fn scan_transponder(host: &str, tp: &Transponder) -> Result<Option<Vec<ScannedService>>, String> {
+fn scan_transponder(host: &str, query: &str) -> Result<Option<Vec<ScannedService>>, String> {
     let sock = bind_rtp()?;
     let port = sock.local_addr().map_err(|e| e.to_string())?.port();
-    let s = Session::setup(host, &format!("{}&pids=all", tp.query()), port)?;
+    let s = Session::setup(host, &format!("{query}&pids=all"), port)?;
     let result = (|| {
         s.play()?;
         let col = collect(&sock, Duration::from_millis(1500), &|pid| pid == 0, &|c| {
@@ -991,7 +992,7 @@ fn scan_transponder(host: &str, tp: &Transponder) -> Result<Option<Vec<ScannedSe
                 hd: f.hd,
                 radio: f.radio,
                 scrambled: f.scrambled,
-                tp: *tp,
+                query: query.to_string(),
                 pids: f.pids,
             })
             .collect();
@@ -1009,7 +1010,120 @@ pub fn scan(
     workers: usize,
     progress: &(dyn Fn(ScanProgress) + Sync),
 ) -> Result<Vec<ScannedService>, String> {
-    let list = transponders(host, sat)?;
+    let list: Vec<String> = transponders(host, sat)?.iter().map(Transponder::query).collect();
+    scan_queries(host, list, workers, progress)
+}
+
+/// Suchlauf über einen Frequenzplan (Antenne, Kabel) mit `workers` Tunern parallel.
+pub fn scan_plan(
+    host: &str,
+    tunings: &[crate::plan::Tuning],
+    workers: usize,
+    progress: &(dyn Fn(ScanProgress) + Sync),
+) -> Result<Vec<ScannedService>, String> {
+    scan_queries(host, tunings.iter().map(query_for).collect(), workers, progress)
+}
+
+/// Abstimmung eines Kanals als SAT>IP-Adresse (ohne `pids`), nach SAT>IP 1.2: DVB-T/T2
+/// `freq` (MHz), `bw`, `msys`, ggf. `plp`; DVB-C `freq`, `msys=dvbc`, `sr` (kSym/s), `mtype`.
+pub fn query_for(t: &crate::plan::Tuning) -> String {
+    use crate::plan::System;
+    let mhz = |hz: u32| {
+        let v = f64::from(hz) / 1e6;
+        if v.fract() == 0.0 {
+            format!("{v:.0}")
+        } else {
+            format!("{v}")
+        }
+    };
+    match t.system {
+        System::DvbT | System::DvbT2 => {
+            let mut q = format!(
+                "freq={}&bw={}&msys={}",
+                mhz(t.freq),
+                t.bandwidth / 1_000_000,
+                t.system.code()
+            );
+            if let Some(p) = t.plp {
+                q += &format!("&plp={p}");
+            }
+            q
+        }
+        System::DvbC => format!(
+            "freq={}&msys=dvbc&sr={}&mtype={}",
+            mhz(t.freq),
+            t.symbol_rate / 1000,
+            match t.modulation.as_str() {
+                "qam64" => "64qam",
+                "qam128" => "128qam",
+                _ => "256qam",
+            }
+        ),
+        System::DvbS | System::DvbS2 => format!(
+            "src=1&freq={}&pol={}&msys={}&sr={}",
+            t.freq / 1000,
+            t.pol,
+            t.system.code(),
+            t.symbol_rate / 1000
+        ),
+    }
+}
+
+/// Senderliste vom Gerät (M3U-Listen mit RTSP-Adressen, z. B. FRITZ!Box Cable); `urls` mit
+/// `{host}`. Gibt die Sender für die Senderliste zurück.
+pub fn channel_list(host: &str, urls: &[String]) -> Result<Vec<crate::ScannedChannel>, String> {
+    let agent = crate::net::agent(Duration::from_secs(20));
+    let mut out: Vec<crate::ScannedChannel> = Vec::new();
+    let mut errors = Vec::new();
+    for tpl in urls {
+        let url = tpl.replace("{host}", host);
+        let bytes = match crate::net::fetch(&agent, &url, 4 << 20) {
+            Ok(b) => b,
+            Err(e) => {
+                errors.push(format!("{url}: {e}"));
+                continue;
+            }
+        };
+        let list = crate::Playlist::parse(&bytes).map_err(|e| format!("{url}: {e}"))?;
+        // HD-Liste vor SD-Liste: gleiche Sender nur einmal.
+        let hd = url.contains("hd");
+        for e in list.entries {
+            if split_url(&e.url).is_none() || e.name.trim().is_empty() {
+                continue;
+            }
+            let key = format!("satip-list:{}", crate::normalize_id(&e.name));
+            if out.iter().any(|c| c.key == key) {
+                continue;
+            }
+            out.push(crate::ScannedChannel {
+                key,
+                name: e.name.trim().to_string(),
+                group: None,
+                stream: crate::Stream {
+                    quality: Some(if hd { crate::Quality::P720 } else { crate::Quality::Sd }),
+                    kind: Some(crate::SourceKind::SatIp),
+                    url: e.url.clone(),
+                    max_bitrate: None,
+                },
+                radio: false,
+                epg_id: None,
+            });
+        }
+    }
+    if out.is_empty() && !errors.is_empty() {
+        return Err(errors.join("; "));
+    }
+    Ok(out)
+}
+
+/// Suchlauf über eine Liste von Abstimmungen; Transponder ohne Empfang werden am Ende einmal
+/// wiederholt (anderer Tuner).
+fn scan_queries(
+    host: &str,
+    list: Vec<String>,
+    workers: usize,
+    progress: &(dyn Fn(ScanProgress) + Sync),
+) -> Result<Vec<ScannedService>, String> {
     let total = list.len();
     let queue = std::sync::Mutex::new(list.into_iter().map(|t| (t, 0u8)).collect::<Vec<_>>());
     let found = std::sync::Mutex::new(Vec::<ScannedService>::new());

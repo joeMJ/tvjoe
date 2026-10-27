@@ -834,8 +834,7 @@ impl App {
                 .icon_name(match driver {
                     Driver::Iptv => "video-display-symbolic",
                     Driver::Satip => crate::icons::SATELLITE,
-                    #[allow(unreachable_patterns)]
-                    _ => crate::icons::ANTENNA,
+                    Driver::LinuxDvb | Driver::Hdhomerun => crate::icons::ANTENNA,
                 })
                 .tooltip_text(&title)
                 .css_classes(["tvjoe-source"])
@@ -1223,19 +1222,19 @@ impl App {
         self.with_list(src, |l| l.channels.iter().filter(|c| !c.missing).count())
     }
 
-    /// M3U-Liste samt ihren Sendern aus der Internet-TV-Senderliste nehmen und speichern.
-    pub fn remove_tv_source(self: &Rc<Self>, id: u64) {
-        let shown = self.active.get() == SRC_TV;
+    /// M3U-Liste samt ihren Sendern aus der Senderliste einer Empfangsquelle nehmen und speichern.
+    pub fn remove_list_source(self: &Rc<Self>, src: u32, id: u64) {
+        let shown = self.active.get() == src;
         {
             let mut others = self.others.borrow_mut();
             let mut current = self.lib.borrow_mut();
             let lib: &mut Library = if shown {
                 &mut current
             } else {
-                others.entry(SRC_TV).or_insert_with(|| self.load_list(SRC_TV))
+                others.entry(src).or_insert_with(|| self.load_list(src))
             };
             lib.remove_source(id);
-            if let Some(p) = paths::library_path() {
+            if let Some(p) = self.list_path(src) {
                 if let Err(e) = lib.save(&p) {
                     eprintln!("tvjoe: {e}");
                 }

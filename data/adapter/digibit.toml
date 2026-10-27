@@ -1,0 +1,15 @@
+# Empfangsquelle: Telestar Digibit R1 (SAT>IP, Satellit). Beschreibung nach der SAT>IP-Norm,
+# Eigenheiten des Geräts unbekannt; ungetestet.
+id = "digibit"
+name = "Telestar Digibit"
+driver = "satip"
+systems = ["dvbs", "dvbs2"]
+tuners = 2
+signal_epg = true
+
+[satellite]
+name = "Astra 19,2° Ost"
+orbital = 192
+east = true
+# Starttransponder des Suchlaufs (sendet die Netzwerktabelle mit allen Transpondern).
+seed = { freq = 11494, pol = "h", dvbs2 = true, mtype = "8psk", sr = 22000, fec = "23" }

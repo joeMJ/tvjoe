@@ -8,7 +8,9 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::glib;
 use tvjoe_core::satip::{self, CheckResult, ScanProgress};
-use tvjoe_core::adapter::Satellite;
+use tvjoe_core::adapter::{Description, Satellite};
+use tvjoe_core::plan::Plan;
+use tvjoe_core::settings::Adapter;
 use tvjoe_core::{Library, paths, tf, tr, trn};
 
 use crate::app::App;
@@ -18,17 +20,23 @@ use crate::app::App;
 /// Beschreibung). Gibt die Gruppen und das Adressfeld zurück.
 pub fn device_groups(
     app: &Rc<App>,
-    host: &str,
-    satellite: Option<Satellite>,
+    adapter: &Adapter,
+    desc: Option<&Description>,
 ) -> (Vec<adw::PreferencesGroup>, adw::EntryRow) {
+    let satellite = desc.and_then(|d| d.satellite.clone());
+    let choices = scan_choices(desc);
     let sat_name = satellite.as_ref().map(|s| s.name.clone()).unwrap_or_default();
     let device = adw::PreferencesGroup::builder()
         .title(tr("Gerät"))
-        .description(tf!("SAT>IP-Empfänger im Netz; Satellit {satellite}. Eigene Gerätebeschreibungen liegen im Ordner „adapter“ der Konfiguration.", satellite = sat_name))
+        .description(if satellite.is_some() {
+            tf!("SAT>IP-Empfänger im Netz; Satellit {satellite}. Eigene Gerätebeschreibungen liegen im Ordner „adapter“ der Konfiguration.", satellite = sat_name)
+        } else {
+            tr("SAT>IP-Empfänger im Netz. Eigene Gerätebeschreibungen liegen im Ordner „adapter“ der Konfiguration.").to_string()
+        })
         .build();
     let host = adw::EntryRow::builder()
         .title(tr("Adresse des SAT>IP-Geräts (IP-Adresse)"))
-        .text(host)
+        .text(adapter.host.as_str())
         .build();
     let check_row = adw::ActionRow::builder()
         .title(tr("Prüfen"))
@@ -40,25 +48,48 @@ pub fn device_groups(
         .build();
     check_row.add_suffix(&check);
     device.add(&host);
-    device.add(&check_row);
+    // Prüfen stimmt Transponder von Astra 19,2° Ost ab; nur bei Geräten am Satelliten.
+    if satellite.is_some() {
+        device.add(&check_row);
+    }
 
     let result = adw::PreferencesGroup::builder()
         .title(tr("Ergebnis"))
         .visible(false)
         .build();
 
+    let from_device = matches!(choices.first(), Some(ScanChoice::Device(_)));
     let list = adw::PreferencesGroup::builder()
         .title(tr("Senderliste"))
-        .description(tf!("Frei empfangbare TV-Sender aller Transponder von {satellite}; verschlüsselte Sender und Radio werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen.", satellite = sat_name))
+        .description(if from_device {
+            tr("Die Senderliste kommt vom Gerät; ein erneutes Holen behält Nummern und eigene Namen.").to_string()
+        } else if choices.len() == 1 && satellite.is_some() {
+            tf!("Frei empfangbare TV-Sender aller Transponder von {satellite}; verschlüsselte Sender und Radio werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen.", satellite = sat_name)
+        } else {
+            tr("Frei empfangbare TV-Sender; verschlüsselte Sender und Radio werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen.").to_string()
+        })
         .build();
+    let choice_row = adw::ComboRow::builder()
+        .title(tr("Suchlauf über"))
+        .model(&gtk::StringList::new(
+            &choices.iter().map(ScanChoice::label).collect::<Vec<_>>().iter().map(String::as_str).collect::<Vec<_>>(),
+        ))
+        .build();
+    if choices.len() > 1 {
+        list.add(&choice_row);
+    }
     let scan_row = adw::ActionRow::builder()
-        .title(tr("Suchlauf"))
-        .subtitle(list_summary())
+        .title(if from_device { tr("Senderliste") } else { tr("Suchlauf") })
+        .subtitle(list_summary(&adapter.id))
         .build();
     let scan = gtk::Button::builder()
-        .label(tr("Suchlauf starten"))
+        .label(if from_device {
+            tr("Vom Gerät holen")
+        } else {
+            tr("Suchlauf starten")
+        })
         .valign(gtk::Align::Center)
-        .sensitive(satellite.is_some())
+        .sensitive(!choices.is_empty())
         .build();
     scan_row.add_suffix(&scan);
     let bar = gtk::ProgressBar::builder()
@@ -69,10 +100,17 @@ pub fn device_groups(
         .build();
     list.add(&scan_row);
     list.add(&bar);
-    if let Some(sat) = satellite {
-        let (host, row, bar) = (host.clone(), scan_row.clone(), bar.clone());
+    {
+        let (host, row, bar, choice_row) =
+            (host.clone(), scan_row.clone(), bar.clone(), choice_row.clone());
         let weak = Rc::downgrade(app);
-        scan.connect_clicked(move |b| run_scan(&weak, host.text().trim(), &sat, b, &row, &bar));
+        let (id, num) = (adapter.id.clone(), adapter.num);
+        scan.connect_clicked(move |b| {
+            let Some(choice) = choices.get(choice_row.selected() as usize).cloned() else {
+                return;
+            };
+            run_scan(&weak, &id, num, host.text().trim(), choice, b, &row, &bar)
+        });
     }
 
     let rows: Rc<std::cell::RefCell<Vec<gtk::Widget>>> = Rc::default();
@@ -84,6 +122,45 @@ pub fn device_groups(
     let r = run.clone();
     check.connect_clicked(move |_| r());
     (vec![device, result, list], host)
+}
+
+/// Wege zur Senderliste eines SAT>IP-Geräts.
+#[derive(Clone)]
+enum ScanChoice {
+    /// Suchlauf über die Netzwerktabelle eines Satelliten.
+    Satellite(Satellite),
+    /// Suchlauf über einen Frequenzplan (Antenne, Kabel).
+    Plan(Plan),
+    /// Senderliste vom Gerät (M3U-Adressen mit `{host}`).
+    Device(Vec<String>),
+}
+
+impl ScanChoice {
+    fn label(&self) -> String {
+        match self {
+            ScanChoice::Satellite(s) => tf!("Satellit {satellite}", satellite = s.name),
+            ScanChoice::Plan(p) => p.name.clone(),
+            ScanChoice::Device(_) => tr("Senderliste vom Gerät").to_string(),
+        }
+    }
+}
+
+fn scan_choices(desc: Option<&Description>) -> Vec<ScanChoice> {
+    let Some(d) = desc else { return Vec::new() };
+    if !d.channel_list.is_empty() {
+        return vec![ScanChoice::Device(d.channel_list.clone())];
+    }
+    let mut out = Vec::new();
+    if let Some(s) = &d.satellite {
+        out.push(ScanChoice::Satellite(s.clone()));
+    }
+    let systems = d.plan_systems();
+    for p in tvjoe_core::plan::plans() {
+        if p.tunings.first().is_some_and(|t| systems.contains(&t.system)) {
+            out.push(ScanChoice::Plan(p));
+        }
+    }
+    out
 }
 
 fn run_check(
@@ -277,8 +354,8 @@ fn confirm_firewall(
 }
 
 /// Stand der gespeicherten SAT-Senderliste für die Unterzeile.
-fn list_summary() -> String {
-    let lib = paths::satip_library_path()
+fn list_summary(adapter_id: &str) -> String {
+    let lib = paths::source_library_path(adapter_id)
         .and_then(|p| Library::load(&p).ok())
         .unwrap_or_default();
     match lib.channels.iter().filter(|c| !c.missing).count() {
@@ -287,18 +364,27 @@ fn list_summary() -> String {
     }
 }
 
+/// Ergebnis eines Suchlaufs: gefundene Dienste bzw. fertige Sender (Liste vom Gerät).
+enum Found {
+    Services(Vec<satip::ScannedService>),
+    Channels(Vec<tvjoe_core::ScannedChannel>),
+}
+
 enum ScanMsg {
     Step(&'static str),
     Progress(ScanProgress),
-    Done(Result<Vec<satip::ScannedService>, String>),
+    Done(Result<Found, String>),
 }
 
 /// Suchlauf im Hintergrund: so viele Tuner parallel, wie beim Prüfen Empfang haben; danach
-/// Abgleich mit der gespeicherten SAT-Senderliste.
+/// Abgleich mit der gespeicherten Senderliste der Empfangsquelle.
+#[allow(clippy::too_many_arguments)]
 fn run_scan(
     app: &std::rc::Weak<App>,
+    adapter_id: &str,
+    num: u32,
     host: &str,
-    sat: &Satellite,
+    choice: ScanChoice,
     button: &gtk::Button,
     row: &adw::ActionRow,
     bar: &gtk::ProgressBar,
@@ -313,25 +399,33 @@ fn run_scan(
     bar.set_text(Some(tr("Prüfe Tuner …")));
     let (tx, rx) = async_channel::unbounded();
     let h = host.to_string();
-    let sat = sat.clone();
     std::thread::spawn(move || {
-        let workers = satip::check(&h, Duration::from_secs(1))
-            .map(|r| r.status.iter().filter(|t| t.lock).count())
-            .unwrap_or(1)
-            .max(1);
-        let _ = tx.send_blocking(ScanMsg::Step(tr("Lese die Transponderliste …")));
         let progress = |p: ScanProgress| {
             let _ = tx.send_blocking(ScanMsg::Progress(p));
         };
-        let result = satip::scan(&h, &sat, workers, &progress);
+        let result = match choice {
+            ScanChoice::Device(urls) => satip::channel_list(&h, &urls).map(Found::Channels),
+            ScanChoice::Satellite(sat) => {
+                let workers = satip::check(&h, Duration::from_secs(1))
+                    .map(|r| r.status.iter().filter(|t| t.lock).count())
+                    .unwrap_or(1)
+                    .max(1);
+                let _ = tx.send_blocking(ScanMsg::Step(tr("Lese die Transponderliste …")));
+                satip::scan(&h, &sat, workers, &progress).map(Found::Services)
+            }
+            ScanChoice::Plan(plan) => {
+                satip::scan_plan(&h, &plan.tunings, 1, &progress).map(Found::Services)
+            }
+        };
         let _ = tx.send_blocking(ScanMsg::Done(result));
     });
-    let (app, button, row, bar, host) = (
+    let (app, button, row, bar, host, id) = (
         app.clone(),
         button.clone(),
         row.clone(),
         bar.clone(),
         host.to_string(),
+        adapter_id.to_string(),
     );
     glib::spawn_future_local(async move {
         while let Ok(msg) = rx.recv().await {
@@ -350,10 +444,10 @@ fn run_scan(
                     button.set_sensitive(true);
                     bar.set_visible(false);
                     row.set_subtitle(&match result {
-                        Ok(services) => {
-                            let text = save_scan(&host, &services);
+                        Ok(found) => {
+                            let text = save_scan(&id, &host, found);
                             if let Some(app) = app.upgrade() {
-                                app.reload_list(tvjoe_core::settings::SRC_SAT);
+                                app.reload_list(num);
                             }
                             text
                         }
@@ -367,15 +461,21 @@ fn run_scan(
 }
 
 /// Ergebnis in die SAT-Senderliste übernehmen und als Unterzeile zusammenfassen.
-fn save_scan(host: &str, services: &[satip::ScannedService]) -> String {
-    let Some(path) = paths::satip_library_path() else {
+fn save_scan(adapter_id: &str, host: &str, found: Found) -> String {
+    let Some(path) = paths::source_library_path(adapter_id) else {
         return tr("Kein Konfigurationsordner gefunden").to_string();
     };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
     let mut lib = match Library::load(&path) {
         Ok(l) => l,
         Err(e) => return tf!("SAT-Senderliste nicht lesbar: {error}", error = e),
     };
-    let items = satip::to_channels(host, services);
+    let items = match found {
+        Found::Services(services) => satip::to_channels(host, &services),
+        Found::Channels(channels) => channels,
+    };
     let out = lib.sync_scanned("SAT>IP", &format!("satip://{host}"), &items);
     if let Err(e) = lib.save(&path) {
         return tf!("SAT-Senderliste nicht gespeichert: {error}", error = e);

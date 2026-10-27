@@ -1,0 +1,7 @@
+# Empfangsquelle: Multicast-IPTV im Heimnetz (z. B. MagentaTV): M3U-Liste des Anbieters mit
+# rtp:// bzw. udp://@-Adressen; der Router muss Multicast (IGMP) weiterleiten. Programm über
+# XMLTV. Experimentell, ungetestet.
+id = "multicast-iptv"
+name = "Multicast-IPTV"
+driver = "iptv"
+signal_epg = false

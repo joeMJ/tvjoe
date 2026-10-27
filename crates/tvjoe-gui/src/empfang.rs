@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use adw::prelude::*;
+use gtk::glib;
 use tvjoe_core::adapter::{self, Description, Driver};
 use tvjoe_core::settings::{ADAPTER_TV, Adapter, SRC_SAT, XmltvSource};
 use tvjoe_core::{Settings, paths, tf, tr, trn};
@@ -78,10 +79,11 @@ pub fn prefs_page(
         .title(tr("Empfangsquellen"))
         .description(tr("Jede Quelle hat ihre eigene Senderliste, Sortierung und ihr eigenes Programm. Ausgeschaltet verschwindet ihr Knopf in der Kopfleiste, und im Hintergrund läuft nichts für sie."))
         .build();
-    // Hinzufügen: Beschreibungen mit Treibern, die mehrere Quellen erlauben (DVB-Karten).
+    // Hinzufügen: jede Beschreibung außer der Internet-TV-Grundliste; DVB-Karten nur unter Linux.
     let addable: Vec<Description> = descs
         .iter()
-        .filter(|d| d.driver == Driver::LinuxDvb && cfg!(target_os = "linux"))
+        .filter(|d| d.id != "iptv-m3u")
+        .filter(|d| d.driver != Driver::LinuxDvb || cfg!(target_os = "linux"))
         .cloned()
         .collect();
     if !addable.is_empty() {
@@ -116,7 +118,9 @@ pub fn prefs_page(
                     let num = e.adapters.iter().map(|a| a.num).max().unwrap_or(SRC_SAT).max(SRC_SAT) + 1;
                     let prefix = match d.driver {
                         Driver::LinuxDvb => "dvb",
-                        _ => "quelle",
+                        Driver::Satip => "sat",
+                        Driver::Hdhomerun => "hdhr",
+                        Driver::Iptv => "iptv",
                     };
                     e.adapters.push(Adapter {
                         id: format!("{prefix}-{num}"),
@@ -230,6 +234,12 @@ fn source_summary(app: &App, a: &Adapter, descs: &[Description]) -> String {
             device = a.host.trim(),
             channels = channels
         ),
+        Driver::Hdhomerun if a.host.trim().is_empty() => {
+            tf!("HDHomeRun · noch keine Adresse · {channels}", channels = channels)
+        }
+        Driver::Hdhomerun => {
+            tf!("HDHomeRun · {host} · {channels}", host = a.host.trim(), channels = channels)
+        }
         Driver::Iptv => tf!("M3U-Listen · {channels}", channels = channels),
     }
 }
@@ -312,8 +322,7 @@ fn adapter_page(
 
     match driver {
         Driver::Satip => {
-            let satellite = description_of(&a, descs).and_then(|d| d.satellite.clone());
-            let (groups, host) = crate::satip::device_groups(app, &a.host, satellite);
+            let (groups, host) = crate::satip::device_groups(app, &a, description_of(&a, descs));
             let e = edit.clone();
             host.connect_changed(move |h| {
                 let text = h.text().trim().to_string();
@@ -333,7 +342,16 @@ fn adapter_page(
                 content.add(&g);
             }
         }
-        _ => content.add(&lists_group(app, dialog, a.enabled)),
+        Driver::Hdhomerun => {
+            let e = edit.clone();
+            let set_host: Rc<dyn Fn(String)> = Rc::new(move |h: String| {
+                e(&|a| a.host = h.clone());
+            });
+            for g in hdhomerun_groups(app, &a, set_host) {
+                content.add(&g);
+            }
+        }
+        _ => content.add(&lists_group(app, dialog, &a)),
     }
 
     // Programm: aus dem Signal und/oder aus XMLTV, beides freiwillig.
@@ -487,7 +505,8 @@ fn adapter_page(
 }
 
 /// Internet-TV: die M3U-Listen der Senderliste, Übernahme aus Datei oder URL.
-fn lists_group(app: &Rc<App>, dialog: &adw::PreferencesDialog, enabled: bool) -> adw::PreferencesGroup {
+fn lists_group(app: &Rc<App>, dialog: &adw::PreferencesDialog, a: &Adapter) -> adw::PreferencesGroup {
+    let (enabled, num) = (a.enabled, a.num);
     let group = adw::PreferencesGroup::builder()
         .title(tr("M3U-Listen"))
         .description(tr("Übernahme mit Vorschau und Prüfung in der Senderverwaltung; „Entfernen“ nimmt die Liste samt ihren Sendern aus der Senderliste"))
@@ -513,23 +532,28 @@ fn lists_group(app: &Rc<App>, dialog: &adw::PreferencesDialog, enabled: bool) ->
         group.set_description(Some(tr("Zum Übernehmen erst die Empfangsquelle einschalten")));
     }
     let rows: Rc<RefCell<Vec<adw::ActionRow>>> = Rc::default();
-    fill_lists(app, &group, &rows);
+    fill_lists(app, &group, &rows, num);
     for (button, from_url) in [(file, false), (url, true)] {
         let (app, dialog) = (app.clone(), dialog.clone());
         button.connect_clicked(move |_| {
             // Erst die Einstellungen schließen (übernimmt sie), dann die Übernahme öffnen.
             dialog.close();
-            crate::manage::import_tv(&app, from_url);
+            crate::manage::import_into(&app, num, from_url);
         });
     }
     group
 }
 
-fn fill_lists(app: &Rc<App>, group: &adw::PreferencesGroup, rows: &Rc<RefCell<Vec<adw::ActionRow>>>) {
+fn fill_lists(
+    app: &Rc<App>,
+    group: &adw::PreferencesGroup,
+    rows: &Rc<RefCell<Vec<adw::ActionRow>>>,
+    num: u32,
+) {
     for r in rows.borrow_mut().drain(..) {
         group.remove(&r);
     }
-    let sources = app.with_list(tvjoe_core::settings::SRC_TV, |lib| {
+    let sources = app.with_list(num, |lib| {
         lib.sources
             .iter()
             .map(|s| {
@@ -577,8 +601,8 @@ fn fill_lists(app: &Rc<App>, group: &adw::PreferencesGroup, rows: &Rc<RefCell<Ve
             d.set_close_response("cancel");
             let (app, group, rows) = (app.clone(), group2.clone(), rows2.clone());
             d.connect_response(Some("remove"), move |_, _| {
-                app.remove_tv_source(id);
-                fill_lists(&app, &group, &rows);
+                app.remove_list_source(num, id);
+                fill_lists(&app, &group, &rows, num);
             });
             d.present(Some(b));
         });
@@ -745,4 +769,147 @@ fn edit_xmltv(
         fill_xmltv(&state, &group, &rows);
     });
     d.present(Some(parent));
+}
+
+/// HDHomeRun: Adresse, Prüfen, Senderliste vom Gerät (`lineup.json`).
+fn hdhomerun_groups(app: &Rc<App>, a: &Adapter, set_host: Rc<dyn Fn(String)>) -> Vec<adw::PreferencesGroup> {
+    let device = adw::PreferencesGroup::builder()
+        .title(tr("Gerät"))
+        .description(tr("Netzwerktuner von SiliconDust; Senderliste und Streams über HTTP. Ungetestet."))
+        .build();
+    let host = adw::EntryRow::builder()
+        .title(tr("Adresse des HDHomeRun (IP-Adresse oder Name)"))
+        .text(a.host.as_str())
+        .build();
+    let check_row = adw::ActionRow::builder()
+        .title(tr("Prüfen"))
+        .subtitle(tr("Fragt Modell, Firmware und Zahl der Tuner ab"))
+        .build();
+    let check = gtk::Button::builder()
+        .label(tr("Prüfen"))
+        .valign(gtk::Align::Center)
+        .build();
+    check_row.add_suffix(&check);
+    device.add(&host);
+    device.add(&check_row);
+    host.connect_changed(move |h| set_host(h.text().trim().to_string()));
+
+    let list = adw::PreferencesGroup::builder()
+        .title(tr("Senderliste"))
+        .description(tr("Die Senderliste kommt vom Gerät (dort vorher den Suchlauf ausführen); ein erneutes Holen behält Nummern und eigene Namen."))
+        .build();
+    let list_row = adw::ActionRow::builder()
+        .title(tr("Senderliste"))
+        .subtitle(list_summary(&a.id))
+        .build();
+    let fetch = gtk::Button::builder()
+        .label(tr("Vom Gerät holen"))
+        .valign(gtk::Align::Center)
+        .build();
+    list_row.add_suffix(&fetch);
+    list.add(&list_row);
+
+    {
+        let (host, row) = (host.clone(), check_row.clone());
+        check.connect_clicked(move |b| {
+            let h = host.text().trim().to_string();
+            if h.is_empty() {
+                return;
+            }
+            b.set_sensitive(false);
+            let (tx, rx) = async_channel::bounded(1);
+            std::thread::spawn(move || {
+                let _ = tx.send_blocking(tvjoe_core::hdhomerun::discover(&h));
+            });
+            let (b, row) = (b.clone(), row.clone());
+            glib::spawn_future_local(async move {
+                let Ok(r) = rx.recv().await else { return };
+                b.set_sensitive(true);
+                row.set_subtitle(&match r {
+                    Ok(i) => tf!(
+                        "{name} ({model}) · Firmware {firmware} · {tuners}",
+                        name = i.name,
+                        model = i.model,
+                        firmware = i.firmware,
+                        tuners = trn("{n} Tuner", "{n} Tuner", u64::from(i.tuners))
+                    ),
+                    Err(e) => tf!("Gerät nicht erreichbar: {error}", error = e),
+                });
+            });
+        });
+    }
+    {
+        let (host, row, app, id, num) = (
+            host.clone(),
+            list_row.clone(),
+            Rc::downgrade(app),
+            a.id.clone(),
+            a.num,
+        );
+        fetch.connect_clicked(move |b| {
+            let h = host.text().trim().to_string();
+            if h.is_empty() {
+                row.set_subtitle(tr("Bitte zuerst die Adresse des Geräts eintragen"));
+                return;
+            }
+            b.set_sensitive(false);
+            let (tx, rx) = async_channel::bounded(1);
+            let hh = h.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send_blocking(tvjoe_core::hdhomerun::lineup(&hh));
+            });
+            let (b, row, app, id) = (b.clone(), row.clone(), app.clone(), id.clone());
+            glib::spawn_future_local(async move {
+                let Ok(r) = rx.recv().await else { return };
+                b.set_sensitive(true);
+                row.set_subtitle(&match r {
+                    Ok(items) => {
+                        let text = save_list(&id, "HDHomeRun", &format!("hdhomerun://{h}"), &items);
+                        if let Some(app) = app.upgrade() {
+                            app.reload_list(num);
+                        }
+                        text
+                    }
+                    Err(e) => tf!("Senderliste nicht geholt: {error}", error = e),
+                });
+            });
+        });
+    }
+    vec![device, list]
+}
+
+/// Stand der gespeicherten Senderliste einer Empfangsquelle.
+fn list_summary(adapter_id: &str) -> String {
+    let lib = paths::source_library_path(adapter_id)
+        .and_then(|p| tvjoe_core::Library::load(&p).ok())
+        .unwrap_or_default();
+    match lib.channels.iter().filter(|c| !c.missing).count() {
+        0 => tr("Noch keine Sender gespeichert").to_string(),
+        n => trn("{n} Sender gespeichert", "{n} Sender gespeichert", n as u64),
+    }
+}
+
+/// Sender in die Senderliste einer Empfangsquelle übernehmen und zusammenfassen.
+fn save_list(adapter_id: &str, name: &str, location: &str, items: &[tvjoe_core::ScannedChannel]) -> String {
+    let Some(path) = paths::source_library_path(adapter_id) else {
+        return tr("Kein Konfigurationsordner gefunden").to_string();
+    };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let mut lib = match tvjoe_core::Library::load(&path) {
+        Ok(l) => l,
+        Err(e) => return tf!("Senderliste nicht lesbar: {error}", error = e),
+    };
+    let out = lib.sync_scanned(name, location, items);
+    if let Err(e) = lib.save(&path) {
+        return tf!("Senderliste nicht gespeichert: {error}", error = e);
+    }
+    tf!(
+        "{total} Sender ({added} neu, {updated} aktualisiert, {missing} nicht mehr gefunden)",
+        total = items.len(),
+        added = out.added,
+        updated = out.updated,
+        missing = out.missing
+    )
 }

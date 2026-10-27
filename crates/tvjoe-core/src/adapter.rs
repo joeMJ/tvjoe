@@ -18,6 +18,13 @@ const BUILTIN: &[(&str, &str)] = &[
     ("iptv-m3u.toml", include_str!("../../../data/adapter/iptv-m3u.toml")),
     ("netstream-4sat.toml", include_str!("../../../data/adapter/netstream-4sat.toml")),
     ("dvb-linux.toml", include_str!("../../../data/adapter/dvb-linux.toml")),
+    ("satip-norm.toml", include_str!("../../../data/adapter/satip-norm.toml")),
+    ("octopus-net.toml", include_str!("../../../data/adapter/octopus-net.toml")),
+    ("digibit.toml", include_str!("../../../data/adapter/digibit.toml")),
+    ("kathrein-exip.toml", include_str!("../../../data/adapter/kathrein-exip.toml")),
+    ("fritzbox-cable.toml", include_str!("../../../data/adapter/fritzbox-cable.toml")),
+    ("hdhomerun.toml", include_str!("../../../data/adapter/hdhomerun.toml")),
+    ("multicast-iptv.toml", include_str!("../../../data/adapter/multicast-iptv.toml")),
 ];
 
 /// Treiber im Programm.
@@ -31,6 +38,8 @@ pub enum Driver {
     /// DVB-Karte unter Linux (`/dev/dvb`; experimentell).
     #[serde(rename = "linux-dvb")]
     LinuxDvb,
+    /// HDHomeRun-Netzwerktuner (Senderliste und Streams über HTTP).
+    Hdhomerun,
 }
 
 /// Satellit einer SAT>IP-Beschreibung.
@@ -56,8 +65,22 @@ pub struct Description {
     /// Programmdaten kommen mit dem Signal (EIT).
     pub signal_epg: bool,
     pub satellite: Option<Satellite>,
+    /// Senderliste vom Gerät statt Suchlauf: Adressen von M3U-Listen, `{host}` = Adresse des
+    /// Geräts (z. B. FRITZ!Box: `http://{host}/dvb/m3u/tvhd.m3u`).
+    pub channel_list: Vec<String>,
     /// Eingebaut (sonst aus dem Ordner `adapter/`).
     pub builtin: bool,
+}
+
+impl Description {
+    /// Empfangsarten mit Suchlauf über einen Frequenzplan (Antenne, Kabel).
+    pub fn plan_systems(&self) -> Vec<crate::plan::System> {
+        self.systems
+            .iter()
+            .filter_map(|s| crate::plan::System::from_code(s))
+            .filter(|s| !s.satellite())
+            .collect()
+    }
 }
 
 #[derive(Deserialize)]
@@ -77,6 +100,8 @@ struct Raw {
     #[serde(default = "yes")]
     connection_per_request: bool,
     satellite: Option<RawSatellite>,
+    #[serde(default)]
+    channel_list: Vec<String>,
 }
 
 fn yes() -> bool {
@@ -123,8 +148,13 @@ pub fn parse(text: &str, builtin: bool) -> Result<Description, String> {
         if raw.rtp_tcp || !raw.connection_per_request {
             return Err(tr("SAT>IP: RTP über TCP und dauerhafte RTSP-Verbindungen kann tvjoe noch nicht").into());
         }
-        if raw.satellite.is_none() {
-            return Err(tr("SAT>IP: Abschnitt [satellite] fehlt").into());
+        let terrestrial = raw
+            .systems
+            .iter()
+            .filter_map(|s| crate::plan::System::from_code(s))
+            .any(|s| !s.satellite());
+        if raw.satellite.is_none() && raw.channel_list.is_empty() && !terrestrial {
+            return Err(tr("SAT>IP: Abschnitt [satellite], channel_list oder eine Empfangsart für Antenne/Kabel fehlt").into());
         }
     }
     let satellite = match raw.satellite {
@@ -163,6 +193,7 @@ pub fn parse(text: &str, builtin: bool) -> Result<Description, String> {
         tuners: raw.tuners,
         signal_epg: raw.signal_epg,
         satellite,
+        channel_list: raw.channel_list,
         builtin,
     })
 }

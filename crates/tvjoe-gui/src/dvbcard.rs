@@ -69,8 +69,14 @@ pub fn device_groups(
         .title(tr("Senderliste"))
         .description(tr("Suchlauf über alle Kanäle des gewählten Plans; verschlüsselte Sender werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen."))
         .build();
-    let plans = Rc::new(dvb::plans());
-    let plan_names: Vec<&str> = plans.iter().map(|p| p.name.as_str()).collect();
+    // Frequenzpläne (Antenne, Kabel) und Satellit Astra 19,2° Ost über die Netzwerktabelle.
+    let mut choices: Vec<Choice> = dvb::plans().into_iter().map(Choice::Plan).collect();
+    if let Some(sat) = tvjoe_core::adapter::find("netstream-4sat", None).and_then(|d| d.satellite) {
+        choices.push(Choice::Satellite(sat));
+    }
+    let plans = Rc::new(choices);
+    let plan_labels: Vec<String> = plans.iter().map(Choice::label).collect();
+    let plan_names: Vec<&str> = plan_labels.iter().map(String::as_str).collect();
     let plan_row = adw::ComboRow::builder()
         .title(tr("Suchlauf über"))
         .model(&gtk::StringList::new(&plan_names))
@@ -114,6 +120,22 @@ pub fn device_groups(
     vec![device, list]
 }
 
+/// Weg des Suchlaufs.
+#[derive(Clone)]
+enum Choice {
+    Plan(Plan),
+    Satellite(tvjoe_core::adapter::Satellite),
+}
+
+impl Choice {
+    fn label(&self) -> String {
+        match self {
+            Choice::Plan(p) => p.name.clone(),
+            Choice::Satellite(s) => tf!("Satellit {satellite}", satellite = s.name),
+        }
+    }
+}
+
 /// Stand der gespeicherten Senderliste für die Unterzeile.
 fn list_summary(adapter_id: &str) -> String {
     let lib = paths::source_library_path(adapter_id)
@@ -137,7 +159,7 @@ fn run_scan(
     adapter_id: &str,
     num: u32,
     dev: Device,
-    plan: Plan,
+    plan: Choice,
     radio: bool,
     button: &gtk::Button,
     row: &adw::ActionRow,
@@ -153,7 +175,10 @@ fn run_scan(
         let progress = |p: dvb::Progress| {
             let _ = tx.send_blocking(ScanMsg::Progress(p));
         };
-        let result = dvb::scan(&scan_dev, &plan.tunings, &progress, &|| false);
+        let result = match plan {
+            Choice::Plan(p) => dvb::scan(&scan_dev, &p.tunings, &progress, &|| false),
+            Choice::Satellite(sat) => dvb::scan_satellite(&scan_dev, &sat, &progress, &|| false),
+        };
         let _ = tx.send_blocking(ScanMsg::Done(result));
     });
     let (app, button, row, bar, id) = (

@@ -332,6 +332,66 @@ const DVB_STEPS: &[Step] = &[
     ),
 ];
 
+/// Seite einer Empfangsquelle (`TVJOE_SELFTEST_SEITE=<Titel der Zeile>`, nur diese Schritte):
+/// Reiter „Empfang“ mit geöffnetem Hinzufügen-Menü, dann die Seite der genannten Quelle.
+const SEITE_STEPS: &[Step] = &[
+    ("97-start", main_window, 4000),
+    (
+        "98-hinzufuegen",
+        |p| {
+            let d = crate::prefs::open_at(&p.app, Some("empfang"), &p.app.window);
+            PREFS.with(|s| *s.borrow_mut() = Some(d.clone()));
+            fn find(w: &gtk::Widget) -> Option<gtk::MenuButton> {
+                if let Some(b) = w.downcast_ref::<gtk::MenuButton>() {
+                    return Some(b.clone());
+                }
+                let mut c = w.first_child();
+                while let Some(child) = c {
+                    if let Some(b) = find(&child) {
+                        return Some(b);
+                    }
+                    c = child.next_sibling();
+                }
+                None
+            }
+            if let Some(b) = find(d.upcast_ref()) {
+                b.popup();
+            }
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "99-seite",
+        |p| {
+            PREFS.with(|d| {
+                if let Some(d) = d.borrow().as_ref() {
+                    fn find(w: &gtk::Widget) -> Option<gtk::MenuButton> {
+                        if let Some(b) = w.downcast_ref::<gtk::MenuButton>() {
+                            return Some(b.clone());
+                        }
+                        let mut c = w.first_child();
+                        while let Some(child) = c {
+                            if let Some(b) = find(&child) {
+                                return Some(b);
+                            }
+                            c = child.next_sibling();
+                        }
+                        None
+                    }
+                    if let Some(b) = find(d.upcast_ref()) {
+                        b.popdown();
+                    }
+                }
+            });
+            let title = std::env::var("TVJOE_SELFTEST_SEITE").unwrap_or_default();
+            activate_row(&title);
+            main_window(p)
+        },
+        1500,
+    ),
+];
+
 /// Ebene (`TVJOE_SELFTEST_EBENE=1`, nur diese Schritte): Bild, Programm als Ebene (Bild nicht
 /// gezeichnet, Ton läuft), Ebene wieder zu. Für Lastmessung von außen je 15 s.
 const EBENE_STEPS: &[Step] = &[
@@ -764,6 +824,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         EMPFANG_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_DVB").is_some() {
         DVB_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_SEITE").is_some() {
+        SEITE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_GROESSE").is_some() {
         GROESSE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_JELLYFIN").is_some() {

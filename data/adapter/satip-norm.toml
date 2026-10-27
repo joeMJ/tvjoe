@@ -1,0 +1,15 @@
+# Empfangsquelle: SAT>IP-Empfänger nach Norm (SAT>IP 1.2), Satellit. Ohne Kenntnis von
+# Eigenheiten eines bestimmten Geräts; ungetestet.
+id = "satip-norm"
+name = "SAT>IP nach Norm (Satellit)"
+driver = "satip"
+systems = ["dvbs", "dvbs2"]
+tuners = 2
+signal_epg = true
+
+[satellite]
+name = "Astra 19,2° Ost"
+orbital = 192
+east = true
+# Starttransponder des Suchlaufs (sendet die Netzwerktabelle mit allen Transpondern).
+seed = { freq = 11494, pol = "h", dvbs2 = true, mtype = "8psk", sr = 22000, fec = "23" }

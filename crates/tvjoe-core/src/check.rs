@@ -118,7 +118,8 @@ pub fn analyze(entries: &mut [Entry]) -> Vec<Finding> {
         }
 
         match e.scheme().as_deref() {
-            Some("https") | Some("rtsp") | Some("rtsps") => {}
+            // rtp/udp: Multicast-IPTV im Heimnetz.
+            Some("https") | Some("rtsp") | Some("rtsps") | Some("rtp") | Some("udp") => {}
             Some("http") => push(FindingKind::Http),
             Some(other) => push(FindingKind::UnknownScheme(other.to_string())),
             None => push(FindingKind::UnknownScheme(String::new())),

@@ -9,12 +9,12 @@
 //!
 //! Zugriff auf `/dev/dvb` braucht in der Regel die Gruppe `video`.
 
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+pub use crate::plan::{Plan, System, Tuning, plans};
 use crate::{tf, tr};
 
 // ---------------------------------------------------------------------------------------------
@@ -180,73 +180,25 @@ fn os_error(path: &Path, e: std::io::Error) -> String {
 // ---------------------------------------------------------------------------------------------
 // Geräte
 
-/// Empfangsart.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum System {
-    DvbT,
-    DvbT2,
-    DvbC,
-    DvbS,
-    DvbS2,
+fn kernel_system(s: System) -> u32 {
+    match s {
+        System::DvbT => SYS_DVBT,
+        System::DvbT2 => SYS_DVBT2,
+        System::DvbC => SYS_DVBC_ANNEX_A,
+        System::DvbS => SYS_DVBS,
+        System::DvbS2 => SYS_DVBS2,
+    }
 }
 
-impl System {
-    pub fn code(self) -> &'static str {
-        match self {
-            System::DvbT => "dvbt",
-            System::DvbT2 => "dvbt2",
-            System::DvbC => "dvbc",
-            System::DvbS => "dvbs",
-            System::DvbS2 => "dvbs2",
-        }
-    }
-
-    pub fn from_code(s: &str) -> Option<Self> {
-        Some(match s {
-            "dvbt" => System::DvbT,
-            "dvbt2" => System::DvbT2,
-            "dvbc" => System::DvbC,
-            "dvbs" => System::DvbS,
-            "dvbs2" => System::DvbS2,
-            _ => return None,
-        })
-    }
-
-    /// Anzeigename.
-    pub fn label(self) -> &'static str {
-        match self {
-            System::DvbT => "DVB-T",
-            System::DvbT2 => "DVB-T2",
-            System::DvbC => "DVB-C",
-            System::DvbS => "DVB-S",
-            System::DvbS2 => "DVB-S2",
-        }
-    }
-
-    fn kernel(self) -> u32 {
-        match self {
-            System::DvbT => SYS_DVBT,
-            System::DvbT2 => SYS_DVBT2,
-            System::DvbC => SYS_DVBC_ANNEX_A,
-            System::DvbS => SYS_DVBS,
-            System::DvbS2 => SYS_DVBS2,
-        }
-    }
-
-    fn from_kernel(v: u8) -> Option<Self> {
-        Some(match u32::from(v) {
-            SYS_DVBT => System::DvbT,
-            SYS_DVBT2 => System::DvbT2,
-            SYS_DVBC_ANNEX_A => System::DvbC,
-            SYS_DVBS => System::DvbS,
-            SYS_DVBS2 => System::DvbS2,
-            _ => return None,
-        })
-    }
-
-    pub fn satellite(self) -> bool {
-        matches!(self, System::DvbS | System::DvbS2)
-    }
+fn system_from_kernel(v: u8) -> Option<System> {
+    Some(match u32::from(v) {
+        SYS_DVBT => System::DvbT,
+        SYS_DVBT2 => System::DvbT2,
+        SYS_DVBC_ANNEX_A => System::DvbC,
+        SYS_DVBS => System::DvbS,
+        SYS_DVBS2 => System::DvbS2,
+        _ => return None,
+    })
 }
 
 /// Ein Frontend einer DVB-Karte.
@@ -319,7 +271,7 @@ pub fn probe(adapter: u32, frontend: u32) -> Result<Device, String> {
     ioctl(&fd, FE_GET_PROPERTY, &mut props).map_err(|e| os_error(&path, e))?;
     let data = prop.data;
     let len = u32::from_ne_bytes([data[32], data[33], data[34], data[35]]).min(32) as usize;
-    let mut systems: Vec<System> = data[..len].iter().filter_map(|v| System::from_kernel(*v)).collect();
+    let mut systems: Vec<System> = data[..len].iter().filter_map(|v| system_from_kernel(*v)).collect();
     systems.dedup();
     Ok(Device {
         adapter,
@@ -332,143 +284,60 @@ pub fn probe(adapter: u32, frontend: u32) -> Result<Device, String> {
 // ---------------------------------------------------------------------------------------------
 // Abstimmen
 
-/// Abstimmung eines Transponders bzw. Kanals.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Tuning {
-    pub system: System,
-    /// DVB-T/C: Hz; Satellit: kHz im Ku-Band (z. B. 11494000).
-    pub freq: u32,
-    /// DVB-T: Kanalbreite in Hz (meist 8 MHz).
-    pub bandwidth: u32,
-    /// DVB-C/S: Symbole je Sekunde.
-    pub symbol_rate: u32,
-    /// DVB-C: `qam64`, `qam256` …; DVB-S2: `8psk`; leer = automatisch.
-    pub modulation: String,
-    /// Satellit: `h` oder `v`.
-    pub pol: char,
-    /// DVB-T2: PLP (Datenstrom); `None` = automatisch.
-    pub plp: Option<u32>,
-}
-
-impl Tuning {
-    pub fn new(system: System, freq: u32) -> Self {
-        Self {
-            system,
-            freq,
-            bandwidth: 8_000_000,
-            symbol_rate: 0,
-            modulation: String::new(),
-            pol: 'h',
-            plp: None,
-        }
-    }
-
-    /// Teil der Senderadresse (ohne `pids`).
-    pub fn query(&self) -> String {
-        let mut q = format!("sys={}&freq={}", self.system.code(), self.freq);
-        match self.system {
-            System::DvbT | System::DvbT2 => q += &format!("&bw={}", self.bandwidth),
-            System::DvbC => q += &format!("&sr={}", self.symbol_rate),
-            System::DvbS | System::DvbS2 => q += &format!("&sr={}&pol={}", self.symbol_rate, self.pol),
-        }
-        if !self.modulation.is_empty() {
-            q += &format!("&mod={}", self.modulation);
-        }
-        if let Some(p) = self.plp {
-            q += &format!("&plp={p}");
-        }
-        q
-    }
-
-    /// Aus dem Teil der Senderadresse lesen.
-    pub fn parse(query: &str) -> Option<Self> {
-        let kv: HashMap<&str, &str> = query.split('&').filter_map(|p| p.split_once('=')).collect();
-        let mut t = Tuning::new(System::from_code(kv.get("sys")?)?, kv.get("freq")?.parse().ok()?);
-        if let Some(v) = kv.get("bw").and_then(|v| v.parse().ok()) {
-            t.bandwidth = v;
-        }
-        if let Some(v) = kv.get("sr").and_then(|v| v.parse().ok()) {
-            t.symbol_rate = v;
-        }
-        if let Some(v) = kv.get("mod") {
-            t.modulation = v.to_string();
-        }
-        if let Some(v) = kv.get("pol").and_then(|v| v.chars().next()) {
-            t.pol = v;
-        }
-        t.plp = kv.get("plp").and_then(|v| v.parse().ok());
-        Some(t)
-    }
-
-    /// Lesbare Angabe (Listen, Info).
-    pub fn label(&self) -> String {
-        if self.system.satellite() {
-            format!(
-                "{} {} MHz {}",
-                self.system.label(),
-                self.freq / 1000,
-                self.pol.to_ascii_uppercase()
-            )
-        } else {
-            format!("{} {:.1} MHz", self.system.label(), f64::from(self.freq) / 1e6)
-        }
-    }
-
-    fn properties(&self) -> Vec<DtvProperty> {
-        let p = DtvProperty::new;
-        let mut v = vec![p(DTV_CLEAR, 0), p(DTV_DELIVERY_SYSTEM, self.system.kernel())];
-        match self.system {
-            System::DvbT | System::DvbT2 => {
-                v.push(p(DTV_FREQUENCY, self.freq));
-                v.push(p(DTV_BANDWIDTH_HZ, self.bandwidth));
-                v.push(p(DTV_MODULATION, QAM_AUTO));
-                v.push(p(DTV_INVERSION, INVERSION_AUTO));
-                if self.system == System::DvbT2 {
-                    // Ohne Angabe: erster Datenstrom (u32::MAX = keiner gewählt).
-                    v.push(p(DTV_STREAM_ID, self.plp.unwrap_or(u32::MAX)));
-                }
+fn properties(t: &Tuning) -> Vec<DtvProperty> {
+    let p = DtvProperty::new;
+    let mut v = vec![p(DTV_CLEAR, 0), p(DTV_DELIVERY_SYSTEM, kernel_system(t.system))];
+    match t.system {
+        System::DvbT | System::DvbT2 => {
+            v.push(p(DTV_FREQUENCY, t.freq));
+            v.push(p(DTV_BANDWIDTH_HZ, t.bandwidth));
+            v.push(p(DTV_MODULATION, QAM_AUTO));
+            v.push(p(DTV_INVERSION, INVERSION_AUTO));
+            if t.system == System::DvbT2 {
+                // Ohne Angabe: erster Datenstrom (u32::MAX = keiner gewählt).
+                v.push(p(DTV_STREAM_ID, t.plp.unwrap_or(u32::MAX)));
             }
-            System::DvbC => {
-                v.push(p(DTV_FREQUENCY, self.freq));
-                v.push(p(DTV_SYMBOL_RATE, self.symbol_rate));
+        }
+        System::DvbC => {
+            v.push(p(DTV_FREQUENCY, t.freq));
+            v.push(p(DTV_SYMBOL_RATE, t.symbol_rate));
+            v.push(p(
+                DTV_MODULATION,
+                match t.modulation.as_str() {
+                    "qam64" => QAM_64,
+                    "qam128" => QAM_128,
+                    "qam256" => QAM_256,
+                    _ => QAM_AUTO,
+                },
+            ));
+            v.push(p(DTV_INNER_FEC, FEC_AUTO));
+            v.push(p(DTV_INVERSION, INVERSION_AUTO));
+        }
+        System::DvbS | System::DvbS2 => {
+            // Universal-LNB: unteres Band 9,75 GHz, oberes 10,6 GHz ab 11,7 GHz (22 kHz an).
+            let high = t.freq >= 11_700_000;
+            let lof = if high { 10_600_000 } else { 9_750_000 };
+            v.push(p(DTV_FREQUENCY, t.freq.saturating_sub(lof)));
+            v.push(p(
+                DTV_VOLTAGE,
+                if t.pol == 'v' { SEC_VOLTAGE_13 } else { SEC_VOLTAGE_18 },
+            ));
+            v.push(p(DTV_TONE, if high { SEC_TONE_ON } else { SEC_TONE_OFF }));
+            v.push(p(DTV_SYMBOL_RATE, t.symbol_rate));
+            v.push(p(DTV_INNER_FEC, FEC_AUTO));
+            v.push(p(DTV_INVERSION, INVERSION_AUTO));
+            if t.system == System::DvbS2 {
                 v.push(p(
                     DTV_MODULATION,
-                    match self.modulation.as_str() {
-                        "qam64" => QAM_64,
-                        "qam128" => QAM_128,
-                        "qam256" => QAM_256,
-                        _ => QAM_AUTO,
-                    },
+                    if t.modulation == "8psk" { PSK_8 } else { QPSK },
                 ));
-                v.push(p(DTV_INNER_FEC, FEC_AUTO));
-                v.push(p(DTV_INVERSION, INVERSION_AUTO));
-            }
-            System::DvbS | System::DvbS2 => {
-                // Universal-LNB: unteres Band 9,75 GHz, oberes 10,6 GHz ab 11,7 GHz (22 kHz an).
-                let high = self.freq >= 11_700_000;
-                let lof = if high { 10_600_000 } else { 9_750_000 };
-                v.push(p(DTV_FREQUENCY, self.freq.saturating_sub(lof)));
-                v.push(p(
-                    DTV_VOLTAGE,
-                    if self.pol == 'v' { SEC_VOLTAGE_13 } else { SEC_VOLTAGE_18 },
-                ));
-                v.push(p(DTV_TONE, if high { SEC_TONE_ON } else { SEC_TONE_OFF }));
-                v.push(p(DTV_SYMBOL_RATE, self.symbol_rate));
-                v.push(p(DTV_INNER_FEC, FEC_AUTO));
-                v.push(p(DTV_INVERSION, INVERSION_AUTO));
-                if self.system == System::DvbS2 {
-                    v.push(p(
-                        DTV_MODULATION,
-                        if self.modulation == "8psk" { PSK_8 } else { QPSK },
-                    ));
-                    v.push(p(DTV_ROLLOFF, ROLLOFF_AUTO));
-                    v.push(p(DTV_PILOT, PILOT_AUTO));
-                }
+                v.push(p(DTV_ROLLOFF, ROLLOFF_AUTO));
+                v.push(p(DTV_PILOT, PILOT_AUTO));
             }
         }
-        v.push(p(DTV_TUNE, 0));
-        v
     }
+    v.push(p(DTV_TUNE, 0));
+    v
 }
 
 /// Empfangswerte eines Frontends.
@@ -495,7 +364,7 @@ impl Frontend {
 
     /// Abstimmen und bis `limit` auf Synchronisation warten; `Ok(false)` = kein Empfang.
     pub fn tune(&self, t: &Tuning, limit: Duration) -> Result<bool, String> {
-        let mut props = t.properties();
+        let mut props = properties(t);
         let mut list = DtvProperties {
             num: props.len() as u32,
             props: props.as_mut_ptr(),
@@ -626,64 +495,6 @@ pub fn tuning_of(url: &str) -> Option<(String, String)> {
 
 // ---------------------------------------------------------------------------------------------
 // Suchlauf
-
-/// Frequenzpläne für den Suchlauf (eingebaut: `data/dvb/*.toml`).
-const PLANS: &[(&str, &str)] = &[
-    ("dvbt-de", include_str!("../../../data/dvb/dvbt-de.toml")),
-    ("dvbc-de", include_str!("../../../data/dvb/dvbc-de.toml")),
-];
-
-/// Ein Frequenzplan.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Plan {
-    pub id: String,
-    pub name: String,
-    pub tunings: Vec<Tuning>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawPlan {
-    name: String,
-    system: String,
-    #[serde(default)]
-    bandwidth: u32,
-    #[serde(default)]
-    symbol_rate: u32,
-    #[serde(default)]
-    modulation: String,
-    /// Frequenzen in kHz.
-    frequencies: Vec<u32>,
-}
-
-/// Mitgelieferte Frequenzpläne.
-pub fn plans() -> Vec<Plan> {
-    PLANS
-        .iter()
-        .filter_map(|(id, text)| {
-            let raw: RawPlan = toml::from_str(text).ok()?;
-            let system = System::from_code(&raw.system)?;
-            let tunings = raw
-                .frequencies
-                .iter()
-                .map(|khz| {
-                    let mut t = Tuning::new(system, khz * 1000);
-                    if raw.bandwidth > 0 {
-                        t.bandwidth = raw.bandwidth;
-                    }
-                    t.symbol_rate = raw.symbol_rate;
-                    t.modulation = raw.modulation.clone();
-                    t
-                })
-                .collect();
-            Some(Plan {
-                id: id.to_string(),
-                name: raw.name,
-                tunings,
-            })
-        })
-        .collect()
-}
 
 /// Ein gefundener Sender.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -819,6 +630,61 @@ pub fn scan(
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     out.dedup_by(|a, b| a.key() == b.key());
     Ok(out)
+}
+
+/// Transponder eines Satelliten aus der Netzwerktabelle (NIT) seines Starttransponders.
+fn satellite_tunings(dev: &Device, fe: &Frontend, sat: &crate::adapter::Satellite) -> Result<Vec<Tuning>, String> {
+    let seed = &sat.seed;
+    let mut t = Tuning::new(
+        if seed.dvbs2 { System::DvbS2 } else { System::DvbS },
+        seed.freq * 1000,
+    );
+    t.symbol_rate = seed.sr * 1000;
+    t.pol = seed.pol;
+    t.modulation = seed.mtype.to_string();
+    if !fe.tune(&t, Duration::from_secs(3))? {
+        return Err(tr("kein Empfang auf dem Starttransponder (Antenne, LNB, Kabel?)").into());
+    }
+    let mut dmx = Demux::open(dev.adapter, dev.frontend, &[16])?;
+    let col = collect(&mut dmx, Duration::from_secs(15), &|pid| pid == 16, &|c| {
+        let mut it = c.tables(0x40).peekable();
+        let Some(first) = it.peek() else { return false };
+        let last = first[7];
+        c.tables(0x40).count() > last as usize
+    });
+    let mut out: Vec<Tuning> = Vec::new();
+    for sec in col.tables(0x40).chain(col.tables(0x41)) {
+        for d in crate::ts::parse_nit(sec) {
+            if d.orbital != sat.orbital || d.east != sat.east || d.freq == 0 {
+                continue;
+            }
+            let mut t = Tuning::new(if d.dvbs2 { System::DvbS2 } else { System::DvbS }, d.freq * 1000);
+            t.symbol_rate = d.sr * 1000;
+            t.pol = d.pol;
+            t.modulation = d.mtype.to_string();
+            if !out.iter().any(|o| o.freq == t.freq && o.pol == t.pol) {
+                out.push(t);
+            }
+        }
+    }
+    if out.is_empty() {
+        out.push(t);
+    }
+    Ok(out)
+}
+
+/// Suchlauf über einen Satelliten: Transponder aus der Netzwerktabelle, dann jeden absuchen.
+pub fn scan_satellite(
+    dev: &Device,
+    sat: &crate::adapter::Satellite,
+    progress: &dyn Fn(Progress),
+    cancel: &dyn Fn() -> bool,
+) -> Result<Vec<DvbService>, String> {
+    let tunings = {
+        let fe = Frontend::open(dev.adapter, dev.frontend)?;
+        satellite_tunings(dev, &fe, sat)?
+    };
+    scan(dev, &tunings, progress, cancel)
 }
 
 /// Gefundene Sender für die Senderliste (`radio`: Radiosender übernehmen; verschlüsselte

@@ -879,11 +879,11 @@ impl Manager {
     }
 }
 
-/// Übernahme in die Internet-TV-Senderliste aus den Einstellungen (Empfang → Internet-TV):
-/// ggf. auf Internet-TV umschalten, Verwaltung öffnen, Übernahme aus Datei bzw. URL starten.
-pub fn import_tv(app: &Rc<App>, from_url: bool) {
-    if app.active_source() != SRC_TV {
-        app.switch_live(SRC_TV);
+/// Übernahme in die Senderliste einer Empfangsquelle mit M3U-Listen aus den Einstellungen:
+/// ggf. auf die Quelle umschalten, Verwaltung öffnen, Übernahme aus Datei bzw. URL starten.
+pub fn import_into(app: &Rc<App>, src: u32, from_url: bool) {
+    if app.active_source() != src {
+        app.switch_live(src);
     }
     if let Some(m) = open_manager(app) {
         if from_url {
@@ -897,7 +897,8 @@ pub fn import_tv(app: &Rc<App>, from_url: bool) {
 /// M3U-Übernahme gilt der TV-Senderliste: läuft eine andere Empfangsquelle, nach Hinweis auf
 /// TV umschalten und die Verwaltung der TV-Liste öffnen.
 fn with_tv_list(parent: &gtk::Button, m: &Rc<Manager>, f: fn(&Rc<Manager>)) {
-    if m.app.active_source() == SRC_TV {
+    // M3U-Listen gehören zu Empfangsquellen mit Treiber IPTV (Internet-TV, Multicast-IPTV).
+    if m.app.driver_of(m.app.active_source()) == tvjoe_core::adapter::Driver::Iptv {
         f(m);
         return;
     }

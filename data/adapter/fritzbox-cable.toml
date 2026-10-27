@@ -1,0 +1,10 @@
+# Empfangsquelle: AVM FRITZ!Box Cable (6490, 6590, 6591, 6660, 6690) als SAT>IP-Server für
+# DVB-C. Die Senderliste kommt von der Box (M3U-Listen mit RTSP-Adressen); Programm über
+# XMLTV. Ungetestet.
+id = "fritzbox-cable"
+name = "FRITZ!Box Cable"
+driver = "satip"
+systems = ["dvbc"]
+tuners = 4
+signal_epg = false
+channel_list = ["http://{host}/dvb/m3u/tvhd.m3u", "http://{host}/dvb/m3u/tvsd.m3u"]
