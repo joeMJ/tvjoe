@@ -189,6 +189,8 @@ fn write_status(cfg: &ServiceConfig, st: &Status) {
 /// Alle 5 s: Lebenszeichen, Aufträge lesen und prüfen, fällige starten, Weck-Zeitgeber setzen.
 fn service_loop(cfg: &ServiceConfig, stop: &Arc<AtomicBool>) {
     let running: Arc<Mutex<HashSet<i64>>> = Arc::default();
+    // Erledigte Aufträge (auch gescheiterte) nicht erneut starten, solange sie unverändert sind.
+    let finished: Arc<Mutex<HashSet<(i64, i64, i64)>>> = Arc::default();
     let mut rejected: HashSet<(i64, String)> = HashSet::new();
     let mut wake = WakeTimer::new();
     while !stop.load(Ordering::Relaxed) {
@@ -203,7 +205,11 @@ fn service_loop(cfg: &ServiceConfig, stop: &Arc<AtomicBool>) {
                 Err(e) => {
                     // Nummer aus dem Dateinamen, damit das Fenster den Grund zuordnen kann.
                     let id = name.parse::<i64>().unwrap_or(0);
-                    if id > 0 && rejected.insert((id, e.clone())) {
+                    // Ein vorhandener Stand (z. B. eine gescheiterte Aufnahme mit Grund) bleibt.
+                    let has_status = Path::new(&cfg.status_dir)
+                        .join(format!("{id}.json"))
+                        .exists();
+                    if id > 0 && !has_status && rejected.insert((id, e.clone())) {
                         write_status(
                             cfg,
                             &Status {
@@ -224,13 +230,19 @@ fn service_loop(cfg: &ServiceConfig, stop: &Arc<AtomicBool>) {
                 Ok(job) if name != job.id.to_string() => {}
                 Ok(job) => {
                     let is_running = running.lock().is_ok_and(|r| r.contains(&job.id));
-                    if now >= job.start && !is_running {
+                    let key = (job.id, job.start, job.stop);
+                    let done = finished.lock().is_ok_and(|f| f.contains(&key));
+                    if now >= job.start && !is_running && !done {
                         if let Ok(mut r) = running.lock() {
                             r.insert(job.id);
                         }
-                        let (cfg, running, stop) = (cfg.clone(), running.clone(), stop.clone());
+                        let (cfg, running, finished, stop) =
+                            (cfg.clone(), running.clone(), finished.clone(), stop.clone());
                         std::thread::spawn(move || {
                             record_job(&job, &cfg, &stop);
+                            if let Ok(mut f) = finished.lock() {
+                                f.insert(key);
+                            }
                             if let Ok(mut r) = running.lock() {
                                 r.remove(&job.id);
                             }

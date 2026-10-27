@@ -202,16 +202,45 @@ fn move_into_subdirs(app: &App, index: &Index) {
     }
 }
 
-/// Freier Platz auf dem Datenträger von `dir` (der Ordner muss noch nicht existieren).
+/// Freier Platz auf dem Datenträger von `dir` (der Ordner muss noch nicht existieren); `None`,
+/// wenn das System keine Angabe liefert (dann wird nicht gebremst). Windows fragt direkt
+/// (`GetDiskFreeSpaceExW`): unter dem Dienstkonto liefert gio die Angabe nicht.
 pub fn free_bytes(dir: &Path) -> Option<u64> {
     let mut p = dir;
     while !p.exists() {
         p = p.parent()?;
     }
-    gio::File::for_path(p)
-        .query_filesystem_info("filesystem::free", gio::Cancellable::NONE)
-        .ok()
-        .map(|i| i.attribute_uint64("filesystem::free"))
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        unsafe extern "system" {
+            fn GetDiskFreeSpaceExW(
+                dir: *const u16,
+                free_to_caller: *mut u64,
+                total: *mut u64,
+                total_free: *mut u64,
+            ) -> i32;
+        }
+        let wide: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut free = 0u64;
+        let ok = unsafe {
+            GetDiskFreeSpaceExW(
+                wide.as_ptr(),
+                &mut free,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        return (ok != 0).then_some(free);
+    }
+    #[cfg(not(windows))]
+    {
+        let info = gio::File::for_path(p)
+            .query_filesystem_info("filesystem::free", gio::Cancellable::NONE)
+            .ok()?;
+        info.has_attribute("filesystem::free")
+            .then(|| info.attribute_uint64("filesystem::free"))
+    }
 }
 
 /// Ortszeit für Dateinamen.
