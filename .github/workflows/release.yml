@@ -22,14 +22,15 @@ jobs:
         run: |
           # Auslöser von man-db abschalten: auf den GitHub-Rechnern dauert er sonst sehr lange.
           sudo rm -f /var/lib/man-db/auto-update
-          # Paketspiegel: archive.ubuntu.com zuerst, der Azure-Spiegel der GitHub-Rechner nur
-          # noch als Ausweich (er hing bei 0.0.15, 0.0.17 und 0.1.2).
+          # Paketspiegel: direkt archive.ubuntu.com statt des Azure-Spiegels der GitHub-Rechner
+          # (Downloads von dort hingen bei 0.0.15, 0.0.17 und 0.1.2).
           if [ -f /etc/apt/apt-mirrors.txt ]; then
-            printf '%s\tpriority:1\n%s\tpriority:2\n%s\tpriority:3\n' \
+            printf '%s\tpriority:1\n%s\tpriority:2\n' \
               http://archive.ubuntu.com/ubuntu/ \
-              http://azure.archive.ubuntu.com/ubuntu/ \
               http://security.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt
           fi
+          sudo sed -i 's#http://azure\.archive\.ubuntu\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           # Hängt apt (Paketspiegel), nach einigen Minuten abbrechen und neu versuchen.
           for i in 1 2 3; do
             if sudo timeout 300 apt-get update \
