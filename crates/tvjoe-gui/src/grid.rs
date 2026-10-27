@@ -86,7 +86,10 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
         ticks.append(&fixed(&l, px(1800)));
         t += 1800;
     }
-    rows.append(&ticks);
+    // Ohne Programmdaten keine Zeitleiste, nur der Hinweis.
+    if guide.is_some() {
+        rows.append(&ticks);
+    }
 
     let sat = app.is_sat();
     let lib = app.library();
@@ -233,6 +236,10 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
                 .label("Kein Programm geladen. Bitte in „Sender verwalten“ eine EPG-Quelle (XMLTV) eintragen oder bei SAT-Sendern „Aus dem SAT-Empfang“ wählen. Ist eine eingetragen, wird sie gerade noch geladen.")
                 .css_classes(["tvjoe-sub"])
                 .wrap(true)
+                .max_width_chars(70)
+                .xalign(0.0)
+                .halign(gtk::Align::Start)
+                .margin_start(16)
                 .margin_top(24)
                 .build(),
         );
