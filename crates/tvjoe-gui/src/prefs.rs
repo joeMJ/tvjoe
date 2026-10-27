@@ -342,6 +342,8 @@ pub fn open_at(
             apply_ablage(&mut s);
         }
         app.save_settings();
+        // Suchläufe neuer Empfangsquellen liegen in Dateien: Listen neu lesen.
+        app.forget_lists();
         app.set_view(crop_bars.is_active(), fill.is_active());
         if let Some(p) = &app.player {
             p.set_deinterlace(app.settings().deinterlace);

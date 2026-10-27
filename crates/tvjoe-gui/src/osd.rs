@@ -18,6 +18,8 @@ const NAME_WIDTH: i32 = 260;
 pub enum Origin {
     Internet,
     Satellite,
+    /// DVB-Karte (Antenne, Kabel oder Satellit am Kabel).
+    Card,
 }
 
 /// Stand eines Mediathek-Videos für die Fortschrittszeile.
@@ -433,10 +435,12 @@ impl Osd {
                 self.origin.set_icon_name(Some(match o {
                     Origin::Internet => "web-browser-symbolic",
                     Origin::Satellite => crate::icons::SATELLITE,
+                    Origin::Card => crate::icons::ANTENNA,
                 }));
                 self.origin.set_tooltip_text(Some(match o {
                     Origin::Internet => tr("Internet"),
                     Origin::Satellite => tr("Satellit"),
+                    Origin::Card => tr("DVB-Karte"),
                 }));
                 self.origin.set_visible(true);
             }

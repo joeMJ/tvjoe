@@ -17,6 +17,7 @@ use crate::{tf, tr};
 const BUILTIN: &[(&str, &str)] = &[
     ("iptv-m3u.toml", include_str!("../../../data/adapter/iptv-m3u.toml")),
     ("netstream-4sat.toml", include_str!("../../../data/adapter/netstream-4sat.toml")),
+    ("dvb-linux.toml", include_str!("../../../data/adapter/dvb-linux.toml")),
 ];
 
 /// Treiber im Programm.
@@ -27,6 +28,9 @@ pub enum Driver {
     Iptv,
     /// SAT>IP (RTSP/RTP).
     Satip,
+    /// DVB-Karte unter Linux (`/dev/dvb`; experimentell).
+    #[serde(rename = "linux-dvb")]
+    LinuxDvb,
 }
 
 /// Satellit einer SAT>IP-Beschreibung.
@@ -240,7 +244,7 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("kaputt.toml"), "id = 3").unwrap();
         let (all, notes) = all(Some(&dir));
-        assert_eq!(all.len(), 2);
+        assert_eq!(all.len(), BUILTIN.len());
         let n = all.iter().find(|d| d.id == "netstream-4sat").unwrap();
         assert_eq!(n.name, "Meine Netstream");
         assert!(!n.builtin);

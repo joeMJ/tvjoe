@@ -204,6 +204,20 @@ pub fn record_stream(
     queue: u64,
     should_stop: &dyn Fn() -> bool,
 ) -> Result<(), String> {
+    // DVB-Karte (Linux): eigenes Frontend, Transportstrom direkt in die Datei.
+    #[cfg(target_os = "linux")]
+    if url.starts_with("dvb://") {
+        let rec = tvjoe_core::dvb::Recorder::start(url, path, queue)?;
+        while !should_stop() && rec.error().is_none() {
+            std::thread::sleep(Duration::from_secs(2));
+        }
+        let err = rec.error();
+        return match (rec.finish(), err) {
+            (Ok(_), None) => Ok(()),
+            (Ok(_), Some(e)) => Err(e),
+            (Err(e), _) => Err(e),
+        };
+    }
     if sat {
         let rec = tvjoe_core::satip::Recorder::start(url, path, queue)?;
         while !should_stop() && rec.error().is_none() {

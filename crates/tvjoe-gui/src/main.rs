@@ -12,6 +12,8 @@ mod dienst;
 #[cfg(windows)]
 mod dienst_win;
 mod dnd;
+#[cfg(target_os = "linux")]
+mod dvbcard;
 mod empfang;
 mod gl;
 mod grid;

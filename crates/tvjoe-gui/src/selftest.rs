@@ -222,6 +222,116 @@ const EMPFANG_STEPS: &[Step] = &[
     ),
 ];
 
+/// Schalterzeile mit diesem Titel in den offenen Einstellungen setzen.
+fn set_switch(title: &str, on: bool) {
+    fn find(w: &gtk::Widget, title: &str) -> Option<adw::SwitchRow> {
+        if let Some(r) = w.downcast_ref::<adw::SwitchRow>() {
+            if r.title() == title {
+                return Some(r.clone());
+            }
+        }
+        let mut c = w.first_child();
+        while let Some(child) = c {
+            if let Some(r) = find(&child, title) {
+                return Some(r);
+            }
+            c = child.next_sibling();
+        }
+        None
+    }
+    PREFS.with(|d| {
+        if let Some(r) = d.borrow().as_ref().and_then(|d| find(d.upcast_ref(), title)) {
+            r.set_active(on);
+        }
+    });
+}
+
+/// Knopf mit dieser Beschriftung in den offenen Einstellungen drücken.
+fn click_button(label: &str) {
+    fn find(w: &gtk::Widget, label: &str) -> Option<gtk::Button> {
+        if let Some(b) = w.downcast_ref::<gtk::Button>() {
+            if b.label().as_deref() == Some(label) && b.is_sensitive() {
+                return Some(b.clone());
+            }
+        }
+        let mut c = w.first_child();
+        while let Some(child) = c {
+            if let Some(b) = find(&child, label) {
+                return Some(b);
+            }
+            c = child.next_sibling();
+        }
+        None
+    }
+    PREFS.with(|d| {
+        if let Some(b) = d.borrow().as_ref().and_then(|d| find(d.upcast_ref(), label)) {
+            b.emit_clicked();
+        }
+    });
+}
+
+/// DVB-Karte (`TVJOE_SELFTEST_DVB=1`, nur diese Schritte; braucht eine Empfangsquelle Nummer 2
+/// mit Treiber linux-dvb in den Einstellungen und ein Gerät, z. B. dvb_vidtv): Seite der Quelle,
+/// Suchlauf, Umschalten, Wiedergabe, Info, Aufnahme.
+const DVB_STEPS: &[Step] = &[
+    ("90-start", main_window, 5000),
+    (
+        "91-dvb-seite",
+        |p| {
+            let d = crate::prefs::open_at(&p.app, Some("empfang"), &p.app.window);
+            PREFS.with(|s| *s.borrow_mut() = Some(d));
+            activate_row("DVB-Karte (Linux)");
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "92-suchlauf",
+        |p| {
+            set_switch(tvjoe_core::tr("Radiosender übernehmen"), true);
+            click_button(tvjoe_core::tr("Suchlauf starten"));
+            main_window(p)
+        },
+        40000,
+    ),
+    (
+        "93-umschalten",
+        |p| {
+            if let Some(d) = PREFS.with(|d| d.borrow_mut().take()) {
+                d.close();
+            }
+            p.app.switch_live(2);
+            main_window(p)
+        },
+        8000,
+    ),
+    (
+        "94-info",
+        |p| {
+            p.app.toggle_info();
+            main_window(p)
+        },
+        2000,
+    ),
+    (
+        "95-aufnahme",
+        |p| {
+            p.app.toggle_info();
+            crate::ablage::toggle_record(&p.app);
+            main_window(p)
+        },
+        10000,
+    ),
+    (
+        "96-aufnahme-beendet",
+        |p| {
+            crate::ablage::toggle_record(&p.app);
+            main_window(p)
+        },
+        4000,
+    ),
+];
+
 /// Ebene (`TVJOE_SELFTEST_EBENE=1`, nur diese Schritte): Bild, Programm als Ebene (Bild nicht
 /// gezeichnet, Ton läuft), Ebene wieder zu. Für Lastmessung von außen je 15 s.
 const EBENE_STEPS: &[Step] = &[
@@ -652,6 +762,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         EBENE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_EMPFANG").is_some() {
         EMPFANG_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_DVB").is_some() {
+        DVB_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_GROESSE").is_some() {
         GROESSE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_JELLYFIN").is_some() {

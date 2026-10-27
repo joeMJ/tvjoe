@@ -144,7 +144,9 @@ pub fn parse_pmt(sec: &[u8]) -> Option<(u16, u16, Vec<EsInfo>)> {
         let descs = &sec[(i + 5).min(end)..(i + 5 + dl).min(end)];
         // Bild/Ton per Stream-Typ; private Daten (0x06) mit AC-3-, Untertitel- oder
         // Videotext-Beschreiber ebenfalls.
-        let private_ok = descs_has(descs, &[0x6a, 0x7a, 0x59, 0x56]);
+        let private_ok = descs_has(descs, &[0x6a, 0x7a, 0x59, 0x56])
+            // SMPTE 302M (PCM-Ton, Registrierung „BSSD“; z. B. das virtuelle Gerät dvb_vidtv).
+            || descs_registration(descs) == Some(*b"BSSD");
         let playable = matches!(
             st,
             0x01 | 0x02 | 0x03 | 0x04 | 0x0f | 0x11 | 0x1b | 0x24 | 0x81
@@ -157,6 +159,19 @@ pub fn parse_pmt(sec: &[u8]) -> Option<(u16, u16, Vec<EsInfo>)> {
         i += 5 + dl;
     }
     Some((prog, pcr, es))
+}
+
+/// Formatkennung des Registrierungs-Beschreibers (Tag 0x05).
+fn descs_registration(d: &[u8]) -> Option<[u8; 4]> {
+    let mut i = 0;
+    while i + 2 <= d.len() {
+        let len = d[i + 1] as usize;
+        if d[i] == 0x05 && len >= 4 && i + 6 <= d.len() {
+            return Some([d[i + 2], d[i + 3], d[i + 4], d[i + 5]]);
+        }
+        i += 2 + len;
+    }
+    None
 }
 
 fn descs_has(d: &[u8], tags: &[u8]) -> bool {

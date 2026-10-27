@@ -143,6 +143,8 @@ mod tests {
                         url: "rtsp://x/".into(),
                         max_bitrate: None,
                     },
+                    radio: false,
+                    epg_id: None,
                 }],
             );
         }

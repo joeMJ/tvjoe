@@ -461,6 +461,21 @@ pub fn sat_cache_path(cache_dir: &Path) -> PathBuf {
     cache_dir.join("epg").join("sat.json")
 }
 
+/// Zwischenspeicher der Programmdaten aus dem Signal einer Empfangsquelle (SAT: `sat.json`,
+/// weitere: `<kennung>.json`).
+pub fn signal_cache_path(cache_dir: &Path, adapter_id: &str) -> PathBuf {
+    if adapter_id == crate::settings::ADAPTER_SAT {
+        sat_cache_path(cache_dir)
+    } else {
+        cache_dir.join("epg").join(format!("{adapter_id}.json"))
+    }
+}
+
+/// Kanal-ID aus dem Signal (SAT>IP oder DVB-Karte)?
+pub fn is_signal_id(id: &str) -> bool {
+    id.starts_with(SAT_PREFIX) || id.starts_with("dvb:")
+}
+
 /// Gesammelte SAT-Programmdaten je Kanal-ID.
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct SatEpg {
@@ -469,28 +484,40 @@ pub struct SatEpg {
 
 impl SatEpg {
     pub fn load(cache_dir: &Path) -> SatEpg {
-        std::fs::read(sat_cache_path(cache_dir))
+        Self::load_from(&sat_cache_path(cache_dir))
+    }
+
+    pub fn save(&self, cache_dir: &Path) -> Result<(), String> {
+        self.save_to(&sat_cache_path(cache_dir))
+    }
+
+    pub fn load_from(path: &Path) -> SatEpg {
+        std::fs::read(path)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default()
     }
 
-    pub fn save(&self, cache_dir: &Path) -> Result<(), String> {
-        let path = sat_cache_path(cache_dir);
+    pub fn save_to(&self, path: &Path) -> Result<(), String> {
         if let Some(d) = path.parent() {
             std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
         }
         let tmp = path.with_extension("tmp");
         std::fs::write(&tmp, serde_json::to_vec(self).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
     }
 
     /// Neue Abschnitte übernehmen: je Sendung nach Beginn, Neues ersetzt Altes; Vergangenes
     /// (älter als sechs Stunden) fällt weg.
     pub fn add(&mut self, sections: &[crate::ts::EitSection], now: i64) {
+        self.add_prefixed(sections, now, SAT_PREFIX);
+    }
+
+    /// Wie [`SatEpg::add`], Kanal-IDs mit eigener Vorsilbe (`dvb:` bei DVB-Karten).
+    pub fn add_prefixed(&mut self, sections: &[crate::ts::EitSection], now: i64, prefix: &str) {
         for sec in sections {
-            let id = format!("{SAT_PREFIX}{}:{}:{}", sec.onid, sec.tsid, sec.service_id);
+            let id = format!("{prefix}{}:{}:{}", sec.onid, sec.tsid, sec.service_id);
             let list = self.programmes.entry(id).or_default();
             for ev in &sec.events {
                 list.retain(|p| p.start != ev.start);
@@ -525,7 +552,12 @@ impl SatEpg {
     pub fn guide(&self) -> Guide {
         let mut g = Guide::default();
         for (id, list) in &self.programmes {
-            g.channels.push((id.clone(), vec!["SAT-Empfang".to_string()]));
+            let name = if id.starts_with(SAT_PREFIX) {
+                crate::tr("SAT-Empfang")
+            } else {
+                crate::tr("Aus dem Signal")
+            };
+            g.channels.push((id.clone(), vec![name.to_string()]));
             g.programmes.insert(id.clone(), list.clone());
         }
         g.index();

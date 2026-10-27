@@ -63,8 +63,34 @@ struct Job {
 }
 
 enum Recorder {
-    Sat(tvjoe_core::satip::Recorder),
+    /// Transportstrom direkt vom Gerät (SAT>IP, DVB-Karte).
+    Ts(Box<dyn TsRecorder>),
     Stream(Arc<Progress>),
+}
+
+/// Aufnahme eines Transportstroms (eigene Sitzung bzw. eigenes Frontend).
+trait TsRecorder: Send {
+    fn error(&self) -> Option<String>;
+    fn finish(self: Box<Self>) -> Result<PathBuf, String>;
+}
+
+impl TsRecorder for tvjoe_core::satip::Recorder {
+    fn error(&self) -> Option<String> {
+        tvjoe_core::satip::Recorder::error(self)
+    }
+    fn finish(self: Box<Self>) -> Result<PathBuf, String> {
+        tvjoe_core::satip::Recorder::finish(*self)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl TsRecorder for tvjoe_core::dvb::Recorder {
+    fn error(&self) -> Option<String> {
+        tvjoe_core::dvb::Recorder::error(self)
+    }
+    fn finish(self: Box<Self>) -> Result<PathBuf, String> {
+        tvjoe_core::dvb::Recorder::finish(*self)
+    }
 }
 
 struct Rec {
@@ -1129,7 +1155,7 @@ pub fn shutdown() {
     let recs: Vec<Rec> = a.recs.borrow_mut().drain(..).collect();
     for mut r in recs {
         let ok = match r.rec.take() {
-            Some(Recorder::Sat(rec)) => rec.finish().is_ok(),
+            Some(Recorder::Ts(rec)) => rec.finish().is_ok(),
             Some(Recorder::Stream(p)) => {
                 p.cancel.store(true, Ordering::Relaxed);
                 false
@@ -1209,9 +1235,22 @@ impl Ablage {
                 return;
             }
         };
-        let rec = if app.driver_of(src) == tvjoe_core::adapter::Driver::Satip {
-            match tvjoe_core::satip::Recorder::start(&url, &path, queue_bytes) {
-                Ok(r) => Recorder::Sat(r),
+        let driver = app.driver_of(src);
+        let ts: Option<Result<Box<dyn TsRecorder>, String>> = match driver {
+            tvjoe_core::adapter::Driver::Satip => Some(
+                tvjoe_core::satip::Recorder::start(&url, &path, queue_bytes)
+                    .map(|r| Box::new(r) as Box<dyn TsRecorder>),
+            ),
+            #[cfg(target_os = "linux")]
+            tvjoe_core::adapter::Driver::LinuxDvb => Some(
+                tvjoe_core::dvb::Recorder::start(&url, &path, queue_bytes)
+                    .map(|r| Box::new(r) as Box<dyn TsRecorder>),
+            ),
+            _ => None,
+        };
+        let rec = if let Some(ts) = ts {
+            match ts {
+                Ok(r) => Recorder::Ts(r),
                 Err(e) => {
                     self.index.set_state(id, State::Failed, Some(&e));
                     app.message(&tf!("Aufnahme nicht gestartet: {e}", e = e));
@@ -1258,7 +1297,7 @@ impl Ablage {
             self.index.remove_timer(t);
         }
         match r.rec.take() {
-            Some(Recorder::Sat(rec)) => {
+            Some(Recorder::Ts(rec)) => {
                 let (tx, id) = (self.done_tx.clone(), r.id);
                 let err = rec.error();
                 std::thread::spawn(move || {
@@ -1295,7 +1334,7 @@ impl Ablage {
             let due = self.recs.borrow().iter().position(|r| {
                 r.stop_at <= now
                     || low
-                    || matches!(&r.rec, Some(Recorder::Sat(s)) if s.error().is_some())
+                    || matches!(&r.rec, Some(Recorder::Ts(s)) if s.error().is_some())
             });
             let Some(i) = due else { break };
             if low {

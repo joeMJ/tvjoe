@@ -1,0 +1,9 @@
+# Empfangsquelle: DVB-Karte unter Linux (USB-Stick oder PCI-Karte über /dev/dvb), Antenne
+# (DVB-T/T2), Kabel (DVB-C) oder Satellit (DVB-S/S2). Experimentell: geprüft nur mit dem
+# virtuellen Gerät dvb_vidtv. Die Karte selbst braucht einen Treiber des Kernels, oft auch
+# Firmware unter /lib/firmware; der Benutzer braucht Zugriff auf /dev/dvb (Gruppe „video“).
+id = "dvb-linux"
+name = "DVB-Karte (Linux)"
+driver = "linux-dvb"
+# Programmdaten (EIT) kommen mit dem Signal.
+signal_epg = true

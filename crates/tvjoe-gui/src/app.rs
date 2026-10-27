@@ -55,6 +55,67 @@ struct Row {
     next: gtk::Label,
 }
 
+/// Laufende Weitergabe des Transportstroms an den Player: SAT>IP-Sitzung bzw. DVB-Karte (mit
+/// lesbarer Abstimmung für die Info).
+pub enum LiveRelay {
+    Sat(tvjoe_core::satip::Relay),
+    #[cfg(target_os = "linux")]
+    Dvb(tvjoe_core::dvb::Relay, String),
+}
+
+impl LiveRelay {
+    /// Mitgelesene Programmdaten (EIT) seit dem letzten Abholen.
+    fn take_eit(&self) -> Vec<tvjoe_core::ts::EitSection> {
+        match self {
+            LiveRelay::Sat(r) => r.take_eit(),
+            #[cfg(target_os = "linux")]
+            LiveRelay::Dvb(r, _) => r.take_eit(),
+        }
+    }
+
+    /// Vorsilbe der Kanal-IDs aus dem Signal.
+    fn signal_prefix(&self) -> &'static str {
+        match self {
+            LiveRelay::Sat(_) => epg::SAT_PREFIX,
+            #[cfg(target_os = "linux")]
+            LiveRelay::Dvb(..) => tvjoe_core::dvb::SIGNAL_PREFIX,
+        }
+    }
+
+    /// Bisher nichts empfangen.
+    fn silent(&self) -> bool {
+        match self {
+            LiveRelay::Sat(r) => r.packets() == 0,
+            #[cfg(target_os = "linux")]
+            LiveRelay::Dvb(..) => false,
+        }
+    }
+
+    /// Empfang im Format des SAT>IP-Tunerstatus (Pegel 0–255, Qualität 0–15).
+    fn status(&self) -> Option<tvjoe_core::satip::TunerStatus> {
+        match self {
+            LiveRelay::Sat(r) => r.status(),
+            #[cfg(target_os = "linux")]
+            LiveRelay::Dvb(r, _) => r.signal().map(|s| tvjoe_core::satip::TunerStatus {
+                tuner: 1,
+                level: s.level * 255 / 100,
+                lock: s.lock,
+                quality: s.quality * 15 / 100,
+                freq: 0,
+            }),
+        }
+    }
+
+    /// Beenden und auf die Freigabe warten.
+    fn close(self) {
+        match self {
+            LiveRelay::Sat(r) => r.close(),
+            #[cfg(target_os = "linux")]
+            LiveRelay::Dvb(r, _) => r.close(),
+        }
+    }
+}
+
 /// Uhrzeit in Ortszeit, z. B. „18:10“.
 /// Meldung, wenn GTK kein OpenGL für das Videobild bekommt.
 fn gl_error_text(detail: &str) -> String {
@@ -139,7 +200,7 @@ pub struct App {
     /// Nummer der gezeigten Empfangsquelle (Internet-TV 0, SAT 1, weitere ab 2).
     active: Cell<u32>,
     /// Laufende SAT>IP-Sitzung (Weitergabe an den Player).
-    relay: RefCell<Option<tvjoe_core::satip::Relay>>,
+    relay: RefCell<Option<LiveRelay>>,
     settings: RefCell<Settings>,
     settings_path: Option<PathBuf>,
     current: Cell<Option<u64>>,
@@ -560,13 +621,18 @@ impl App {
 
     /// Datei der Senderliste einer Empfangsquelle.
     fn list_path(&self, src: u32) -> Option<PathBuf> {
-        let id = self
-            .settings
-            .borrow()
-            .source(src)
-            .map(|a| a.id.clone())
-            .unwrap_or_else(|| ADAPTER_TV.into());
+        let id = match self.settings.borrow().source(src) {
+            Some(a) => a.id.clone(),
+            None if src == SRC_TV => ADAPTER_TV.into(),
+            // Noch nicht übernommene Empfangsquelle: keine Liste.
+            None => return None,
+        };
         paths::source_library_path(&id)
+    }
+
+    /// Nicht gezeigte Senderlisten vergessen (beim nächsten Gebrauch neu aus der Datei).
+    pub fn forget_lists(&self) {
+        self.others.borrow_mut().clear();
     }
 
     /// Treiber einer Empfangsquelle (laut Beschreibung).
@@ -852,23 +918,22 @@ impl App {
     /// (Cache, bei Bedarf aus dem Netz, im Abstand der Quelle), bei SAT dazu die Programmdaten
     /// aus dem Signal. `force` lädt neu.
     pub fn load_epg(self: &Rc<Self>, force: bool) {
-        let jobs: Vec<(u32, Vec<String>, u32)> = {
+        let jobs: Vec<(u32, Vec<String>, u32, String)> = {
             let s = self.settings.borrow();
             s.enabled_sources()
                 .into_iter()
                 .filter_map(|n| s.source(n))
-                .map(|a| (a.num, s.xmltv_locations(&a.id), a.xmltv_hours))
+                .map(|a| (a.num, s.xmltv_locations(&a.id), a.xmltv_hours, a.id.clone()))
                 .collect()
         };
         let cache = paths::cache_dir();
-        let sat_cache = cache
-            .as_deref()
-            .map(tvjoe_core::epg::sat_cache_path)
-            .is_some_and(|p| p.exists());
-        for (src, sources, hours) in jobs {
-            // Programmdaten aus dem Signal (SAT>IP; Zwischenspeicher mit Senderschlüssel).
-            let sat = src == SRC_SAT;
-            if sources.is_empty() && !(sat && sat_cache) {
+        for (src, sources, hours, id) in jobs {
+            // Programmdaten aus dem Signal (SAT>IP, DVB-Karte; Zwischenspeicher je Quelle).
+            let signal = cache
+                .as_deref()
+                .map(|d| epg::signal_cache_path(d, &id))
+                .filter(|p| p.exists());
+            if sources.is_empty() && signal.is_none() {
                 // Ohne Quelle kein EPG (wie „nicht geladen“).
                 self.guides.borrow_mut().remove(&src);
                 continue;
@@ -882,11 +947,9 @@ impl App {
             let (tx, rx) = async_channel::bounded(1);
             std::thread::spawn(move || {
                 let (mut guide, notes) = epg::load_sources(&sources, cache.as_deref(), max_age);
-                // SAT: Programmdaten aus dem Signal dazu (Sender mit EPG-Quelle „SAT“).
-                if sat {
-                    if let Some(dir) = cache.as_deref() {
-                        guide.merge(epg::SatEpg::load(dir).guide());
-                    }
+                // Programmdaten aus dem Signal dazu (Sender mit EPG-Quelle „aus dem Signal“).
+                if let Some(path) = signal {
+                    guide.merge(epg::SatEpg::load_from(&path).guide());
                 }
                 let _ = tx.send_blocking((guide, notes));
             });
@@ -924,28 +987,32 @@ impl App {
     /// Beim Ansehen eines SAT-Senders mitgelesene Programmdaten übernehmen (nur für Sender mit
     /// EPG-Quelle „SAT“ sichtbar): in den Zwischenspeicher und ins laufende EPG.
     fn merge_live_eit(&self) {
-        let sections = match self.relay.borrow().as_ref() {
-            Some(r) => r.take_eit(),
+        let (sections, prefix) = match self.relay.borrow().as_ref() {
+            Some(r) => (r.take_eit(), r.signal_prefix()),
             None => return,
         };
         if sections.is_empty() {
             return;
         }
         let Some(dir) = paths::cache_dir() else { return };
+        let src = self.active.get();
+        let id = self.settings.borrow().source(src).map(|a| a.id.clone()).unwrap_or_default();
+        let path = epg::signal_cache_path(&dir, &id);
         let now = epg::now();
-        let mut cache = epg::SatEpg::load(&dir);
-        cache.add(&sections, now);
-        let _ = cache.save(&dir);
+        let mut cache = epg::SatEpg::load_from(&path);
+        cache.add_prefixed(&sections, now, prefix);
+        let _ = cache.save_to(&path);
         let mut fresh = epg::SatEpg::default();
-        fresh.add(&sections, now);
-        let merged = self.guide_of(SRC_SAT).map(|g| {
-            let mut g = (*g).clone();
-            g.merge(fresh.guide());
-            g
-        });
-        if let Some(g) = merged {
-            self.guides.borrow_mut().insert(SRC_SAT, Rc::new(g));
-        }
+        fresh.add_prefixed(&sections, now, prefix);
+        let merged = match self.guide_of(src) {
+            Some(g) => {
+                let mut g = (*g).clone();
+                g.merge(fresh.guide());
+                g
+            }
+            None => fresh.guide(),
+        };
+        self.guides.borrow_mut().insert(src, Rc::new(merged));
     }
 
     /// Aktualisiert die Zeile „laufende Sendung“ in der Senderliste.
@@ -1018,7 +1085,7 @@ impl App {
         let shift = if is_current { self.live_state() } else { None };
         // Der Rückstand steht rechts in der Steuerzeile und läuft dort mit (Nutzer, 2026-10-26).
         let reception = stream
-            .is_some_and(|s| s.kind == Some(SourceKind::SatIp))
+            .is_some_and(|s| matches!(s.kind, Some(SourceKind::SatIp | SourceKind::Dvb)))
             .then(|| {
                 self.relay
                     .borrow()
@@ -1029,6 +1096,7 @@ impl App {
             });
         let origin = stream.map(|s| match s.kind {
             Some(SourceKind::SatIp) => Origin::Satellite,
+            Some(SourceKind::Dvb) => Origin::Card,
             _ => Origin::Internet,
         });
         let logo = ch
@@ -1178,10 +1246,6 @@ impl App {
         }
     }
 
-    /// Sender der SAT-Liste (egal, welche Liste gerade gezeigt wird).
-    pub fn sat_channels(&self) -> Vec<Channel> {
-        self.with_list(SRC_SAT, |l| l.channels.clone())
-    }
 
     pub fn library(&self) -> std::cell::Ref<'_, Library> {
         self.lib.borrow()
@@ -1677,6 +1741,23 @@ impl App {
     fn load_live(self: &Rc<Self>, player: &Player, url: &str, bitrate: Option<u64>) {
         self.relay.replace(None);
         self.live_gap.set(None);
+        #[cfg(target_os = "linux")]
+        if let Some((_, _, tuning, _)) = tvjoe_core::dvb::split_url(url) {
+            // DVB-Karte: Abstimmen kann einige Sekunden dauern (ohne Empfang bis 3 s).
+            match tvjoe_core::dvb::Relay::start(url) {
+                Ok(r) => {
+                    player.load_ts(&r.local_url);
+                    self.relay.replace(Some(LiveRelay::Dvb(r, tuning.label())));
+                }
+                Err(e) => {
+                    self.msg.show(
+                        &tf!("DVB-Karte: {error}", error = e),
+                        self.overlay_secs() * 2,
+                    );
+                }
+            }
+            return;
+        }
         if tvjoe_core::satip::split_url(url).is_none() {
             player.load(url, bitrate);
             return;
@@ -1684,7 +1765,7 @@ impl App {
         match tvjoe_core::satip::Relay::start(url) {
             Ok(r) => {
                 player.load_ts(&r.local_url);
-                self.relay.replace(Some(r));
+                self.relay.replace(Some(LiveRelay::Sat(r)));
             }
             Err(e) => {
                 self.msg
@@ -1715,7 +1796,7 @@ impl App {
                 .relay
                 .borrow()
                 .as_ref()
-                .is_some_and(|r| r.packets() == 0);
+                .is_some_and(LiveRelay::silent);
             let same = app
                 .current_stream
                 .borrow()
@@ -2615,13 +2696,23 @@ impl App {
             }
         };
         if self.vod.borrow().is_none() {
-            if let Some(t) = self.relay.borrow().as_ref().and_then(|r| r.status()) {
-                content.meta.push(tf!(
-                    "{reception} · Tuner {tuner} · {freq} MHz",
-                    reception = reception_text(&t),
-                    tuner = t.tuner,
-                    freq = t.freq
-                ));
+            if let Some(r) = self.relay.borrow().as_ref() {
+                if let Some(t) = r.status() {
+                    content.meta.push(match r {
+                        LiveRelay::Sat(_) => tf!(
+                            "{reception} · Tuner {tuner} · {freq} MHz",
+                            reception = reception_text(&t),
+                            tuner = t.tuner,
+                            freq = t.freq
+                        ),
+                        #[cfg(target_os = "linux")]
+                        LiveRelay::Dvb(_, label) => tf!(
+                            "{reception} · {tuning}",
+                            reception = reception_text(&t),
+                            tuning = label
+                        ),
+                    });
+                }
             }
         }
         self.osd.hide();

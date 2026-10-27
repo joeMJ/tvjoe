@@ -772,6 +772,68 @@ impl ScannedService {
     }
 }
 
+/// Ein Dienst aus den Tabellen eines Transponders (PAT, PMT, SDT), gleich über welchen Weg
+/// empfangen (SAT>IP, DVB-Karte).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Found {
+    pub name: String,
+    pub provider: String,
+    pub onid: u16,
+    pub tsid: u16,
+    pub service_id: u16,
+    pub hd: bool,
+    pub radio: bool,
+    pub scrambled: bool,
+    /// PAT, PMT, PCR und alle abspielbaren Spuren.
+    pub pids: Vec<u16>,
+}
+
+/// TV- und Radiodienste aus gesammelten Tabellen (`pat`: Programmnummer, PMT-PID).
+pub(crate) fn found_services(col: &crate::ts::SectionCollector, pat: &[(u16, u16)]) -> Vec<Found> {
+    let pmts: HashMap<u16, (u16, Vec<crate::ts::EsInfo>)> = col
+        .tables(0x02)
+        .filter_map(crate::ts::parse_pmt)
+        .map(|(prog, pcr, es)| (prog, (pcr, es)))
+        .collect();
+    let pmt_of: HashMap<u16, u16> = pat.iter().copied().collect();
+    let mut out = Vec::new();
+    for svc in col.tables(0x42).flat_map(crate::ts::parse_sdt) {
+        let radio = matches!(svc.service_type, 0x02 | 0x0a);
+        let tv = matches!(svc.service_type, 0x01 | 0x11 | 0x16 | 0x19 | 0x1f);
+        if !(tv || radio) || svc.name.is_empty() {
+            continue;
+        }
+        let Some(&pmt) = pmt_of.get(&svc.service_id) else {
+            continue;
+        };
+        let (pcr, es) = pmts
+            .get(&svc.service_id)
+            .cloned()
+            .unwrap_or((0x1fff, Vec::new()));
+        let mut pids = vec![0, pmt];
+        if pcr != 0x1fff {
+            pids.push(pcr);
+        }
+        pids.extend(es.iter().filter(|e| e.playable).map(|e| e.pid));
+        pids.sort_unstable();
+        pids.dedup();
+        let hd = matches!(svc.service_type, 0x19 | 0x1f)
+            || es.iter().any(|e| matches!(e.stream_type, 0x1b | 0x24));
+        out.push(Found {
+            name: svc.name,
+            provider: svc.provider,
+            onid: svc.onid,
+            tsid: svc.tsid,
+            service_id: svc.service_id,
+            hd,
+            radio,
+            scrambled: svc.scrambled,
+            pids,
+        });
+    }
+    out
+}
+
 /// Fortschritt des Suchlaufs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScanProgress {
@@ -918,48 +980,21 @@ fn scan_transponder(host: &str, tp: &Transponder) -> Result<Option<Vec<ScannedSe
             },
         );
         col.sections.extend(more.sections);
-        let pmts: HashMap<u16, (u16, Vec<crate::ts::EsInfo>)> = col
-            .tables(0x02)
-            .filter_map(crate::ts::parse_pmt)
-            .map(|(prog, pcr, es)| (prog, (pcr, es)))
-            .collect();
-        let pmt_of: HashMap<u16, u16> = pat.iter().copied().collect();
-        let mut out = Vec::new();
-        for svc in col.tables(0x42).flat_map(crate::ts::parse_sdt) {
-            let radio = matches!(svc.service_type, 0x02 | 0x0a);
-            let tv = matches!(svc.service_type, 0x01 | 0x11 | 0x16 | 0x19 | 0x1f);
-            if !(tv || radio) || svc.name.is_empty() {
-                continue;
-            }
-            let Some(&pmt) = pmt_of.get(&svc.service_id) else {
-                continue;
-            };
-            let (pcr, es) = pmts
-                .get(&svc.service_id)
-                .cloned()
-                .unwrap_or((0x1fff, Vec::new()));
-            let mut pids = vec![0, pmt];
-            if pcr != 0x1fff {
-                pids.push(pcr);
-            }
-            pids.extend(es.iter().filter(|e| e.playable).map(|e| e.pid));
-            pids.sort_unstable();
-            pids.dedup();
-            let hd = matches!(svc.service_type, 0x19 | 0x1f)
-                || es.iter().any(|e| matches!(e.stream_type, 0x1b | 0x24));
-            out.push(ScannedService {
-                name: svc.name,
-                provider: svc.provider,
-                onid: svc.onid,
-                tsid: svc.tsid,
-                service_id: svc.service_id,
-                hd,
-                radio,
-                scrambled: svc.scrambled,
+        let out = found_services(&col, &pat)
+            .into_iter()
+            .map(|f| ScannedService {
+                name: f.name,
+                provider: f.provider,
+                onid: f.onid,
+                tsid: f.tsid,
+                service_id: f.service_id,
+                hd: f.hd,
+                radio: f.radio,
+                scrambled: f.scrambled,
                 tp: *tp,
-                pids,
-            });
-        }
+                pids: f.pids,
+            })
+            .collect();
         Ok(Some(out))
     })();
     s.teardown();
@@ -1039,6 +1074,8 @@ pub fn to_channels(host: &str, services: &[ScannedService]) -> Vec<crate::Scanne
                 url: s.url(host),
                 max_bitrate: None,
             },
+            radio: false,
+            epg_id: None,
         })
         .collect()
 }

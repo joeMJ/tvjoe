@@ -6,6 +6,8 @@ pub mod adapter;
 pub mod auftrag;
 pub mod backup;
 pub mod check;
+#[cfg(target_os = "linux")]
+pub mod dvb;
 pub mod console;
 pub mod epg;
 pub mod i18n;

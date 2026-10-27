@@ -1,6 +1,6 @@
-//! Reiter „Empfang“ in den Einstellungen (Nutzer, 2026-10-27): die Empfangsquellen (zunächst
-//! Internet-TV aus M3U-Listen und SAT>IP), je an- und abschaltbar und jede für sich auf
-//! einer eigenen Seite eingerichtet, dazu die XMLTV-Quellen, die einmal angelegt und
+//! Reiter „Empfang“ in den Einstellungen (Nutzer, 2026-10-27): die Empfangsquellen
+//! (Internet-TV aus M3U-Listen, SAT>IP, DVB-Karten), je an- und abschaltbar und jede für sich
+//! auf einer eigenen Seite eingerichtet, dazu die XMLTV-Quellen, die einmal angelegt und
 //! betitelt werden und aus denen jede Empfangsquelle keine, eine oder mehrere nutzt.
 
 use std::cell::RefCell;
@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use tvjoe_core::adapter::{self, Description, Driver};
-use tvjoe_core::settings::{ADAPTER_SAT, ADAPTER_TV, Adapter, XmltvSource};
+use tvjoe_core::settings::{ADAPTER_TV, Adapter, SRC_SAT, XmltvSource};
 use tvjoe_core::{Settings, paths, tf, tr, trn};
 
 use crate::app::App;
@@ -32,14 +32,22 @@ fn descriptions() -> Vec<Description> {
     all
 }
 
+/// Beschreibung einer Empfangsquelle.
+fn description_of<'a>(a: &Adapter, descs: &'a [Description]) -> Option<&'a Description> {
+    descs.iter().find(|d| d.id == a.kind)
+}
+
+/// Treiber einer Empfangsquelle.
+fn driver_of(a: &Adapter, descs: &[Description]) -> Driver {
+    description_of(a, descs).map_or(Driver::Iptv, |d| d.driver)
+}
+
 /// Anzeigename einer Empfangsquelle.
 fn adapter_title(a: &Adapter, descs: &[Description]) -> String {
     if a.id == ADAPTER_TV {
         return tr("Internet-TV").to_string();
     }
-    descs
-        .iter()
-        .find(|d| d.id == a.kind)
+    description_of(a, descs)
         .map(|d| d.name.clone())
         .unwrap_or_else(|| a.kind.clone())
 }
@@ -52,8 +60,10 @@ pub fn prefs_page(
     let state: State = {
         let mut s = app.settings().clone();
         s.migrate();
+        let mut adapters = s.adapters.clone();
+        adapters.sort_by_key(|a| a.num);
         Rc::new(RefCell::new(Edit {
-            adapters: s.adapters.clone(),
+            adapters,
             xmltv: s.xmltv_sources.clone(),
         }))
     };
@@ -68,87 +78,190 @@ pub fn prefs_page(
         .title(tr("Empfangsquellen"))
         .description(tr("Jede Quelle hat ihre eigene Senderliste, Sortierung und ihr eigenes Programm. Ausgeschaltet verschwindet ihr Knopf in der Kopfleiste, und im Hintergrund läuft nichts für sie."))
         .build();
-    for id in [ADAPTER_TV, ADAPTER_SAT] {
-        let a = state.borrow().adapters.iter().find(|a| a.id == id).cloned();
-        let Some(a) = a else { continue };
-        let row = adw::ActionRow::builder()
-            .title(adapter_title(&a, &descs))
-            .subtitle(source_summary(app, &a))
-            .activatable(true)
-            .build();
-        let switch = gtk::Switch::builder()
-            .active(a.enabled)
+    // Hinzufügen: Beschreibungen mit Treibern, die mehrere Quellen erlauben (DVB-Karten).
+    let addable: Vec<Description> = descs
+        .iter()
+        .filter(|d| d.driver == Driver::LinuxDvb && cfg!(target_os = "linux"))
+        .cloned()
+        .collect();
+    if !addable.is_empty() {
+        let add = gtk::MenuButton::builder()
+            .icon_name("list-add-symbolic")
+            .tooltip_text(tr("Empfangsquelle hinzufügen"))
             .valign(gtk::Align::Center)
+            .css_classes(["flat"])
             .build();
-        row.add_suffix(&switch);
-        row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
-        {
-            let state = state.clone();
-            switch.connect_active_notify(move |sw| {
-                if let Some(a) = state.borrow_mut().adapters.iter_mut().find(|a| a.id == id) {
-                    a.enabled = sw.is_active();
-                }
+        let pop = gtk::Popover::new();
+        let items = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(2)
+            .build();
+        for d in addable {
+            let b = gtk::Button::builder()
+                .label(&d.name)
+                .css_classes(["flat"])
+                .build();
+            let (app, dialog, state, descs, group, pop) = (
+                app.clone(),
+                dialog.clone(),
+                state.clone(),
+                descs.clone(),
+                sources.clone(),
+                pop.clone(),
+            );
+            b.connect_clicked(move |_| {
+                pop.popdown();
+                let num = {
+                    let mut e = state.borrow_mut();
+                    let num = e.adapters.iter().map(|a| a.num).max().unwrap_or(SRC_SAT).max(SRC_SAT) + 1;
+                    let prefix = match d.driver {
+                        Driver::LinuxDvb => "dvb",
+                        _ => "quelle",
+                    };
+                    e.adapters.push(Adapter {
+                        id: format!("{prefix}-{num}"),
+                        num,
+                        kind: d.id.clone(),
+                        ..Adapter::default()
+                    });
+                    num
+                };
+                let row = source_row(&app, &dialog, &state, &descs, &group, num);
+                ActionRowExt::activate(&row);
             });
+            items.append(&b);
         }
-        let (app, dialog, state, descs) =
-            (app.clone(), dialog.clone(), state.clone(), descs.clone());
-        row.connect_activated(move |row| {
-            let page = adapter_page(&app, &dialog, &state, &descs, id, row, &switch);
-            dialog.push_subpage(&page);
-        });
-        sources.add(&row);
+        pop.set_child(Some(&items));
+        add.set_popover(Some(&pop));
+        sources.set_header_suffix(Some(&add));
+    }
+    let nums: Vec<u32> = state.borrow().adapters.iter().map(|a| a.num).collect();
+    for num in nums {
+        source_row(app, dialog, &state, &descs, &sources, num);
     }
     page.add(&sources);
     page.add(&xmltv_group(&state));
 
     let apply = move |s: &mut Settings| {
         let e = state.borrow();
+        // Entfernte Empfangsquellen: Senderliste und Programmdaten aus dem Signal löschen.
+        for old in &s.adapters {
+            if old.num > SRC_SAT && !e.adapters.iter().any(|a| a.num == old.num) {
+                if let Some(p) = paths::source_library_path(&old.id) {
+                    let _ = std::fs::remove_file(p);
+                }
+                if let Some(d) = paths::cache_dir() {
+                    let _ = std::fs::remove_file(tvjoe_core::epg::signal_cache_path(&d, &old.id));
+                }
+            }
+        }
         s.adapters = e.adapters.clone();
         s.xmltv_sources = e.xmltv.clone();
     };
     (page, apply)
 }
 
+/// Zeile einer Empfangsquelle in der Übersicht (Schalter, Pfeil zur Seite); gibt die Zeile zurück.
+fn source_row(
+    app: &Rc<App>,
+    dialog: &adw::PreferencesDialog,
+    state: &State,
+    descs: &Rc<Vec<Description>>,
+    group: &adw::PreferencesGroup,
+    num: u32,
+) -> adw::ActionRow {
+    let a = state
+        .borrow()
+        .adapters
+        .iter()
+        .find(|a| a.num == num)
+        .cloned()
+        .unwrap_or_default();
+    let row = adw::ActionRow::builder()
+        .title(adapter_title(&a, descs))
+        .subtitle(source_summary(app, &a, descs))
+        .activatable(true)
+        .build();
+    let switch = gtk::Switch::builder()
+        .active(a.enabled)
+        .valign(gtk::Align::Center)
+        .build();
+    row.add_suffix(&switch);
+    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+    {
+        let state = state.clone();
+        switch.connect_active_notify(move |sw| {
+            if let Some(a) = state.borrow_mut().adapters.iter_mut().find(|a| a.num == num) {
+                a.enabled = sw.is_active();
+            }
+        });
+    }
+    let (app, dialog, state, descs, group2) = (
+        app.clone(),
+        dialog.clone(),
+        state.clone(),
+        descs.clone(),
+        group.clone(),
+    );
+    row.connect_activated(move |row| {
+        let page = adapter_page(&app, &dialog, &state, &descs, num, row, &switch, &group2);
+        dialog.push_subpage(&page);
+    });
+    group.add(&row);
+    row
+}
+
 /// Unterzeile einer Empfangsquelle: Art, ggf. Gerät, Zahl der Sender.
-fn source_summary(app: &App, a: &Adapter) -> String {
-    let sat = a.id == ADAPTER_SAT;
+fn source_summary(app: &App, a: &Adapter, descs: &[Description]) -> String {
     let n = app.list_len(a.num) as u64;
     let channels = trn("{n} Sender", "{n} Sender", n);
-    if sat {
-        if a.host.trim().is_empty() {
+    match driver_of(a, descs) {
+        Driver::Satip if a.host.trim().is_empty() => {
             tf!("SAT>IP · noch keine Adresse · {channels}", channels = channels)
-        } else {
+        }
+        Driver::Satip => {
             tf!("SAT>IP · {host} · {channels}", host = a.host.trim(), channels = channels)
         }
-    } else {
-        tf!("M3U-Listen · {channels}", channels = channels)
+        Driver::LinuxDvb if a.host.trim().is_empty() => {
+            tf!("DVB-Karte · noch kein Gerät · {channels}", channels = channels)
+        }
+        Driver::LinuxDvb => tf!(
+            "DVB-Karte · adapter{device} · {channels}",
+            device = a.host.trim(),
+            channels = channels
+        ),
+        Driver::Iptv => tf!("M3U-Listen · {channels}", channels = channels),
     }
 }
 
 /// Seite einer Empfangsquelle.
+#[allow(clippy::too_many_arguments)]
 fn adapter_page(
     app: &Rc<App>,
     dialog: &adw::PreferencesDialog,
     state: &State,
     descs: &Rc<Vec<Description>>,
-    id: &'static str,
+    num: u32,
     list_row: &adw::ActionRow,
     list_switch: &gtk::Switch,
+    group: &adw::PreferencesGroup,
 ) -> adw::NavigationPage {
     let a = state
         .borrow()
         .adapters
         .iter()
-        .find(|a| a.id == id)
+        .find(|a| a.num == num)
         .cloned()
         .unwrap_or_default();
-    let sat = id == ADAPTER_SAT;
+    let driver = driver_of(&a, descs);
+    let sat = driver == Driver::Satip;
+    let signal_epg = description_of(&a, descs).is_some_and(|d| d.signal_epg);
     let content = adw::PreferencesPage::new();
     // Änderung an der Empfangsquelle in den bearbeiteten Stand schreiben.
     let edit = {
         let state = state.clone();
         move |f: &dyn Fn(&mut Adapter)| {
-            if let Some(a) = state.borrow_mut().adapters.iter_mut().find(|a| a.id == id) {
+            if let Some(a) = state.borrow_mut().adapters.iter_mut().find(|a| a.num == num) {
                 f(a);
             }
         }
@@ -197,34 +310,44 @@ fn adapter_page(
     }
     content.add(&general);
 
-    if sat {
-        let satellite = descs
-            .iter()
-            .find(|d| d.id == a.kind)
-            .and_then(|d| d.satellite.clone());
-        let (groups, host) = crate::satip::device_groups(app, &a.host, satellite);
-        let e = edit.clone();
-        host.connect_changed(move |h| {
-            let text = h.text().trim().to_string();
-            e(&|a| a.host = text.clone());
-        });
-        for g in groups {
-            content.add(&g);
+    match driver {
+        Driver::Satip => {
+            let satellite = description_of(&a, descs).and_then(|d| d.satellite.clone());
+            let (groups, host) = crate::satip::device_groups(app, &a.host, satellite);
+            let e = edit.clone();
+            host.connect_changed(move |h| {
+                let text = h.text().trim().to_string();
+                e(&|a| a.host = text.clone());
+            });
+            for g in groups {
+                content.add(&g);
+            }
         }
-    } else {
-        content.add(&lists_group(app, dialog, a.enabled));
+        #[cfg(target_os = "linux")]
+        Driver::LinuxDvb => {
+            let e = edit.clone();
+            let set_device: Rc<dyn Fn(String)> = Rc::new(move |dev: String| {
+                e(&|a| a.host = dev.clone());
+            });
+            for g in crate::dvbcard::device_groups(app, &a, set_device) {
+                content.add(&g);
+            }
+        }
+        _ => content.add(&lists_group(app, dialog, a.enabled)),
     }
 
-    // Programm: aus dem Signal (SAT) und/oder aus XMLTV, beides freiwillig.
+    // Programm: aus dem Signal und/oder aus XMLTV, beides freiwillig.
     let guide = adw::PreferencesGroup::builder()
         .title(tr("Programm (EPG)"))
         .description(if sat {
             tr("Aus dem Signal (je Sender in „Sender verwalten“ → EPG „Aus dem SAT-Empfang“) und/oder aus XMLTV-Quellen")
+        } else if signal_epg {
+            tr("Aus dem Signal (neue Sender nach dem Suchlauf) und/oder aus XMLTV-Quellen")
         } else {
             tr("Aus XMLTV-Quellen; ohne Quelle laufen die Sender ohne Programm")
         })
         .build();
-    if sat {
+    if signal_epg {
         let signal = adw::SpinRow::with_range(1.0, 24.0, 1.0);
         signal.set_title(tr("Aus dem Signal sammeln alle"));
         signal.set_subtitle(tr("Stunden; belegt je Transponder etwa 40 Sekunden einen Tuner"));
@@ -290,9 +413,10 @@ fn adapter_page(
     content.add(&view);
 
     let record = adw::PreferencesGroup::builder().title(tr("Aufnahme")).build();
-    let max = adw::SpinRow::with_range(0.0, if sat { 8.0 } else { 20.0 }, 1.0);
+    let tuners = driver != Driver::Iptv;
+    let max = adw::SpinRow::with_range(0.0, if tuners { 8.0 } else { 20.0 }, 1.0);
     max.set_title(tr("Gleichzeitig höchstens"));
-    max.set_subtitle(if sat {
+    max.set_subtitle(if tuners {
         tr("Aufnahmen; jede belegt einen Tuner (bei gleichem Transponder geteilt); 0 = ohne Grenze")
     } else {
         tr("Aufnahmen; 0 = ohne Grenze")
@@ -306,7 +430,45 @@ fn adapter_page(
     record.add(&max);
     content.add(&record);
 
-    // Unterzeile in der Übersicht nach der Rückkehr auffrischen (Adresse).
+    // Weitere Empfangsquellen lassen sich wieder entfernen (samt Senderliste).
+    if num > SRC_SAT {
+        let remove_group = adw::PreferencesGroup::new();
+        let remove_row = adw::ActionRow::builder()
+            .title(tr("Empfangsquelle entfernen"))
+            .subtitle(tr("Mit ihrer Senderliste und ihren Programmdaten"))
+            .build();
+        let remove = gtk::Button::builder()
+            .label(tr("Entfernen"))
+            .valign(gtk::Align::Center)
+            .css_classes(["destructive-action"])
+            .build();
+        remove_row.add_suffix(&remove);
+        let (state, dialog2, list_row2, group2) =
+            (state.clone(), dialog.clone(), list_row.clone(), group.clone());
+        let name = list_row.title().to_string();
+        remove.connect_clicked(move |b| {
+            let d = adw::AlertDialog::new(
+                Some(&tf!("„{name}“ entfernen?", name = name)),
+                Some(tr("Ihre Senderliste und ihre Programmdaten werden beim Schließen der Einstellungen gelöscht.")),
+            );
+            d.add_response("cancel", tr("Abbrechen"));
+            d.add_response("remove", tr("Entfernen"));
+            d.set_response_appearance("remove", adw::ResponseAppearance::Destructive);
+            d.set_close_response("cancel");
+            let (state, dialog, row, group) =
+                (state.clone(), dialog2.clone(), list_row2.clone(), group2.clone());
+            d.connect_response(Some("remove"), move |_, _| {
+                state.borrow_mut().adapters.retain(|a| a.num != num);
+                group.remove(&row);
+                dialog.pop_subpage();
+            });
+            d.present(Some(b));
+        });
+        remove_group.add(&remove_row);
+        content.add(&remove_group);
+    }
+
+    // Unterzeile in der Übersicht nach der Rückkehr auffrischen (Adresse, Gerät, Sender).
     let title = list_row.title().to_string();
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&adw::HeaderBar::new());
@@ -315,10 +477,10 @@ fn adapter_page(
         .title(&title)
         .child(&toolbar)
         .build();
-    let (app, state, row) = (app.clone(), state.clone(), list_row.clone());
+    let (app, state, row, descs) = (app.clone(), state.clone(), list_row.clone(), descs.clone());
     nav.connect_hidden(move |_| {
-        if let Some(a) = state.borrow().adapters.iter().find(|a| a.id == id) {
-            row.set_subtitle(&source_summary(&app, a));
+        if let Some(a) = state.borrow().adapters.iter().find(|a| a.num == num) {
+            row.set_subtitle(&source_summary(&app, a, &descs));
         }
     });
     nav
@@ -459,12 +621,16 @@ fn fill_xmltv(state: &State, group: &adw::PreferencesGroup, rows: &Rc<RefCell<Ve
         rows.borrow_mut().push(row);
     }
     for x in list {
-        let users: Vec<&str> = state
+        let users: Vec<String> = state
             .borrow()
             .adapters
             .iter()
             .filter(|a| a.xmltv.contains(&x.id))
-            .map(|a| if a.id == ADAPTER_SAT { "SAT" } else { "TV" })
+            .map(|a| match a.id.as_str() {
+                ADAPTER_TV => "TV".to_string(),
+                tvjoe_core::settings::ADAPTER_SAT => "SAT".to_string(),
+                id => id.to_string(),
+            })
             .collect();
         let subtitle = if users.is_empty() {
             tf!("{location} · nicht genutzt", location = x.location)

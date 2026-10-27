@@ -15,6 +15,8 @@ pub enum SourceKind {
     Hls,
     /// Zurückgestellt; wird nur erkannt, nicht abgespielt.
     SatIp,
+    /// DVB-Karte unter Linux (`dvb://…`).
+    Dvb,
 }
 
 impl SourceKind {
@@ -22,6 +24,7 @@ impl SourceKind {
         match s.trim().to_ascii_lowercase().as_str() {
             "hls" => Some(Self::Hls),
             "satip" => Some(Self::SatIp),
+            "dvb" => Some(Self::Dvb),
             _ => None,
         }
     }

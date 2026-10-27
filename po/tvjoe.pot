@@ -10,34 +10,34 @@ msgstr ""
 msgid "Verbindung vorzeitig beendet"
 msgstr ""
 
-#: crates/tvjoe-core/src/adapter.rs:115
+#: crates/tvjoe-core/src/adapter.rs:119
 msgid "Kennung (id) nur aus Buchstaben, Ziffern und Bindestrich"
 msgstr ""
 
-#: crates/tvjoe-core/src/adapter.rs:120
+#: crates/tvjoe-core/src/adapter.rs:124
 msgid "SAT>IP: RTP über TCP und dauerhafte RTSP-Verbindungen kann tvjoe noch nicht"
 msgstr ""
 
-#: crates/tvjoe-core/src/adapter.rs:123
+#: crates/tvjoe-core/src/adapter.rs:127
 msgid "SAT>IP: Abschnitt [satellite] fehlt"
 msgstr ""
 
-#: crates/tvjoe-core/src/adapter.rs:132
+#: crates/tvjoe-core/src/adapter.rs:136
 #, no-c-format
 msgid "Polarisation „{pol}“ unbekannt (h oder v)"
 msgstr ""
 
-#: crates/tvjoe-core/src/adapter.rs:135
+#: crates/tvjoe-core/src/adapter.rs:139
 #, no-c-format
 msgid "Modulation „{mtype}“ unbekannt"
 msgstr ""
 
-#: crates/tvjoe-core/src/adapter.rs:137
+#: crates/tvjoe-core/src/adapter.rs:141
 #, no-c-format
 msgid "Coderate „{fec}“ unbekannt"
 msgstr ""
 
-#: crates/tvjoe-core/src/adapter.rs:192
+#: crates/tvjoe-core/src/adapter.rs:196
 #, no-c-format
 msgid "{file}: {error}"
 msgstr ""
@@ -160,27 +160,61 @@ msgstr ""
 msgid "Qualität unbekannt (tvjoe-quality fehlt)"
 msgstr ""
 
+#: crates/tvjoe-core/src/dvb.rs:1121 crates/tvjoe-core/src/satip.rs:890
+msgid "keine Programmdaten empfangen"
+msgstr ""
+
+#: crates/tvjoe-core/src/dvb.rs:169
+#, no-c-format
+msgid "{path}: kein Zugriff (Benutzer in die Gruppe „video“ aufnehmen und neu anmelden)"
+msgstr ""
+
+#: crates/tvjoe-core/src/dvb.rs:174
+#, no-c-format
+msgid "{path}: Tuner belegt"
+msgstr ""
+
+#: crates/tvjoe-core/src/dvb.rs:806
+msgid "Das Gerät kann diese Empfangsart nicht"
+msgstr ""
+
+#: crates/tvjoe-core/src/dvb.rs:871 crates/tvjoe-core/src/dvb.rs:1022 crates/tvjoe-core/src/dvb.rs:1112 crates/tvjoe-core/src/dvb.rs:1113
+msgid "keine DVB-Adresse"
+msgstr ""
+
+#: crates/tvjoe-core/src/dvb.rs:878 crates/tvjoe-core/src/dvb.rs:1025 crates/tvjoe-core/src/dvb.rs:1116
+msgid "kein Empfang auf diesem Kanal"
+msgstr ""
+
 #: crates/tvjoe-core/src/epg.rs:333
 #, no-c-format
 msgid "XML bei Byte {position}: {error}"
 msgstr ""
 
-#: crates/tvjoe-core/src/epg.rs:571
+#: crates/tvjoe-core/src/epg.rs:556 crates/tvjoe-gui/src/manage.rs:336
+msgid "SAT-Empfang"
+msgstr ""
+
+#: crates/tvjoe-core/src/epg.rs:558
+msgid "Aus dem Signal"
+msgstr ""
+
+#: crates/tvjoe-core/src/epg.rs:603
 #, no-c-format
 msgid "{source}: neu geladen"
 msgstr ""
 
-#: crates/tvjoe-core/src/epg.rs:576
+#: crates/tvjoe-core/src/epg.rs:608
 #, no-c-format
 msgid "{source}: Laden fehlgeschlagen ({error}), alter Stand"
 msgstr ""
 
-#: crates/tvjoe-core/src/epg.rs:592
+#: crates/tvjoe-core/src/epg.rs:624
 #, no-c-format
 msgid "{source}: {channels} Kanäle, {programmes} Sendungen"
 msgstr ""
 
-#: crates/tvjoe-core/src/epg.rs:600
+#: crates/tvjoe-core/src/epg.rs:632
 #, no-c-format
 msgid "{source}: {error}"
 msgstr ""
@@ -214,15 +248,15 @@ msgstr ""
 msgid "Jellyfin-Zwischenspeicher: {error}"
 msgstr ""
 
-#: crates/tvjoe-core/src/m3u.rs:175
+#: crates/tvjoe-core/src/m3u.rs:178
 msgid "Die Datei ist nicht UTF-8-kodiert."
 msgstr ""
 
-#: crates/tvjoe-core/src/m3u.rs:176
+#: crates/tvjoe-core/src/m3u.rs:179
 msgid "Die Datei beginnt nicht mit #EXTM3U."
 msgstr ""
 
-#: crates/tvjoe-core/src/m3u.rs:177
+#: crates/tvjoe-core/src/m3u.rs:180
 msgid "Die Datei enthält keine auswertbaren Einträge."
 msgstr ""
 
@@ -374,11 +408,7 @@ msgstr ""
 msgid "kein Datenstrom vom SAT>IP-Gerät"
 msgstr ""
 
-#: crates/tvjoe-core/src/satip.rs:828
-msgid "keine Programmdaten empfangen"
-msgstr ""
-
-#: crates/tvjoe-core/src/satip.rs:880
+#: crates/tvjoe-core/src/satip.rs:942
 msgid "Keine Transponder in der Netzwerktabelle gefunden."
 msgstr ""
 
@@ -434,353 +464,353 @@ msgstr ""
 msgid "Antwort von GitHub unlesbar: {error}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1002
+#: crates/tvjoe-gui/src/ablage.rs:1022
+#, no-c-format
+msgid "Aufnahme an den Aufnahmedienst übergeben: {title} (bis {end})"
+msgstr ""
+
+#: crates/tvjoe-gui/src/ablage.rs:1028
 #, no-c-format
 msgid "Aufnahme nicht übergeben: {e}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1063
+#: crates/tvjoe-gui/src/ablage.rs:1089
 #, no-c-format
 msgid "Aufnahme geplant: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1064
+#: crates/tvjoe-gui/src/ablage.rs:1090
 #, no-c-format
 msgid "Aufnahme nicht geplant: {e}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1079
+#: crates/tvjoe-gui/src/ablage.rs:1105
 #, no-c-format
 msgid "Planung gelöscht: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1098
+#: crates/tvjoe-gui/src/ablage.rs:1124
 #, no-c-format
 msgid "{n} Aufnahme läuft"
 msgid_plural "{n} Aufnahmen laufen"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1101
+#: crates/tvjoe-gui/src/ablage.rs:1127
 #, no-c-format
 msgid "{n} Aufnahme geplant"
 msgid_plural "{n} Aufnahmen geplant"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1104
+#: crates/tvjoe-gui/src/ablage.rs:1130
 #, no-c-format
 msgid "{n} Download läuft"
 msgid_plural "{n} Downloads laufen"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1166
+#: crates/tvjoe-gui/src/ablage.rs:1192
 #, no-c-format
 msgid "Keine weitere SAT-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Empfang)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1170
+#: crates/tvjoe-gui/src/ablage.rs:1196
 #, no-c-format
 msgid "Keine weitere Internet-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Empfang)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1174
+#: crates/tvjoe-gui/src/ablage.rs:1200
 #, no-c-format
 msgid "Keine weitere Aufnahme über „{source}“: höchstens {max} gleichzeitig (Einstellungen → Empfang)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1185
+#: crates/tvjoe-gui/src/ablage.rs:1211
 #, no-c-format
 msgid "Aufnahme nicht gestartet: zu wenig Platz in {dir}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1192
+#: crates/tvjoe-gui/src/ablage.rs:1218
 msgid "Aufnahme nicht gestartet: Sender nicht gefunden"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1217
+#: crates/tvjoe-gui/src/ablage.rs:1256
 #, no-c-format
 msgid "Aufnahme nicht gestartet: {e}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1246
+#: crates/tvjoe-gui/src/ablage.rs:1285
 #, no-c-format
 msgid "Aufnahme läuft: {title} (bis {end})"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1302
+#: crates/tvjoe-gui/src/ablage.rs:1341
 msgid "Aufnahme beendet: zu wenig Platz auf der Platte"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1337 crates/tvjoe-gui/src/ablageview.rs:373 crates/tvjoe-gui/src/dienst.rs:151 crates/tvjoe-gui/src/dienst.rs:301 crates/tvjoe-gui/src/dienst_win.rs:532
+#: crates/tvjoe-gui/src/ablage.rs:1376 crates/tvjoe-gui/src/ablageview.rs:373 crates/tvjoe-gui/src/dienst.rs:151 crates/tvjoe-gui/src/dienst.rs:315 crates/tvjoe-gui/src/dienst_win.rs:532
 msgid "Aufnahme läuft"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1407
+#: crates/tvjoe-gui/src/ablage.rs:1446
 msgid "Laden abbrechen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1415
+#: crates/tvjoe-gui/src/ablage.rs:1454
 msgid "Zwischenspeichern"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1436 crates/tvjoe-gui/src/ablage.rs:1441 crates/tvjoe-gui/src/grid.rs:266
+#: crates/tvjoe-gui/src/ablage.rs:1475 crates/tvjoe-gui/src/ablage.rs:1480 crates/tvjoe-gui/src/grid.rs:266
 msgid "Ablage"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1442
+#: crates/tvjoe-gui/src/ablage.rs:1481
 msgid "Im Ordner entstehen Unterordner: mediathek und jellyfin (Heruntergeladenes), records (Aufnahmen), cache (Zwischenspeicher). Heruntergeladenes und Aufnahmen bleiben, bis Sie sie löschen; Zwischengespeichertes löscht tvjoe wieder, sobald die Grenze erreicht ist (am längsten nicht Gesehenes zuerst)."
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1446
+#: crates/tvjoe-gui/src/ablage.rs:1485
 msgid "Ablageordner"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1450
+#: crates/tvjoe-gui/src/ablage.rs:1489
 msgid "Ändern …"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1458
+#: crates/tvjoe-gui/src/ablage.rs:1497
 msgid "Ordner für die Ablage"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1472
+#: crates/tvjoe-gui/src/ablage.rs:1511
 msgid "Zwischenspeicher höchstens"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1473
+#: crates/tvjoe-gui/src/ablage.rs:1512
 msgid "GB"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1476
+#: crates/tvjoe-gui/src/ablage.rs:1515
 msgid "Mindestens frei lassen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1477
+#: crates/tvjoe-gui/src/ablage.rs:1516
 msgid "GB; darunter beginnt kein Download und keine Aufnahme, eine laufende Aufnahme endet"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1485
+#: crates/tvjoe-gui/src/ablage.rs:1524
 msgid "Rechtsklick auf eine Kachel: Herunterladen, Zwischenspeichern, bei Serien eine Staffel oder alle Folgen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1489
+#: crates/tvjoe-gui/src/ablage.rs:1528
 msgid "ÖR-Mediathek: Qualität"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1490
+#: crates/tvjoe-gui/src/ablage.rs:1529
 msgid "Zwischenspeichern nimmt die Qualität der Wiedergabe"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1491 crates/tvjoe-gui/src/prefs.rs:114
+#: crates/tvjoe-gui/src/ablage.rs:1530 crates/tvjoe-gui/src/prefs.rs:114
 msgid "Höchste"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1500
+#: crates/tvjoe-gui/src/ablage.rs:1539
 msgid "Jellyfin: Originaldatei"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1501
+#: crates/tvjoe-gui/src/ablage.rs:1540
 msgid "Aus: vom Server umgerechnet mit der Bitrate darunter (kleinere Datei)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1505
+#: crates/tvjoe-gui/src/ablage.rs:1544
 msgid "Jellyfin: Bitrate beim Umrechnen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1506
+#: crates/tvjoe-gui/src/ablage.rs:1545
 msgid "kbit/s"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1513 crates/tvjoe-gui/src/empfang.rs:292 crates/tvjoe-gui/src/vod.rs:110
+#: crates/tvjoe-gui/src/ablage.rs:1552 crates/tvjoe-gui/src/empfang.rs:415 crates/tvjoe-gui/src/vod.rs:110
 msgid "Aufnahme"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1514
+#: crates/tvjoe-gui/src/ablage.rs:1553
 msgid "Taste R oder der rote Knopf in der Senderanzeige nimmt die laufende Sendung auf; im Programm per Rechtsklick planen. Aufgenommen wird nur, solange tvjoe läuft."
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1517
+#: crates/tvjoe-gui/src/ablage.rs:1556
 msgid "Vorlauf"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1518
+#: crates/tvjoe-gui/src/ablage.rs:1557
 msgid "Minuten vor Beginn laut Programm"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1521
+#: crates/tvjoe-gui/src/ablage.rs:1560
 msgid "Nachlauf"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1522
+#: crates/tvjoe-gui/src/ablage.rs:1561
 msgid "Minuten nach Ende laut Programm"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1529
+#: crates/tvjoe-gui/src/ablage.rs:1568
 msgid "Aufnahmen auch ohne geöffnetes tvjoe"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1531
+#: crates/tvjoe-gui/src/ablage.rs:1570
 msgid "Richtet den Windows-Dienst „tvjoe Aufnahmedienst“ ein, der auch ohne Anmeldung aufnimmt und den Rechner dafür weckt. Wirkt beim Schließen der Einstellungen: Dann fragt Windows nach Administratorrechten, die Einrichtung dauert einige Sekunden; eine Meldung oben sagt, wann sie fertig ist"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1533
+#: crates/tvjoe-gui/src/ablage.rs:1572
 msgid "Richtet einen Hintergrunddienst ein (systemd-Benutzerdienst), der auch ohne Anmeldung aufnimmt; wirkt beim Schließen der Einstellungen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1657
+#: crates/tvjoe-gui/src/ablage.rs:1696
 msgid "Jellyfin: Eintrag nicht mehr in der Bibliothek"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:311 crates/tvjoe-gui/src/app.rs:1841
+#: crates/tvjoe-gui/src/ablage.rs:337 crates/tvjoe-gui/src/app.rs:1922
 msgid "Jellyfin: nicht angemeldet"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:354 crates/tvjoe-gui/src/capture.rs:85 crates/tvjoe-gui/src/capture.rs:89 crates/tvjoe-gui/src/jellyfin.rs:469
+#: crates/tvjoe-gui/src/ablage.rs:380 crates/tvjoe-gui/src/capture.rs:85 crates/tvjoe-gui/src/capture.rs:89 crates/tvjoe-gui/src/jellyfin.rs:469
 msgid "abgebrochen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:495
+#: crates/tvjoe-gui/src/ablage.rs:521
 msgid "Laden abbrechen?"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:496
+#: crates/tvjoe-gui/src/ablage.rs:522
 #, no-c-format
 msgid "„{title}“ wird nicht weiter geladen. Was schon da ist, bleibt; „Fortsetzen“ lädt später den Rest."
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:501 crates/tvjoe-gui/src/ablageview.rs:426 crates/tvjoe-gui/src/backup.rs:149 crates/tvjoe-gui/src/empfang.rs:412 crates/tvjoe-gui/src/empfang.rs:545 crates/tvjoe-gui/src/import.rs:76 crates/tvjoe-gui/src/import.rs:157 crates/tvjoe-gui/src/jellyfin.rs:440 crates/tvjoe-gui/src/manage.rs:613 crates/tvjoe-gui/src/manage.rs:908 crates/tvjoe-gui/src/prefs.rs:568 crates/tvjoe-gui/src/satip.rs:238
+#: crates/tvjoe-gui/src/ablage.rs:527 crates/tvjoe-gui/src/ablageview.rs:426 crates/tvjoe-gui/src/backup.rs:149 crates/tvjoe-gui/src/empfang.rs:454 crates/tvjoe-gui/src/empfang.rs:574 crates/tvjoe-gui/src/empfang.rs:711 crates/tvjoe-gui/src/import.rs:76 crates/tvjoe-gui/src/import.rs:157 crates/tvjoe-gui/src/jellyfin.rs:440 crates/tvjoe-gui/src/manage.rs:613 crates/tvjoe-gui/src/manage.rs:908 crates/tvjoe-gui/src/prefs.rs:570 crates/tvjoe-gui/src/satip.rs:238
 msgid "Abbrechen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:501
+#: crates/tvjoe-gui/src/ablage.rs:527
 msgid "Weiter laden"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:571
+#: crates/tvjoe-gui/src/ablage.rs:597
 #, no-c-format
 msgid "Liegt schon in der Ablage: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:578
+#: crates/tvjoe-gui/src/ablage.rs:604
 #, no-c-format
 msgid "Wird schon geladen: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:584
+#: crates/tvjoe-gui/src/ablage.rs:610
 #, no-c-format
 msgid "Zu wenig Platz in {dir} (unter {gb} GB frei)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:600 crates/tvjoe-gui/src/ablage.rs:1208
+#: crates/tvjoe-gui/src/ablage.rs:626 crates/tvjoe-gui/src/ablage.rs:1234
 #, no-c-format
 msgid "Ablage: {e}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:606
+#: crates/tvjoe-gui/src/ablage.rs:632
 #, no-c-format
 msgid "Wird zwischengespeichert: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:608
+#: crates/tvjoe-gui/src/ablage.rs:634
 #, no-c-format
 msgid "Wird heruntergeladen: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:668
+#: crates/tvjoe-gui/src/ablage.rs:694
 #, no-c-format
 msgid "Zwischengespeichert: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:670
+#: crates/tvjoe-gui/src/ablage.rs:696
 #, no-c-format
 msgid "Heruntergeladen: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:692
+#: crates/tvjoe-gui/src/ablage.rs:718
 #, no-c-format
 msgid "Laden fehlgeschlagen: {title} ({err})"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:706
+#: crates/tvjoe-gui/src/ablage.rs:732
 #, no-c-format
 msgid "Aufnahme beendet: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:716
+#: crates/tvjoe-gui/src/ablage.rs:742
 #, no-c-format
 msgid "Aufnahme abgebrochen: {title} ({err})"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:809
+#: crates/tvjoe-gui/src/ablage.rs:835
 #, no-c-format
 msgid "Wird geladen {percent} % – abbrechen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:813
+#: crates/tvjoe-gui/src/ablage.rs:839
 msgid "Wird geladen – abbrechen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:817 crates/tvjoe-gui/src/ablage.rs:1411
+#: crates/tvjoe-gui/src/ablage.rs:843 crates/tvjoe-gui/src/ablage.rs:1450
 msgid "Herunterladen fortsetzen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:818
+#: crates/tvjoe-gui/src/ablage.rs:844
 msgid "In der Ablage"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:819 crates/tvjoe-gui/src/ablage.rs:1414 crates/tvjoe-gui/src/ablage.rs:1484
+#: crates/tvjoe-gui/src/ablage.rs:845 crates/tvjoe-gui/src/ablage.rs:1453 crates/tvjoe-gui/src/ablage.rs:1523
 msgid "Herunterladen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:842
+#: crates/tvjoe-gui/src/ablage.rs:868
 #, no-c-format
 msgid "Wird geladen: {percent} %"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:843 crates/tvjoe-gui/src/ablageview.rs:375 crates/tvjoe-gui/src/ablageview.rs:381
+#: crates/tvjoe-gui/src/ablage.rs:869 crates/tvjoe-gui/src/ablageview.rs:375 crates/tvjoe-gui/src/ablageview.rs:381
 msgid "Wird geladen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:847
+#: crates/tvjoe-gui/src/ablage.rs:873
 msgid "Wartet auf das Laden"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:855
+#: crates/tvjoe-gui/src/ablage.rs:881
 msgid "Zwischengespeichert"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:857 crates/tvjoe-gui/src/jfview.rs:313 crates/tvjoe-gui/src/mediathek.rs:585
+#: crates/tvjoe-gui/src/ablage.rs:883 crates/tvjoe-gui/src/jfview.rs:313 crates/tvjoe-gui/src/mediathek.rs:585
 msgid "Heruntergeladen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:863
+#: crates/tvjoe-gui/src/ablage.rs:889
 msgid "Teilweise geladen (Herunterladen setzt fort)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:875
+#: crates/tvjoe-gui/src/ablage.rs:901
 #, no-c-format
 msgid "{tip} – Klick: fortsetzen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:877
+#: crates/tvjoe-gui/src/ablage.rs:903
 #, no-c-format
 msgid "{tip} – Klick: abbrechen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:957
+#: crates/tvjoe-gui/src/ablage.rs:983
 msgid "Aufnehmen geht beim Fernsehen (nicht bei Abrufvideos)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:971
+#: crates/tvjoe-gui/src/ablage.rs:997
 #, no-c-format
 msgid "Aufnahme wird beendet: {title}"
-msgstr ""
-
-#: crates/tvjoe-gui/src/ablage.rs:996
-#, no-c-format
-msgid "Aufnahme an den Aufnahmedienst übergeben: {title} (bis {end})"
 msgstr ""
 
 #: crates/tvjoe-gui/src/ablageview.rs:133
@@ -809,7 +839,7 @@ msgstr ""
 msgid "{subtitle} · bis {time} · {size}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablageview.rs:185 crates/tvjoe-gui/src/app.rs:1447
+#: crates/tvjoe-gui/src/ablageview.rs:185 crates/tvjoe-gui/src/app.rs:1511
 msgid "Beenden"
 msgstr ""
 
@@ -842,7 +872,7 @@ msgstr ""
 msgid "Zwischenspeicher"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablageview.rs:241 crates/tvjoe-gui/src/app.rs:293 crates/tvjoe-gui/src/mediathek.rs:234
+#: crates/tvjoe-gui/src/ablageview.rs:241 crates/tvjoe-gui/src/app.rs:354 crates/tvjoe-gui/src/mediathek.rs:234
 msgid "ÖR-Mediathek"
 msgstr ""
 
@@ -932,246 +962,293 @@ msgstr ""
 msgid "Behalten"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1046
+#: crates/tvjoe-gui/src/app.rs:1035
+#, no-c-format
+msgid "{title} · bis {end}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:1048 crates/tvjoe-gui/src/app.rs:1122 crates/tvjoe-gui/src/app.rs:2682
+#, no-c-format
+msgid "Danach {start}  {title}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:1114
 #, no-c-format
 msgid "Jetzt {start}–{end}  {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1074
+#: crates/tvjoe-gui/src/app.rs:1142
 msgid "● Aufnahme"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1309 crates/tvjoe-gui/src/manage.rs:144 crates/tvjoe-gui/src/manage.rs:377
+#: crates/tvjoe-gui/src/app.rs:123
+msgid "In einer Remotedesktop-Sitzung, in einer VM ohne 3D-Beschleunigung oder ohne Grafiktreiber stellt Windows kein taugliches OpenGL bereit; tvjoe bitte direkt am Rechner starten."
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:127
+msgid "Grafiktreiber bzw. Mesa prüfen (tvjoe --check)."
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:131
+#, no-c-format
+msgid "Kein Videobild: OpenGL ist nicht verfügbar. {hint}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:133
+#, no-c-format
+msgid "Kein Videobild: OpenGL ist nicht verfügbar ({detail}). {hint}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:1373 crates/tvjoe-gui/src/manage.rs:144 crates/tvjoe-gui/src/manage.rs:377
 msgid "Favorit"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1439
+#: crates/tvjoe-gui/src/app.rs:144
+#, no-c-format
+msgid "Signal {signal} % · Qualität {quality} %"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:150
+msgid "Kein Empfang"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:1503
 msgid "tvjoe beenden?"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1440
+#: crates/tvjoe-gui/src/app.rs:1504
 #, no-c-format
 msgid "{text}. Aufnahmen gibt es nur, solange tvjoe läuft; laufende werden beim Beenden abgeschlossen, Downloads lassen sich später fortsetzen."
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1446
+#: crates/tvjoe-gui/src/app.rs:1510
 msgid "Weiterlaufen lassen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1601
+#: crates/tvjoe-gui/src/app.rs:1665
 msgid "Keine SAT-Sender"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1603
+#: crates/tvjoe-gui/src/app.rs:1667
 #, no-c-format
 msgid "Keine Sender: {source}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1608
+#: crates/tvjoe-gui/src/app.rs:1672
 msgid "Suchlauf unter Einstellungen → Empfang"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1615
+#: crates/tvjoe-gui/src/app.rs:1679
 msgid "Keine Sender"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1616
+#: crates/tvjoe-gui/src/app.rs:1680
 msgid "Sender aus einer M3U übernehmen: tvjoe --import liste.m3u --mit-warnungen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1666 crates/tvjoe-gui/src/app.rs:1805
+#: crates/tvjoe-gui/src/app.rs:1730 crates/tvjoe-gui/src/app.rs:1886
 #, no-c-format
 msgid "{name} – tvjoe"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1691
+#: crates/tvjoe-gui/src/app.rs:1754
+#, no-c-format
+msgid "DVB-Karte: {error}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:1772
 #, no-c-format
 msgid "SAT>IP: {error}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1727
+#: crates/tvjoe-gui/src/app.rs:1808
 msgid "Kein Datenstrom vom SAT>IP-Gerät (UDP). Firewall: Einstellungen → Empfang → Prüfen. Über WireGuard: Masquerade im Tunnel verhindert den Rückweg (docs/SAT-IP.md)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1800
+#: crates/tvjoe-gui/src/app.rs:1881
 #, no-c-format
 msgid "Weiter ab {time}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1895
+#: crates/tvjoe-gui/src/app.rs:1976
 #, no-c-format
 msgid "Jellyfin: nicht abspielbar ({error})"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:1960
+#: crates/tvjoe-gui/src/app.rs:2041
 #, no-c-format
 msgid "{meta} · aus der Ablage"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2036
+#: crates/tvjoe-gui/src/app.rs:2117
 msgid "Fernsehen läuft"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2072
+#: crates/tvjoe-gui/src/app.rs:2153
 #, no-c-format
 msgid "Als Nächstes: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2077
+#: crates/tvjoe-gui/src/app.rs:2158
 msgid "Beitrag zu Ende"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2078
+#: crates/tvjoe-gui/src/app.rs:2159
 msgid "Video nicht abspielbar"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2102
+#: crates/tvjoe-gui/src/app.rs:2183
 #, no-c-format
 msgid "Stream gestört – weiche aus auf {quality}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2107
+#: crates/tvjoe-gui/src/app.rs:2188
 msgid "Sender nicht erreichbar – alle Streams versucht"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:216
-msgid "Wiedergabe nicht möglich"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:217
-msgid "libmpv ließ sich nicht starten."
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:2226
+#: crates/tvjoe-gui/src/app.rs:2307
 msgid "Kein Sender mit dieser Nummer"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2266
+#: crates/tvjoe-gui/src/app.rs:2347
 #, no-c-format
 msgid "Qualität {quality}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2268
+#: crates/tvjoe-gui/src/app.rs:2349
 #, no-c-format
 msgid "Qualität {wanted} nicht vorhanden – läuft {actual}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:230
-msgid "Senderliste (L)"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:2301
+#: crates/tvjoe-gui/src/app.rs:2382
 #, no-c-format
 msgid "Lautstärke {volume} %"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2309
+#: crates/tvjoe-gui/src/app.rs:2390
 #, no-c-format
 msgid "Ton: {label} ({n}/{count})"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2311
+#: crates/tvjoe-gui/src/app.rs:2392
 #, no-c-format
 msgid "Nur eine Tonspur: {label}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2312
+#: crates/tvjoe-gui/src/app.rs:2393
 msgid "Keine Tonspur"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2321
+#: crates/tvjoe-gui/src/app.rs:2402
 #, no-c-format
 msgid "Untertitel: {label} ({n}/{count})"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2323
+#: crates/tvjoe-gui/src/app.rs:2404
 msgid "Untertitel aus"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2324
+#: crates/tvjoe-gui/src/app.rs:2405
 msgid "Keine Untertitel"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:235
-msgid "Sender verwalten (Strg+E)"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:2361
+#: crates/tvjoe-gui/src/app.rs:2442
 msgid "Schwarze Balken werden abgeschnitten"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2363
+#: crates/tvjoe-gui/src/app.rs:2444
 msgid "Schwarze Balken bleiben"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2366
+#: crates/tvjoe-gui/src/app.rs:2447
 msgid "Bild füllt das Fenster"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2368
+#: crates/tvjoe-gui/src/app.rs:2449
 msgid "Bild eingepasst"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:240 crates/tvjoe-gui/src/layer.rs:67 crates/tvjoe-gui/src/layer.rs:219 crates/tvjoe-gui/src/layer.rs:247 crates/tvjoe-gui/src/layer.rs:262 crates/tvjoe-gui/src/layer.rs:295 crates/tvjoe-gui/src/layer.rs:311
-msgid "Schließen (Esc)"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:2496
+#: crates/tvjoe-gui/src/app.rs:2577
 msgid "Ton an"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2496
+#: crates/tvjoe-gui/src/app.rs:2577
 msgid "Ton aus"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:250
-msgid "Vollbild (F)"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:2518
+#: crates/tvjoe-gui/src/app.rs:2599
 msgid "Sender – tvjoe"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:255 crates/tvjoe-gui/src/prefs.rs:144
-msgid "Schwarze Balken abschneiden"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:2554
+#: crates/tvjoe-gui/src/app.rs:2635
 msgid "Aus der Ablage (lokale Datei)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2563
+#: crates/tvjoe-gui/src/app.rs:2644
 #, no-c-format
 msgid "Danach: {title}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2588
+#: crates/tvjoe-gui/src/app.rs:2669
 #, no-c-format
 msgid "{channel} · {start}–{end}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:260
-msgid "Bild füllen (Z)"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:2609
+#: crates/tvjoe-gui/src/app.rs:2690
 msgid "Kein Programm (EPG) für diesen Sender"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:2619
+#: crates/tvjoe-gui/src/app.rs:2702
 #, no-c-format
 msgid "{reception} · Tuner {tuner} · {freq} MHz"
 msgstr ""
 
+#: crates/tvjoe-gui/src/app.rs:2709
+#, no-c-format
+msgid "{reception} · {tuning}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:277
+msgid "Wiedergabe nicht möglich"
+msgstr ""
+
 #: crates/tvjoe-gui/src/app.rs:278
+msgid "libmpv ließ sich nicht starten."
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:291
+msgid "Senderliste (L)"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:296
+msgid "Sender verwalten (Strg+E)"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:301 crates/tvjoe-gui/src/layer.rs:67 crates/tvjoe-gui/src/layer.rs:219 crates/tvjoe-gui/src/layer.rs:247 crates/tvjoe-gui/src/layer.rs:262 crates/tvjoe-gui/src/layer.rs:295 crates/tvjoe-gui/src/layer.rs:311
+msgid "Schließen (Esc)"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:311
+msgid "Vollbild (F)"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:316 crates/tvjoe-gui/src/prefs.rs:144
+msgid "Schwarze Balken abschneiden"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:321
+msgid "Bild füllen (Z)"
+msgstr ""
+
+#: crates/tvjoe-gui/src/app.rs:339
 msgid "Einstellungen (Strg+,)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:283
+#: crates/tvjoe-gui/src/app.rs:344
 msgid "Programm (G)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:288 crates/tvjoe-gui/src/osd.rs:221
+#: crates/tvjoe-gui/src/app.rs:349 crates/tvjoe-gui/src/osd.rs:223
 msgid "Info (I)"
 msgstr ""
 
@@ -1179,53 +1256,16 @@ msgstr ""
 msgid "Qualität unbekannt"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:62
-msgid "In einer Remotedesktop-Sitzung, in einer VM ohne 3D-Beschleunigung oder ohne Grafiktreiber stellt Windows kein taugliches OpenGL bereit; tvjoe bitte direkt am Rechner starten."
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:66
-msgid "Grafiktreiber bzw. Mesa prüfen (tvjoe --check)."
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:70
-#, no-c-format
-msgid "Kein Videobild: OpenGL ist nicht verfügbar. {hint}"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:72
-#, no-c-format
-msgid "Kein Videobild: OpenGL ist nicht verfügbar ({detail}). {hint}"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:738 crates/tvjoe-gui/src/app.rs:1573
+#: crates/tvjoe-gui/src/app.rs:804 crates/tvjoe-gui/src/app.rs:1637
 msgid "Keine Empfangsquelle eingeschaltet – Einstellungen → Empfang"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:793
+#: crates/tvjoe-gui/src/app.rs:859
 msgid "Fernsehen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/app.rs:794
+#: crates/tvjoe-gui/src/app.rs:860
 msgid "Satellit (SAT>IP)"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:83
-#, no-c-format
-msgid "Signal {signal} % · Qualität {quality} %"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:89
-msgid "Kein Empfang"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:968
-#, no-c-format
-msgid "{title} · bis {end}"
-msgstr ""
-
-#: crates/tvjoe-gui/src/app.rs:981 crates/tvjoe-gui/src/app.rs:1054 crates/tvjoe-gui/src/app.rs:2601
-#, no-c-format
-msgid "Danach {start}  {title}"
 msgstr ""
 
 #: crates/tvjoe-gui/src/backup.rs:107
@@ -1244,7 +1284,7 @@ msgid ""
 "Die Einstellungen werden dazu geschlossen."
 msgstr ""
 
-#: crates/tvjoe-gui/src/backup.rs:150 crates/tvjoe-gui/src/empfang.rs:546 crates/tvjoe-gui/src/import.rs:158 crates/tvjoe-gui/src/manage.rs:677 crates/tvjoe-gui/src/manage.rs:748
+#: crates/tvjoe-gui/src/backup.rs:150 crates/tvjoe-gui/src/empfang.rs:712 crates/tvjoe-gui/src/import.rs:158 crates/tvjoe-gui/src/manage.rs:677 crates/tvjoe-gui/src/manage.rs:748
 msgid "Übernehmen"
 msgstr ""
 
@@ -1336,39 +1376,39 @@ msgstr ""
 msgid "{titel} – {sender}: {fehler}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dienst.rs:234
+#: crates/tvjoe-gui/src/dienst.rs:248
 msgid "Aufnahme abgestürzt"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dienst.rs:38 crates/tvjoe-gui/src/dienst.rs:366 crates/tvjoe-gui/src/jellyfin.rs:493
+#: crates/tvjoe-gui/src/dienst.rs:38 crates/tvjoe-gui/src/dienst.rs:380 crates/tvjoe-gui/src/jellyfin.rs:493
 msgid "kein Konfigurationsordner"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dienst.rs:429
+#: crates/tvjoe-gui/src/dienst.rs:443
 msgid "Aufnahmedienst wird eingerichtet – bitte die Administrator-Bestätigung beantworten"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dienst.rs:431
+#: crates/tvjoe-gui/src/dienst.rs:445
 msgid "Aufnahmedienst wird eingerichtet …"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dienst.rs:434
+#: crates/tvjoe-gui/src/dienst.rs:448
 msgid "Aufnahmedienst wird entfernt – bitte die Administrator-Bestätigung beantworten"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dienst.rs:436
+#: crates/tvjoe-gui/src/dienst.rs:450
 msgid "Aufnahmedienst wird entfernt …"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dienst.rs:455
+#: crates/tvjoe-gui/src/dienst.rs:469
 msgid "Aufnahmedienst eingerichtet: geplante Aufnahmen laufen auch ohne geöffnetes tvjoe"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dienst.rs:457
+#: crates/tvjoe-gui/src/dienst.rs:471
 msgid "Aufnahmedienst entfernt: aufgenommen wird wieder nur bei geöffnetem tvjoe"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dienst.rs:461
+#: crates/tvjoe-gui/src/dienst.rs:475
 #, no-c-format
 msgid "Aufnahmedienst: {fehler}"
 msgstr ""
@@ -1399,214 +1439,333 @@ msgstr ""
 msgid "Einrichtung nicht abgeschlossen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:116 crates/tvjoe-gui/src/empfang.rs:392
+#: crates/tvjoe-gui/src/dvbcard.rs:123 crates/tvjoe-gui/src/satip.rs:285
+msgid "Noch keine Sender gespeichert"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:124 crates/tvjoe-gui/src/satip.rs:286
+#, no-c-format
+msgid "{n} Sender gespeichert"
+msgid_plural "{n} Sender gespeichert"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:149
+msgid "Stimme ab …"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:171
+#, no-c-format
+msgid "Kanal {done} von {total} · {found} Dienste gefunden"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:193 crates/tvjoe-gui/src/satip.rs:360
+#, no-c-format
+msgid "Suchlauf fehlgeschlagen: {error}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:205 crates/tvjoe-gui/src/satip.rs:372
+msgid "Kein Konfigurationsordner gefunden"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:212
+#, no-c-format
+msgid "Senderliste nicht lesbar: {error}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:217
+#, no-c-format
+msgid "Senderliste nicht gespeichert: {error}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:219
+#, no-c-format
+msgid "{total} Sender ({added} neu, {updated} aktualisiert, {missing} nicht mehr gefunden)"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:22 crates/tvjoe-gui/src/dvbcard.rs:49 crates/tvjoe-gui/src/satip.rs:26
+msgid "Gerät"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:23
+msgid "Experimentell: geprüft nur mit dem virtuellen Gerät dvb_vidtv. Die Karte braucht einen Treiber des Kernels, oft auch Firmware; der Benutzer braucht Zugriff auf /dev/dvb (Gruppe „video“)."
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:29
+msgid "Keine DVB-Karte gefunden"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:30
+msgid "/dev/dvb fehlt: Karte angeschlossen, Treiber und Firmware geladen?"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:38
+#, no-c-format
+msgid "adapter{id}: {name} ({systems})"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:69 crates/tvjoe-gui/src/satip.rs:51
+msgid "Senderliste"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:70
+msgid "Suchlauf über alle Kanäle des gewählten Plans; verschlüsselte Sender werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen."
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:75
+msgid "Suchlauf über"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:79 crates/tvjoe-gui/src/selftest.rs:291
+msgid "Radiosender übernehmen"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:82 crates/tvjoe-gui/src/satip.rs:55
+msgid "Suchlauf"
+msgstr ""
+
+#: crates/tvjoe-gui/src/dvbcard.rs:86 crates/tvjoe-gui/src/satip.rs:59 crates/tvjoe-gui/src/selftest.rs:292
+msgid "Suchlauf starten"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:217 crates/tvjoe-gui/src/empfang.rs:554
 #, no-c-format
 msgid "{n} Sender"
 msgid_plural "{n} Sender"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/tvjoe-gui/src/empfang.rs:119
+#: crates/tvjoe-gui/src/empfang.rs:220
 #, no-c-format
 msgid "SAT>IP · noch keine Adresse · {channels}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:121
+#: crates/tvjoe-gui/src/empfang.rs:223
 #, no-c-format
 msgid "SAT>IP · {host} · {channels}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:124
+#: crates/tvjoe-gui/src/empfang.rs:226
+#, no-c-format
+msgid "DVB-Karte · noch kein Gerät · {channels}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:228
+#, no-c-format
+msgid "DVB-Karte · adapter{device} · {channels}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:233
 #, no-c-format
 msgid "M3U-Listen · {channels}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:160
+#: crates/tvjoe-gui/src/empfang.rs:273
 msgid "Eingeschaltet"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:178
+#: crates/tvjoe-gui/src/empfang.rs:291
 #, no-c-format
 msgid "{name} (eigene Beschreibung)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:184
+#: crates/tvjoe-gui/src/empfang.rs:297
 msgid "Gerätebeschreibung"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:220
+#: crates/tvjoe-gui/src/empfang.rs:341
 msgid "Programm (EPG)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:222
+#: crates/tvjoe-gui/src/empfang.rs:343
 msgid "Aus dem Signal (je Sender in „Sender verwalten“ → EPG „Aus dem SAT-Empfang“) und/oder aus XMLTV-Quellen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:224
+#: crates/tvjoe-gui/src/empfang.rs:345
+msgid "Aus dem Signal (neue Sender nach dem Suchlauf) und/oder aus XMLTV-Quellen"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:347
 msgid "Aus XMLTV-Quellen; ohne Quelle laufen die Sender ohne Programm"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:229
+#: crates/tvjoe-gui/src/empfang.rs:352
 msgid "Aus dem Signal sammeln alle"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:230
+#: crates/tvjoe-gui/src/empfang.rs:353
 msgid "Stunden; belegt je Transponder etwa 40 Sekunden einen Tuner"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:243
+#: crates/tvjoe-gui/src/empfang.rs:366
 msgid "Noch keine XMLTV-Quelle angelegt"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:244
+#: crates/tvjoe-gui/src/empfang.rs:367
 msgid "Anlegen unter Empfang → XMLTV-Quellen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:267
+#: crates/tvjoe-gui/src/empfang.rs:390
 msgid "XMLTV neu laden nach"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:268
+#: crates/tvjoe-gui/src/empfang.rs:391
 msgid "Stunden; 0 = nur nach Änderungen an den XMLTV-Quellen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:278 crates/tvjoe-gui/src/mediathek.rs:263
+#: crates/tvjoe-gui/src/empfang.rs:401 crates/tvjoe-gui/src/mediathek.rs:263
 msgid "Anzeige"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:280
+#: crates/tvjoe-gui/src/empfang.rs:403
 msgid "Senderlogos (schwarzweiß)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:281
+#: crates/tvjoe-gui/src/empfang.rs:404
 msgid "In der Senderanzeige, der Info und der Senderliste"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:294
+#: crates/tvjoe-gui/src/empfang.rs:418
 msgid "Gleichzeitig höchstens"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:296
+#: crates/tvjoe-gui/src/empfang.rs:420
 msgid "Aufnahmen; jede belegt einen Tuner (bei gleichem Transponder geteilt); 0 = ohne Grenze"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:298
+#: crates/tvjoe-gui/src/empfang.rs:422
 msgid "Aufnahmen; 0 = ohne Grenze"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:330 crates/tvjoe-gui/src/import.rs:35
-msgid "M3U-Listen"
+#: crates/tvjoe-gui/src/empfang.rs:437
+msgid "Empfangsquelle entfernen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:331
-msgid "Übernahme mit Vorschau und Prüfung in der Senderverwaltung; „Entfernen“ nimmt die Liste samt ihren Sendern aus der Senderliste"
+#: crates/tvjoe-gui/src/empfang.rs:438
+msgid "Mit ihrer Senderliste und ihren Programmdaten"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:334
-msgid "Datei…"
-msgstr ""
-
-#: crates/tvjoe-gui/src/empfang.rs:335
-msgid "Liste aus einer Datei übernehmen"
-msgstr ""
-
-#: crates/tvjoe-gui/src/empfang.rs:339
-msgid "URL…"
-msgstr ""
-
-#: crates/tvjoe-gui/src/empfang.rs:340
-msgid "Liste von einer Adresse übernehmen"
-msgstr ""
-
-#: crates/tvjoe-gui/src/empfang.rs:351
-msgid "Zum Übernehmen erst die Empfangsquelle einschalten"
-msgstr ""
-
-#: crates/tvjoe-gui/src/empfang.rs:38 crates/tvjoe-gui/src/selftest.rs:183
-msgid "Internet-TV"
-msgstr ""
-
-#: crates/tvjoe-gui/src/empfang.rs:381
-msgid "Noch keine Liste übernommen"
-msgstr ""
-
-#: crates/tvjoe-gui/src/empfang.rs:389
-#, no-c-format
-msgid "{location} · {channels}"
-msgstr ""
-
-#: crates/tvjoe-gui/src/empfang.rs:397 crates/tvjoe-gui/src/empfang.rs:413 crates/tvjoe-gui/src/empfang.rs:486
+#: crates/tvjoe-gui/src/empfang.rs:441 crates/tvjoe-gui/src/empfang.rs:455 crates/tvjoe-gui/src/empfang.rs:559 crates/tvjoe-gui/src/empfang.rs:575 crates/tvjoe-gui/src/empfang.rs:652
 msgid "Entfernen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:405
+#: crates/tvjoe-gui/src/empfang.rs:451 crates/tvjoe-gui/src/empfang.rs:567
 #, no-c-format
 msgid "„{name}“ entfernen?"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:406
+#: crates/tvjoe-gui/src/empfang.rs:452
+msgid "Ihre Senderliste und ihre Programmdaten werden beim Schließen der Einstellungen gelöscht."
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:48 crates/tvjoe-gui/src/selftest.rs:183
+msgid "Internet-TV"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:492 crates/tvjoe-gui/src/import.rs:35
+msgid "M3U-Listen"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:493
+msgid "Übernahme mit Vorschau und Prüfung in der Senderverwaltung; „Entfernen“ nimmt die Liste samt ihren Sendern aus der Senderliste"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:496
+msgid "Datei…"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:497
+msgid "Liste aus einer Datei übernehmen"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:501
+msgid "URL…"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:502
+msgid "Liste von einer Adresse übernehmen"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:513
+msgid "Zum Übernehmen erst die Empfangsquelle einschalten"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:543
+msgid "Noch keine Liste übernommen"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:551
+#, no-c-format
+msgid "{location} · {channels}"
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:568
 #, no-c-format
 msgid "Die Liste und ihr Sender verschwinden aus der Senderliste. Eine erneute Übernahme fügt sie wieder hinzu."
 msgid_plural "Die Liste und ihre {n} Sender verschwinden aus der Senderliste. Eine erneute Übernahme fügt sie wieder hinzu."
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/tvjoe-gui/src/empfang.rs:431
+#: crates/tvjoe-gui/src/empfang.rs:593
 msgid "XMLTV-Quellen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:432
+#: crates/tvjoe-gui/src/empfang.rs:594
 msgid "Einmal anlegen und betiteln; jede Empfangsquelle wählt auf ihrer Seite, welche sie nutzt"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:436 crates/tvjoe-gui/src/empfang.rs:540
+#: crates/tvjoe-gui/src/empfang.rs:598 crates/tvjoe-gui/src/empfang.rs:706
 msgid "XMLTV-Quelle anlegen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:455
+#: crates/tvjoe-gui/src/empfang.rs:617
 msgid "Noch keine XMLTV-Quelle"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:456
+#: crates/tvjoe-gui/src/empfang.rs:618
 msgid "Datei oder URL einer XMLTV-Liste (auch .xml.gz); „+“ legt eine an"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:470
+#: crates/tvjoe-gui/src/empfang.rs:636
 #, no-c-format
 msgid "{location} · nicht genutzt"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:472
+#: crates/tvjoe-gui/src/empfang.rs:638
 #, no-c-format
 msgid "{location} · genutzt von {sources}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:480
+#: crates/tvjoe-gui/src/empfang.rs:646
 msgid "Bearbeiten"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:523
+#: crates/tvjoe-gui/src/empfang.rs:689
 msgid "Titel (frei wählbar)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:527
+#: crates/tvjoe-gui/src/empfang.rs:693
 msgid "Datei oder URL (https://…/epg.xml.gz)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:538
+#: crates/tvjoe-gui/src/empfang.rs:704
 msgid "XMLTV-Quelle bearbeiten"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:63
+#: crates/tvjoe-gui/src/empfang.rs:73
 msgid "Empfang"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:68
+#: crates/tvjoe-gui/src/empfang.rs:78
 msgid "Empfangsquellen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:69
+#: crates/tvjoe-gui/src/empfang.rs:79
 msgid "Jede Quelle hat ihre eigene Senderliste, Sortierung und ihr eigenes Programm. Ausgeschaltet verschwindet ihr Knopf in der Kopfleiste, und im Hintergrund läuft nichts für sie."
+msgstr ""
+
+#: crates/tvjoe-gui/src/empfang.rs:90
+msgid "Empfangsquelle hinzufügen"
 msgstr ""
 
 #: crates/tvjoe-gui/src/grid.rs:124
@@ -1647,7 +1806,7 @@ msgstr ""
 msgid "Liste nicht übernehmbar"
 msgstr ""
 
-#: crates/tvjoe-gui/src/import.rs:143 crates/tvjoe-gui/src/prefs.rs:493 crates/tvjoe-gui/src/prefs.rs:497 crates/tvjoe-gui/src/prefs.rs:551 crates/tvjoe-gui/src/prefs.rs:595
+#: crates/tvjoe-gui/src/import.rs:143 crates/tvjoe-gui/src/prefs.rs:495 crates/tvjoe-gui/src/prefs.rs:499 crates/tvjoe-gui/src/prefs.rs:553 crates/tvjoe-gui/src/prefs.rs:597
 msgid "OK"
 msgstr ""
 
@@ -2146,10 +2305,6 @@ msgstr ""
 msgid "ok"
 msgstr ""
 
-#: crates/tvjoe-gui/src/manage.rs:336
-msgid "SAT-Empfang"
-msgstr ""
-
 #: crates/tvjoe-gui/src/manage.rs:337
 msgid "SAT-Empfang (wird gesammelt)"
 msgstr ""
@@ -2496,75 +2651,79 @@ msgstr ""
 msgid "Weitersehen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:212 crates/tvjoe-gui/src/osd.rs:387 crates/tvjoe-gui/src/osd.rs:394
+#: crates/tvjoe-gui/src/osd.rs:214 crates/tvjoe-gui/src/osd.rs:389 crates/tvjoe-gui/src/osd.rs:396
 msgid "1 Minute zurück (Bild ↑)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:213 crates/tvjoe-gui/src/osd.rs:395
+#: crates/tvjoe-gui/src/osd.rs:215 crates/tvjoe-gui/src/osd.rs:397
 msgid "10 Sekunden zurück (←)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:214 crates/tvjoe-gui/src/osd.rs:406
+#: crates/tvjoe-gui/src/osd.rs:216 crates/tvjoe-gui/src/osd.rs:408
 msgid "Pause (Leertaste)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:215 crates/tvjoe-gui/src/osd.rs:396
+#: crates/tvjoe-gui/src/osd.rs:217 crates/tvjoe-gui/src/osd.rs:398
 msgid "10 Sekunden vor (→)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:216 crates/tvjoe-gui/src/osd.rs:390 crates/tvjoe-gui/src/osd.rs:397
+#: crates/tvjoe-gui/src/osd.rs:218 crates/tvjoe-gui/src/osd.rs:392 crates/tvjoe-gui/src/osd.rs:399
 msgid "1 Minute vor (Bild ↓)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:219
+#: crates/tvjoe-gui/src/osd.rs:221
 msgid "Tonspur wechseln (A)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:241
+#: crates/tvjoe-gui/src/osd.rs:243
 msgid "Live"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:242
+#: crates/tvjoe-gui/src/osd.rs:244
 msgid "Zurück auf live (Ende)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:285 crates/tvjoe-gui/src/osd.rs:738
+#: crates/tvjoe-gui/src/osd.rs:287 crates/tvjoe-gui/src/osd.rs:742
 msgid "REC"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:286 crates/tvjoe-gui/src/osd.rs:497 crates/tvjoe-gui/src/osd.rs:838
+#: crates/tvjoe-gui/src/osd.rs:288 crates/tvjoe-gui/src/osd.rs:501 crates/tvjoe-gui/src/osd.rs:842
 msgid "Aufnehmen bis Sendungsende (R)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:388
+#: crates/tvjoe-gui/src/osd.rs:390
 msgid "10 Sekunden zurück"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:389
+#: crates/tvjoe-gui/src/osd.rs:391
 msgid "10 Sekunden vor"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:404
+#: crates/tvjoe-gui/src/osd.rs:406
 msgid "Weiter (Leertaste)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:438
+#: crates/tvjoe-gui/src/osd.rs:441
 msgid "Internet"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:439
+#: crates/tvjoe-gui/src/osd.rs:442
 msgid "Satellit"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:495 crates/tvjoe-gui/src/osd.rs:836
+#: crates/tvjoe-gui/src/osd.rs:443
+msgid "DVB-Karte"
+msgstr ""
+
+#: crates/tvjoe-gui/src/osd.rs:499 crates/tvjoe-gui/src/osd.rs:840
 msgid "Aufnahme beenden (R)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:754
+#: crates/tvjoe-gui/src/osd.rs:758
 msgid "I, Esc oder Klick schließt"
 msgstr ""
 
-#: crates/tvjoe-gui/src/osd.rs:827
+#: crates/tvjoe-gui/src/osd.rs:831
 msgid "Keine Beschreibung vorhanden."
 msgstr ""
 
@@ -2735,7 +2894,11 @@ msgstr ""
 msgid "Einblendung"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:398
+#: crates/tvjoe-gui/src/prefs.rs:40
+msgid "Sekunden, die Sendername und Programm sichtbar bleiben"
+msgstr ""
+
+#: crates/tvjoe-gui/src/prefs.rs:400
 msgid ""
 "Streaming-Client für Live-TV und die Mediatheken der öffentlich-rechtlichen Sender.\n"
 "\n"
@@ -2744,55 +2907,51 @@ msgid ""
 "Privates Hobbyprojekt – nicht gepflegt."
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:40
-msgid "Sekunden, die Sendername und Programm sichtbar bleiben"
-msgstr ""
-
-#: crates/tvjoe-gui/src/prefs.rs:405
+#: crates/tvjoe-gui/src/prefs.rs:407
 msgid "README bei GitHub"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:407
+#: crates/tvjoe-gui/src/prefs.rs:409
 msgid "Bibliotheken Dritter (THIRD_PARTY.md)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:409
+#: crates/tvjoe-gui/src/prefs.rs:411
 msgid "Filmliste der Mediathek"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:413
+#: crates/tvjoe-gui/src/prefs.rs:415
 msgid "GTK 4 und libadwaita"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:420
+#: crates/tvjoe-gui/src/prefs.rs:422
 msgid "mpv-Entwickler"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:422
+#: crates/tvjoe-gui/src/prefs.rs:424
 msgid "Quelltext GPL-2+ bzw. LGPL-2.1+. Die Ubuntu-Pakete von libmpv stehen laut deren copyright-Datei unter GPL-3+ (gelinkt gegen libsmbclient); für die tvjoe-Pakete gelten diese Bedingungen zusätzlich."
-msgstr ""
-
-#: crates/tvjoe-gui/src/prefs.rs:429
-msgid "SQLite (eingebaut)"
 msgstr ""
 
 #: crates/tvjoe-gui/src/prefs.rs:43
 msgid "Letzten Sender beim Start"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:432
+#: crates/tvjoe-gui/src/prefs.rs:431
+msgid "SQLite (eingebaut)"
+msgstr ""
+
+#: crates/tvjoe-gui/src/prefs.rs:434
 msgid "Public Domain, siehe https://sqlite.org/copyright.html"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:435
+#: crates/tvjoe-gui/src/prefs.rs:437
 msgid "xz / liblzma (eingebaut)"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:441
+#: crates/tvjoe-gui/src/prefs.rs:443
 msgid "Rust-Bibliotheken"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:444
+#: crates/tvjoe-gui/src/prefs.rs:446
 #, no-c-format
 msgid "Rund 150 Pakete, überwiegend MIT bzw. Apache-2.0, dazu ISC, BSD-3-Clause, Zlib, Unicode-3.0, CDLA-Permissive-2.0 und LGPL-2.1 (libmpv2). Vollständige Liste: {url}"
 msgstr ""
@@ -2805,37 +2964,37 @@ msgstr ""
 msgid "Im Vollbild wird sie immer verhindert, solange tvjoe läuft"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:490
+#: crates/tvjoe-gui/src/prefs.rs:492
 msgid "Keine neuere Version"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:491 crates/tvjoe-gui/src/prefs.rs:515
+#: crates/tvjoe-gui/src/prefs.rs:493 crates/tvjoe-gui/src/prefs.rs:517
 #, no-c-format
 msgid "Installiert ist {version}."
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:496
+#: crates/tvjoe-gui/src/prefs.rs:498
 msgid "Prüfung fehlgeschlagen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:514
+#: crates/tvjoe-gui/src/prefs.rs:516
 #, no-c-format
 msgid "tvjoe {version} ist verfügbar"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:517
+#: crates/tvjoe-gui/src/prefs.rs:519
 msgid "Später"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:521
+#: crates/tvjoe-gui/src/prefs.rs:523
 msgid "Zur Release-Seite"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:530
+#: crates/tvjoe-gui/src/prefs.rs:532
 msgid "Herunterladen…"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:550
+#: crates/tvjoe-gui/src/prefs.rs:552
 msgid "Download fehlgeschlagen"
 msgstr ""
 
@@ -2843,11 +3002,11 @@ msgstr ""
 msgid "Senderliste beim Start zeigen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:562
+#: crates/tvjoe-gui/src/prefs.rs:564
 msgid "Paket geprüft"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:563
+#: crates/tvjoe-gui/src/prefs.rs:565
 #, no-c-format
 msgid ""
 "Die Prüfsumme (SHA-256) stimmt. Installation mit:\n"
@@ -2857,27 +3016,27 @@ msgid ""
 "Danach tvjoe neu starten."
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:569
-msgid "Installieren"
-msgstr ""
-
 #: crates/tvjoe-gui/src/prefs.rs:57
 msgid "Sie liegt über dem Bild; L blendet sie ein und aus"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:587
+#: crates/tvjoe-gui/src/prefs.rs:571
+msgid "Installieren"
+msgstr ""
+
+#: crates/tvjoe-gui/src/prefs.rs:589
 msgid "Bitte tvjoe neu starten."
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:587
+#: crates/tvjoe-gui/src/prefs.rs:589
 msgid "Installiert"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:591
+#: crates/tvjoe-gui/src/prefs.rs:593
 msgid "Installation nicht abgeschlossen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/prefs.rs:592
+#: crates/tvjoe-gui/src/prefs.rs:594
 msgid "Abgebrochen oder fehlgeschlagen."
 msgstr ""
 
@@ -3014,10 +3173,6 @@ msgstr ""
 msgid "Eintragen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/satip.rs:26
-msgid "Gerät"
-msgstr ""
-
 #: crates/tvjoe-gui/src/satip.rs:268
 msgid "Freigabe nicht eingetragen"
 msgstr ""
@@ -3030,17 +3185,6 @@ msgstr ""
 #, no-c-format
 msgid "SAT>IP-Empfänger im Netz; Satellit {satellite}. Eigene Gerätebeschreibungen liegen im Ordner „adapter“ der Konfiguration."
 msgstr ""
-
-#: crates/tvjoe-gui/src/satip.rs:285
-msgid "Noch keine Sender gespeichert"
-msgstr ""
-
-#: crates/tvjoe-gui/src/satip.rs:286
-#, no-c-format
-msgid "{n} Sender gespeichert"
-msgid_plural "{n} Sender gespeichert"
-msgstr[0] ""
-msgstr[1] ""
 
 #: crates/tvjoe-gui/src/satip.rs:30
 msgid "Adresse des SAT>IP-Geräts (IP-Adresse)"
@@ -3067,15 +3211,6 @@ msgstr ""
 msgid "Stimmt je Tuner einen Transponder ab, liest den Empfang und prüft, ob der Datenstrom ankommt"
 msgstr ""
 
-#: crates/tvjoe-gui/src/satip.rs:360
-#, no-c-format
-msgid "Suchlauf fehlgeschlagen: {error}"
-msgstr ""
-
-#: crates/tvjoe-gui/src/satip.rs:372
-msgid "Kein Konfigurationsordner gefunden"
-msgstr ""
-
 #: crates/tvjoe-gui/src/satip.rs:376
 #, no-c-format
 msgid "SAT-Senderliste nicht lesbar: {error}"
@@ -3100,21 +3235,9 @@ msgstr ""
 msgid "Ergebnis"
 msgstr ""
 
-#: crates/tvjoe-gui/src/satip.rs:51
-msgid "Senderliste"
-msgstr ""
-
 #: crates/tvjoe-gui/src/satip.rs:52
 #, no-c-format
 msgid "Frei empfangbare TV-Sender aller Transponder von {satellite}; verschlüsselte Sender und Radio werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen."
-msgstr ""
-
-#: crates/tvjoe-gui/src/satip.rs:55
-msgid "Suchlauf"
-msgstr ""
-
-#: crates/tvjoe-gui/src/satip.rs:59
-msgid "Suchlauf starten"
 msgstr ""
 
 #: crates/tvjoe-gui/src/vod.rs:106

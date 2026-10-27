@@ -177,6 +177,9 @@ pub struct ScannedChannel {
     pub name: String,
     pub group: Option<String>,
     pub stream: Stream,
+    pub radio: bool,
+    /// EPG-Zuordnung für neue Sender (z. B. aus dem Signal).
+    pub epg_id: Option<String>,
 }
 
 /// Die Nummer ist schon bei einem anderen Sender vergeben.
@@ -360,11 +363,11 @@ impl Library {
                 group: it.group.clone(),
                 custom_group: None,
                 logo: None,
-                epg_id: None,
+                epg_id: it.epg_id.clone(),
                 number,
                 favorite: false,
                 active: fresh,
-                radio: false,
+                radio: it.radio,
                 missing: false,
                 streams: vec![it.stream.clone()],
             });
@@ -499,6 +502,7 @@ impl Library {
                     s.kind.map(|k| match k {
                         SourceKind::Hls => "hls",
                         SourceKind::SatIp => "satip",
+                        SourceKind::Dvb => "dvb",
                     }),
                 );
                 add("tvjoe-quality", s.quality.map(Quality::as_attr));
