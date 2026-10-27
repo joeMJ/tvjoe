@@ -400,52 +400,67 @@ pub fn uninstall(undo_linger: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Schalter „Aufnahmen auch ohne geöffnetes tvjoe“ umgelegt: einrichten bzw. entfernen.
+/// Schalter „Aufnahmen auch ohne geöffnetes tvjoe“ umgelegt: im Hintergrund einrichten bzw.
+/// entfernen (unter Windows mit Administrator-Bestätigung), damit das Fenster bedienbar bleibt.
+/// Die Einstellung gilt erst, wenn es geklappt hat.
 pub fn set_enabled(s: &mut Settings, on: bool) {
-    #[cfg(target_os = "linux")]
-    {
-        let r = if on {
-            install(true).map(|linger| s.record_service_linger = linger)
+    let snapshot = s.clone();
+    crate::ablage::report(if on {
+        if cfg!(windows) {
+            "Aufnahmedienst wird eingerichtet – bitte die Administrator-Bestätigung beantworten"
         } else {
-            let r = uninstall(s.record_service_linger);
-            s.record_service_linger = false;
-            r
-        };
+            "Aufnahmedienst wird eingerichtet …"
+        }
+    } else if cfg!(windows) {
+        "Aufnahmedienst wird entfernt – bitte die Administrator-Bestätigung beantworten"
+    } else {
+        "Aufnahmedienst wird entfernt …"
+    });
+    let (tx, rx) = async_channel::bounded::<Result<bool, String>>(1);
+    std::thread::spawn(move || {
+        let r = change_service(&snapshot, on);
+        let _ = tx.send_blocking(r);
+    });
+    gtk::glib::spawn_future_local(async move {
+        let Ok(r) = rx.recv().await else { return };
+        let Some(app) = crate::ablage::app() else { return };
         match r {
-            Ok(()) => {
-                s.record_service = on;
-                crate::ablage::report(if on {
+            Ok(linger) => {
+                {
+                    let mut st = app.settings_mut();
+                    st.record_service = on;
+                    st.record_service_linger = on && (linger || st.record_service_linger);
+                }
+                app.save_settings();
+                app.message(if on {
                     "Aufnahmedienst eingerichtet: geplante Aufnahmen laufen auch ohne geöffnetes tvjoe"
                 } else {
                     "Aufnahmedienst entfernt: aufgenommen wird wieder nur bei geöffnetem tvjoe"
                 });
+                sync_tasks(&app);
             }
-            Err(e) => crate::ablage::report(&format!("Aufnahmedienst: {e}")),
+            Err(e) => app.message(&format!("Aufnahmedienst: {e}")),
+        }
+    });
+}
+
+/// Einrichten bzw. entfernen (im Hintergrund-Thread). Linux: gibt zurück, ob tvjoe das
+/// Weiterlaufen ohne Anmeldung eingeschaltet hat.
+fn change_service(s: &Settings, on: bool) -> Result<bool, String> {
+    #[cfg(target_os = "linux")]
+    {
+        if on {
+            install(true)
+        } else {
+            uninstall(s.record_service_linger).map(|()| false)
         }
     }
     #[cfg(windows)]
     {
-        let r = if on {
-            crate::dienst_win::install(s)
+        if on {
+            crate::dienst_win::install(s).map(|()| false)
         } else {
-            crate::dienst_win::uninstall(s)
-        };
-        match r {
-            Ok(()) => {
-                s.record_service = on;
-                crate::ablage::report(if on {
-                    "Aufnahmedienst eingerichtet: geplante Aufnahmen laufen auch ohne Anmeldung"
-                } else {
-                    "Aufnahmedienst entfernt: aufgenommen wird wieder nur bei geöffnetem tvjoe"
-                });
-                // Aufträge schreiben, sobald die Einstellung übernommen ist.
-                gtk::glib::idle_add_local_once(|| {
-                    if let Some(app) = crate::ablage::app() {
-                        sync_tasks(&app);
-                    }
-                });
-            }
-            Err(e) => crate::ablage::report(&format!("Aufnahmedienst: {e}")),
+            crate::dienst_win::uninstall(s).map(|()| false)
         }
     }
 }

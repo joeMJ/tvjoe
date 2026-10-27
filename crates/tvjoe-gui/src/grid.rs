@@ -60,17 +60,8 @@ pub fn open(app: &Rc<App>) {
 /// Öffnet das Raster (jedes Mal neu, zur aktuellen Uhrzeit) und gibt das Fenster zurück, in
 /// dem es erscheint (Selbstprobe).
 pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
-    let Some(guide) = app.guide() else {
-        let d = adw::AlertDialog::new(
-            Some("Kein Programm geladen"),
-            Some(
-                "Bitte in „Sender verwalten“ eine EPG-Quelle (XMLTV) eintragen. Ist eine eingetragen, wird sie gerade noch geladen.",
-            ),
-        );
-        d.add_response("ok", "OK");
-        d.present(Some(&app.window));
-        return None;
-    };
+    // Ohne Programmdaten öffnet die Ansicht trotzdem: „Geplant“ und „Ablage“ brauchen keins.
+    let guide = app.guide();
 
     // Schwacher Verweis auf die Ansicht, gesetzt nach ihrem Aufbau.
     let me_slot: Rc<std::cell::OnceCell<Weak<Grid>>> = Rc::new(std::cell::OnceCell::new());
@@ -99,6 +90,7 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
 
     let sat = app.is_sat();
     let lib = app.library();
+    if let Some(guide) = guide.as_deref() {
     for ch in lib
         .channels
         .iter()
@@ -234,6 +226,16 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
             cursor = end;
         }
         rows.append(&line);
+    }
+    } else {
+        rows.append(
+            &gtk::Label::builder()
+                .label("Kein Programm geladen. Bitte in „Sender verwalten“ eine EPG-Quelle (XMLTV) eintragen oder bei SAT-Sendern „Aus dem SAT-Empfang“ wählen. Ist eine eingetragen, wird sie gerade noch geladen.")
+                .css_classes(["tvjoe-sub"])
+                .wrap(true)
+                .margin_top(24)
+                .build(),
+        );
     }
     drop(lib);
 

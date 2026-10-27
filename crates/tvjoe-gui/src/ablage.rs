@@ -1521,7 +1521,7 @@ pub fn prefs_page(
     let service = adw::SwitchRow::builder()
         .title("Aufnahmen auch ohne geöffnetes tvjoe")
         .subtitle(if cfg!(windows) {
-            "Richtet den Windows-Dienst „tvjoe Aufnahmedienst“ ein, der auch ohne Anmeldung aufnimmt und den Rechner dafür weckt. Die Administrator-Bestätigung kommt beim Schließen der Einstellungen"
+            "Richtet den Windows-Dienst „tvjoe Aufnahmedienst“ ein, der auch ohne Anmeldung aufnimmt und den Rechner dafür weckt. Wirkt beim Schließen der Einstellungen: Dann fragt Windows nach Administratorrechten, die Einrichtung dauert einige Sekunden; eine Meldung oben sagt, wann sie fertig ist"
         } else {
             "Richtet einen Hintergrunddienst ein (systemd-Benutzerdienst), der auch ohne Anmeldung aufnimmt; wirkt beim Schließen der Einstellungen"
         })
