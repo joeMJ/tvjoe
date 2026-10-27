@@ -14,12 +14,26 @@ permissions:
 jobs:
   ubuntu2404:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Systempakete
+        timeout-minutes: 30
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libmpv-dev pkg-config
+          # Auslöser von man-db abschalten: auf den GitHub-Rechnern dauert er sonst sehr lange.
+          sudo rm -f /var/lib/man-db/auto-update
+          # Hängt apt (Paketspiegel), nach einigen Minuten abbrechen und neu versuchen.
+          for i in 1 2 3; do
+            if sudo timeout 300 apt-get update \
+              && sudo timeout 480 apt-get install -y \
+                libgtk-4-dev libadwaita-1-dev libmpv-dev pkg-config; then
+              exit 0
+            fi
+            echo "Systempakete: Versuch $i fehlgeschlagen, neuer Versuch"
+            sudo dpkg --configure -a || true
+            sleep 20
+          done
+          exit 1
       - uses: dtolnay/rust-toolchain@stable
       - name: Tests
         run: cargo test --locked -p tvjoe-core
@@ -32,15 +46,25 @@ jobs:
 
   ubuntu2604:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     container: ubuntu:26.04
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
       - name: Systempakete
+        timeout-minutes: 30
         run: |
-          apt-get update
-          apt-get install -y ca-certificates curl git build-essential pkg-config dpkg-dev \
-            libgtk-4-dev libadwaita-1-dev libmpv-dev
+          for i in 1 2 3; do
+            if timeout 300 apt-get update \
+              && timeout 480 apt-get install -y ca-certificates curl git build-essential \
+                pkg-config dpkg-dev libgtk-4-dev libadwaita-1-dev libmpv-dev; then
+              exit 0
+            fi
+            echo "Systempakete: Versuch $i fehlgeschlagen, neuer Versuch"
+            dpkg --configure -a || true
+            sleep 20
+          done
+          exit 1
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Tests
