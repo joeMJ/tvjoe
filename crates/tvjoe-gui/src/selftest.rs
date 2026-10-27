@@ -5,6 +5,7 @@
 //! - zusätzlich `TVJOE_SELFTEST_IMPORT=/liste.m3u`: Verwaltung und Import mit Vorschau.
 //! - zusätzlich `TVJOE_SELFTEST_MEDIATHEK=1`: Mediathek (lädt beim ersten Mal die Filmliste).
 //! - `TVJOE_SELFTEST_BAUCHBINDE=1` (nur diese Schritte): Höhe der Bauchbinde in allen Lagen.
+//! - `TVJOE_SELFTEST_ABLAGE=1` (nur diese Schritte): Reiter „Ablage“, Gruppe, Prüfen, Seite „Über“.
 //! - `TVJOE_SELFTEST_EMPFANG=1` (nur diese Schritte): Reiter „Empfang“ und Seiten der Quellen.
 //! - `TVJOE_SELFTEST_README=1` (nur diese Schritte): Bilder für das README; mit neutralen Daten
 //!   starten (eigene `TVJOE_CONFIG_DIR`/`TVJOE_CACHE_DIR`, ohne Jellyfin und private Sender).
@@ -371,6 +372,86 @@ const SEITE_STEPS: &[Step] = &[
             main_window(p)
         },
         1500,
+    ),
+];
+
+/// Ersten Knopf mit der Beschriftung unterhalb von `w` drücken (Umschaltknöpfe einschalten).
+fn click_in(w: &gtk::Widget, label: &str) {
+    fn find(w: &gtk::Widget, label: &str) -> Option<gtk::Button> {
+        if let Some(b) = w.downcast_ref::<gtk::Button>() {
+            if b.label().as_deref() == Some(label) && b.is_sensitive() && b.is_mapped() {
+                return Some(b.clone());
+            }
+        }
+        let mut c = w.first_child();
+        while let Some(child) = c {
+            if let Some(b) = find(&child, label) {
+                return Some(b);
+            }
+            c = child.next_sibling();
+        }
+        None
+    }
+    match find(w, label) {
+        Some(b) => match b.downcast_ref::<gtk::ToggleButton>() {
+            Some(t) => t.set_active(true),
+            None => b.emit_clicked(),
+        },
+        None => eprintln!("tvjoe: Selbstprobe: Knopf „{label}“ nicht gefunden"),
+    }
+}
+
+/// Ablage (`TVJOE_SELFTEST_ABLAGE=1`, nur diese Schritte): Reiter „Ablage“ im Programm, erste
+/// Gruppe aufgeklappt, „Prüfen“, dann die Seite „Über“ der Einstellungen.
+const ABLAGE_STEPS: &[Step] = &[
+    ("80-start", main_window, 4000),
+    (
+        "81-ablage",
+        |p| {
+            crate::grid::open(&p.app);
+            click_in(p.app.window.upcast_ref(), tvjoe_core::tr("Ablage"));
+            main_window(p)
+        },
+        3000,
+    ),
+    (
+        "82-ablage-gruppe",
+        |p| {
+            fn find(w: &gtk::Widget) -> Option<adw::ExpanderRow> {
+                if let Some(r) = w.downcast_ref::<adw::ExpanderRow>() {
+                    return Some(r.clone());
+                }
+                let mut c = w.first_child();
+                while let Some(child) = c {
+                    if let Some(r) = find(&child) {
+                        return Some(r);
+                    }
+                    c = child.next_sibling();
+                }
+                None
+            }
+            if let Some(r) = find(p.app.window.upcast_ref()) {
+                r.set_expanded(true);
+            }
+            main_window(p)
+        },
+        2000,
+    ),
+    (
+        "83-ablage-pruefen",
+        |p| {
+            click_in(p.app.window.upcast_ref(), tvjoe_core::tr("Prüfen"));
+            main_window(p)
+        },
+        2000,
+    ),
+    (
+        "84-ueber",
+        |p| {
+            crate::prefs::open_at(&p.app, Some("ueber"), &p.app.window);
+            main_window(p)
+        },
+        2000,
     ),
 ];
 
@@ -810,6 +891,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         SEITE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_GROESSE").is_some() {
         GROESSE_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_ABLAGE").is_some() {
+        ABLAGE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_JELLYFIN").is_some() {
         JELLYFIN_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_JFPLAY").is_some() {

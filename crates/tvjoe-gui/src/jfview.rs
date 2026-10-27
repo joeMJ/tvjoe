@@ -259,6 +259,16 @@ pub fn item(id: &str) -> Option<Item> {
     db()?.item(id)
 }
 
+/// Folgen einer Staffel in der Bibliothek (Ablage: „Prüfen“).
+pub fn season_count(series_id: &str, season: Option<i64>) -> usize {
+    db().map_or(0, |d| {
+        d.episodes(series_id)
+            .iter()
+            .filter(|e| e.season_no == season)
+            .count()
+    })
+}
+
 fn db() -> Option<JellyfinLibrary> {
     paths::jellyfin_db()
         .filter(|p| p.exists())

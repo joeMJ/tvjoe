@@ -238,7 +238,9 @@ pub fn open_at(
     let p_updates = new_page("updates", tr("Updates"), "software-update-available-symbolic");
     p_updates.add(&updates);
 
-    // Am Ende: Über tvjoe (Version, Lizenzen, Verweis auf das README bei GitHub).
+    // Eigene Seite „Über“ rechts von „Updates“ (Nutzer, 2026-10-27): Version und Lizenzen,
+    // Anleitung (README bei GitHub), Fehler melden.
+    let p_about = new_page("ueber", tr("Über"), "help-about-symbolic");
     let about = adw::PreferencesGroup::new();
     let about_row = adw::ActionRow::builder()
         .title(tr("Über tvjoe"))
@@ -247,6 +249,22 @@ pub fn open_at(
         .build();
     about_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
     about.add(&about_row);
+    let manual_row = adw::ActionRow::builder()
+        .title(tr("Anleitung"))
+        .subtitle(tr("Öffnet die Anleitung (README) bei GitHub im Browser"))
+        .activatable(true)
+        .build();
+    manual_row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
+    about.add(&manual_row);
+    let manual_parent = dialog.clone();
+    manual_row.connect_activated(move |_| {
+        let parent = manual_parent.root().and_downcast::<gtk::Window>();
+        gtk::UriLauncher::new(manual_url()).launch(
+            parent.as_ref(),
+            gtk::gio::Cancellable::NONE,
+            |_| {},
+        );
+    });
     // Fehler und Wünsche: öffnet den Issue-Tracker bei GitHub im Browser.
     let issue_row = adw::ActionRow::builder()
         .title(tr("Fehler melden / Wunsch"))
@@ -264,7 +282,7 @@ pub fn open_at(
             |_| {},
         );
     });
-    p_updates.add(&about);
+    p_about.add(&about);
     for p in [
         &p_control,
         &p_osd,
@@ -274,6 +292,7 @@ pub fn open_at(
         &p_jellyfin,
         &p_ablage,
         &p_updates,
+        &p_about,
     ] {
         dialog.add(p);
     }
@@ -389,6 +408,16 @@ pub fn open_at(
 const PREFS_MIN: (i32, i32) = (720, 640);
 
 const README_URL: &str = "https://github.com/joeMJ/tvjoe#readme";
+const README_DE_URL: &str = "https://github.com/joeMJ/tvjoe/blob/main/README.de.md";
+
+/// Anleitung in der Sprache der Oberfläche (deutsch: README.de.md, sonst die Startseite).
+fn manual_url() -> &'static str {
+    if tvjoe_core::i18n::lang() == "de" {
+        README_DE_URL
+    } else {
+        README_URL
+    }
+}
 const ISSUES_URL: &str = "https://github.com/joeMJ/tvjoe/issues";
 const THIRD_PARTY_URL: &str = "https://github.com/joeMJ/tvjoe/blob/main/THIRD_PARTY.md";
 
