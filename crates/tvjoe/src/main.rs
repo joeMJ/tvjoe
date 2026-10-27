@@ -385,8 +385,11 @@ fn epg_add(args: &[String]) -> ExitCode {
     let Some(path) = path else {
         return ExitCode::FAILURE;
     };
-    if !settings.epg_sources.contains(src) {
-        settings.epg_sources.push(src.clone());
+    // Als XMLTV-Quelle anlegen und der Empfangsquelle Internet-TV zuordnen.
+    let id = settings.add_xmltv("", src);
+    let tv = settings.adapter_mut(tvjoe_core::settings::ADAPTER_TV);
+    if !tv.xmltv.contains(&id) {
+        tv.xmltv.push(id);
     }
     match settings.save(&path) {
         Ok(()) => {
@@ -394,7 +397,9 @@ fn epg_add(args: &[String]) -> ExitCode {
                 "{}",
                 tf!(
                     "EPG-Quellen: {sources}",
-                    sources = settings.epg_sources.join(", ")
+                    sources = settings
+                        .xmltv_locations(tvjoe_core::settings::ADAPTER_TV)
+                        .join(", ")
                 )
             );
             ExitCode::SUCCESS
@@ -409,7 +414,16 @@ fn epg_add(args: &[String]) -> ExitCode {
 fn epg_check(args: &[String]) -> ExitCode {
     let (_, settings) = load_settings();
     let sources: Vec<String> = if args.is_empty() {
-        settings.epg_sources.clone()
+        // Alle Quellen, die eine Empfangsquelle nutzt.
+        let mut all = Vec::new();
+        for a in &settings.adapters {
+            for loc in settings.xmltv_locations(&a.id) {
+                if !all.contains(&loc) {
+                    all.push(loc);
+                }
+            }
+        }
+        all
     } else {
         args.to_vec()
     };
@@ -424,8 +438,10 @@ fn epg_check(args: &[String]) -> ExitCode {
         .and_then(|p| Library::load(&p).ok())
         .unwrap_or_default();
     let cache = paths::cache_dir();
-    let max_age = (settings.epg_refresh_hours > 0)
-        .then(|| std::time::Duration::from_secs(u64::from(settings.epg_refresh_hours) * 3600));
+    let hours = settings
+        .adapter(tvjoe_core::settings::ADAPTER_TV)
+        .map_or(settings.epg_refresh_hours, |a| a.xmltv_hours);
+    let max_age = (hours > 0).then(|| std::time::Duration::from_secs(u64::from(hours) * 3600));
     let started = std::time::Instant::now();
     let (guide, notes) = epg::load_sources(&sources, cache.as_deref(), max_age);
     for n in &notes {

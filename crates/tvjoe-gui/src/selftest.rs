@@ -5,6 +5,7 @@
 //! - zusätzlich `TVJOE_SELFTEST_IMPORT=/liste.m3u`: Verwaltung und Import mit Vorschau.
 //! - zusätzlich `TVJOE_SELFTEST_MEDIATHEK=1`: Mediathek (lädt beim ersten Mal die Filmliste).
 //! - `TVJOE_SELFTEST_BAUCHBINDE=1` (nur diese Schritte): Höhe der Bauchbinde in allen Lagen.
+//! - `TVJOE_SELFTEST_EMPFANG=1` (nur diese Schritte): Reiter „Empfang“ und Seiten der Quellen.
 //! - `TVJOE_SELFTEST_README=1` (nur diese Schritte): Bilder für das README; mit neutralen Daten
 //!   starten (eigene `TVJOE_CONFIG_DIR`/`TVJOE_CACHE_DIR`, ohne Jellyfin und private Sender).
 
@@ -13,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
-use gtk::prelude::*;
+use adw::prelude::*;
 use gtk::{glib, graphene};
 
 use crate::app::App;
@@ -120,6 +121,104 @@ const STEPS: &[Step] = &[
             main_window(p)
         },
         1500,
+    ),
+];
+
+thread_local! {
+    /// Offene Einstellungen der Empfangs-Schritte.
+    static PREFS: RefCell<Option<adw::PreferencesDialog>> = const { RefCell::new(None) };
+}
+
+/// Zeile mit diesem Titel in den offenen Einstellungen auslösen (Unterseite öffnen).
+fn activate_row(title: &str) {
+    fn find(w: &gtk::Widget, title: &str) -> Option<adw::ActionRow> {
+        if let Some(r) = w.downcast_ref::<adw::ActionRow>() {
+            if r.title() == title {
+                return Some(r.clone());
+            }
+        }
+        let mut c = w.first_child();
+        while let Some(child) = c {
+            if let Some(r) = find(&child, title) {
+                return Some(r);
+            }
+            c = child.next_sibling();
+        }
+        None
+    }
+    PREFS.with(|d| {
+        if let Some(d) = d.borrow().as_ref() {
+            d.pop_subpage();
+            if let Some(r) = find(d.upcast_ref(), title) {
+                ActionRowExt::activate(&r);
+            }
+        }
+    });
+}
+
+/// Fenster der offenen Einstellungen (eigenes Fenster oder Hauptfenster).
+fn prefs_window(p: &Probe) -> Option<gtk::Window> {
+    PREFS
+        .with(|d| d.borrow().as_ref().and_then(|d| d.root()))
+        .and_then(|r| r.downcast::<gtk::Window>().ok())
+        .or_else(|| main_window(p))
+}
+
+/// Empfang (`TVJOE_SELFTEST_EMPFANG=1`, nur diese Schritte): Reiter „Empfang“, die Seiten der
+/// beiden Empfangsquellen, dann die Einstellungen bei kleinem Hauptfenster (eigenes Fenster).
+const EMPFANG_STEPS: &[Step] = &[
+    ("80-start", main_window, 6000),
+    (
+        "81-empfang",
+        |p| {
+            let d = crate::prefs::open_at(&p.app, Some("empfang"), &p.app.window);
+            PREFS.with(|s| *s.borrow_mut() = Some(d));
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "82-internet-tv",
+        |p| {
+            activate_row(tvjoe_core::tr("Internet-TV"));
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "83-sat",
+        |p| {
+            let name = p
+                .app
+                .settings()
+                .adapter(tvjoe_core::settings::ADAPTER_SAT)
+                .and_then(|a| tvjoe_core::adapter::find(&a.kind, None))
+                .map(|d| d.name)
+                .unwrap_or_default();
+            activate_row(&name);
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "84-klein",
+        |p| {
+            if let Some(d) = PREFS.with(|d| d.borrow_mut().take()) {
+                d.close();
+            }
+            p.app.window.set_default_size(640, 420);
+            main_window(p)
+        },
+        1500,
+    ),
+    (
+        "85-einstellungen-eigenes-fenster",
+        |p| {
+            let d = crate::prefs::open_at(&p.app, Some("empfang"), &p.app.window);
+            PREFS.with(|s| *s.borrow_mut() = Some(d));
+            prefs_window(p)
+        },
+        2000,
     ),
 ];
 
@@ -551,6 +650,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
     let list = std::env::var_os("TVJOE_SELFTEST_IMPORT").map(PathBuf::from);
     let mut steps: Vec<Step> = if std::env::var_os("TVJOE_SELFTEST_EBENE").is_some() {
         EBENE_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_EMPFANG").is_some() {
+        EMPFANG_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_GROESSE").is_some() {
         GROESSE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_JELLYFIN").is_some() {

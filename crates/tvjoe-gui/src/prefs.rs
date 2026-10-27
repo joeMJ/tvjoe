@@ -14,7 +14,11 @@ pub fn open(app: &Rc<App>) {
 
 /// Ein Einstellungsfenster mit Reitern; `page` wählt den Reiter (z. B. „mediathek“ vom Zahnrad
 /// der Mediathek), `parent` ist das Fenster, über dem es erscheint.
-pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>) {
+pub fn open_at(
+    app: &Rc<App>,
+    page: Option<&str>,
+    parent: &impl IsA<gtk::Widget>,
+) -> adw::PreferencesDialog {
     let s = app.settings().clone();
     let dialog = adw::PreferencesDialog::new();
     dialog.set_title(tr("Einstellungen"));
@@ -87,10 +91,6 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         tr("Quellsymbol vor der Qualität (Internet, Satellit)"),
         s.osd_origin,
     );
-    let osd_logo = switch(tr("Senderlogo bei Internet-Sendern (schwarzweiß)"), s.osd_logo);
-    osd_logo.set_subtitle(tr("Auch in der Info und in der Senderliste"));
-    let sat_logo = switch(tr("Senderlogo bei SAT-Sendern (schwarzweiß)"), s.sat_logo);
-    sat_logo.set_subtitle(tr("Auch in der Info und in der Senderliste"));
     let osd_category = switch(
         tr("Kategorie (Vollprogramm, Spartenprogramm …)"),
         s.osd_category,
@@ -193,20 +193,6 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     storage.add(&buffer_mb);
     storage.add(&start_buffer);
 
-    let guide = adw::PreferencesGroup::builder()
-        .title(tr("Programm (EPG)"))
-        .build();
-    let hours = adw::SpinRow::with_range(0.0, 168.0, 1.0);
-    hours.set_title(tr("Neu laden nach"));
-    hours.set_subtitle(tr("Stunden; 0 = nur über „EPG-Quellen…“ in der Verwaltung"));
-    hours.set_value(f64::from(s.epg_refresh_hours));
-    guide.add(&hours);
-    let sat_hours = adw::SpinRow::with_range(1.0, 24.0, 1.0);
-    sat_hours.set_title(tr("SAT-Programmdaten sammeln alle"));
-    sat_hours.set_subtitle(tr("Stunden; nur für Sender mit EPG-Quelle „SAT“ (Sender verwalten → EPG). Belegt je Transponder etwa 40 Sekunden einen Tuner"));
-    sat_hours.set_value(f64::from(s.sat_epg_hours));
-    guide.add(&sat_hours);
-
     let updates = adw::PreferencesGroup::builder()
         .title(tr("Updates"))
         .description(tf!(
@@ -239,11 +225,9 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     let p_quality = new_page("qualitaet", tr("Qualität"), "emblem-photos-symbolic");
     p_quality.add(&quality);
     p_quality.add(&storage);
-    let p_guide = new_page("programm", tr("Programm"), "x-office-calendar-symbolic");
-    p_guide.add(&guide);
     let (p_media, apply_media) = crate::mediathek::prefs_page(app);
     let (p_jellyfin, apply_jellyfin) = crate::jellyfin::prefs_page(app);
-    let (p_satip, apply_satip) = crate::satip::prefs_page(app);
+    let (p_empfang, apply_empfang) = crate::empfang::prefs_page(app, &dialog);
     let (p_ablage, apply_ablage) = crate::ablage::prefs_page(app);
     let p_updates = new_page("updates", tr("Updates"), "software-update-available-symbolic");
     p_updates.add(&updates);
@@ -279,10 +263,9 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         &p_control,
         &p_osd,
         &p_quality,
-        &p_guide,
+        &p_empfang,
         &p_media,
         &p_jellyfin,
-        &p_satip,
         &p_ablage,
         &p_updates,
     ] {
@@ -304,10 +287,17 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
     let weak = Rc::downgrade(app);
     dialog.connect_closed(move |_| {
         let Some(app) = weak.upgrade() else { return };
-        let logos_before = {
-            let s = app.settings();
-            (s.osd_logo, s.sat_logo)
+        // Vorher: Logos und Programmquellen der Empfangsquellen (bei Änderung neu aufbauen bzw.
+        // das Programm neu laden).
+        let sources_of = |s: &tvjoe_core::Settings| {
+            let a: Vec<_> = s
+                .adapters
+                .iter()
+                .map(|a| (a.id.clone(), a.enabled, a.logos, a.xmltv.clone(), a.xmltv_hours))
+                .collect();
+            (a, s.xmltv_sources.clone())
         };
+        let before = sources_of(&app.settings());
         {
             let mut s = app.settings_mut();
             s.numpad_pause_ms = pause.value() as u32;
@@ -332,8 +322,6 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             } else {
                 Fallback::Down
             };
-            s.epg_refresh_hours = hours.value() as u32;
-            s.sat_epg_hours = sat_hours.value() as u32;
             s.quality = levels.get(level.selected() as usize).copied().flatten();
             s.quality_cap = cap.is_active();
             s.deinterlace = deinterlace.is_active();
@@ -343,8 +331,6 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             s.loudness = loudness.is_active();
             s.osd_number = osd_number.is_active();
             s.osd_origin = osd_origin.is_active();
-            s.osd_logo = osd_logo.is_active();
-            s.sat_logo = sat_logo.is_active();
             s.osd_category = osd_category.is_active();
             s.osd_quality = osd_quality.is_active();
             s.osd_epg = osd_epg.is_active();
@@ -352,7 +338,7 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
             s.update_check = check.is_active();
             apply_media(&mut s);
             apply_jellyfin(&mut s);
-            apply_satip(&mut s);
+            apply_empfang(&mut s);
             apply_ablage(&mut s);
         }
         app.save_settings();
@@ -368,19 +354,30 @@ pub fn open_at(app: &Rc<App>, page: Option<&str>, parent: &impl IsA<gtk::Widget>
         crate::mediathek::settings_changed();
         app.update_media_buttons();
         crate::jfview::refresh();
-        let logos_after = {
-            let s = app.settings();
-            (s.osd_logo, s.sat_logo)
-        };
-        if logos_after != logos_before {
+        let after = sources_of(&app.settings());
+        if after != before {
             app.rebuild_list();
+            app.load_epg(after.1 != before.1 || after.0.iter().zip(&before.0).any(|(a, b)| a.3 != b.3));
         }
         if let Some(b) = pending.take() {
             app.apply_backup(b);
         }
     });
-    dialog.present(Some(parent));
+    // Zu kleines Hauptfenster: als eigenes Fenster (wie Programm und Mediathek).
+    let main: gtk::Widget = app.window.clone().upcast();
+    let over_main = parent.as_ref().root().is_some_and(|r| r.upcast::<gtk::Widget>() == main);
+    if over_main && (app.window.width() < PREFS_MIN.0 || app.window.height() < PREFS_MIN.1) {
+        dialog.set_content_width(PREFS_MIN.0);
+        dialog.set_content_height(PREFS_MIN.1);
+        dialog.present(None::<&gtk::Widget>);
+    } else {
+        dialog.present(Some(parent));
+    }
+    dialog
 }
+
+/// Mindestgröße des Hauptfensters für die Einstellungen darüber (sonst eigenes Fenster).
+const PREFS_MIN: (i32, i32) = (720, 640);
 
 const README_URL: &str = "https://github.com/joeMJ/tvjoe#readme";
 const ISSUES_URL: &str = "https://github.com/joeMJ/tvjoe/issues";

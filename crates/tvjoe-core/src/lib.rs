@@ -2,6 +2,7 @@
 //! damit sie sich unter Linux und Windows ohne GTK testen lässt.
 
 pub mod ablage;
+pub mod adapter;
 pub mod auftrag;
 pub mod backup;
 pub mod check;

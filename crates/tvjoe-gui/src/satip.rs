@@ -1,6 +1,6 @@
-//! SAT-Quelle (SAT>IP): Reiter in den Einstellungen mit Adresse, „Prüfen“ (Gerät, Tuner,
-//! Empfang, Datenstrom), Hilfe für die Firewall und Suchlauf in die SAT-Senderliste.
-//! Wiedergabe folgt.
+//! SAT-Quelle (SAT>IP): Einrichtung auf der Seite der Empfangsquelle mit Adresse, „Prüfen“
+//! (Gerät, Tuner, Empfang, Datenstrom), Hilfe für die Firewall und Suchlauf in die
+//! SAT-Senderliste.
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -8,32 +8,27 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::glib;
 use tvjoe_core::satip::{self, CheckResult, ScanProgress};
-use tvjoe_core::{Library, Settings, paths, tf, tr, trn};
+use tvjoe_core::adapter::Satellite;
+use tvjoe_core::{Library, paths, tf, tr, trn};
 
 use crate::app::App;
 
-/// Reiter „SAT>IP“. Gibt die Seite und die Übernahme beim Schließen zurück.
-pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings) + 'static) {
-    let s = app.settings().clone();
-    let page = adw::PreferencesPage::builder()
-        .name("satip")
-        .title("SAT>IP")
-        .icon_name("network-wireless-signal-excellent-symbolic")
-        .build();
-
+/// Einrichtung des SAT>IP-Geräts auf der Seite seiner Empfangsquelle: Gruppen „Gerät“
+/// (Adresse, Prüfen), „Ergebnis“ und „Senderliste“ (Suchlauf über den Satelliten der
+/// Beschreibung). Gibt die Gruppen und das Adressfeld zurück.
+pub fn device_groups(
+    app: &Rc<App>,
+    host: &str,
+    satellite: Option<Satellite>,
+) -> (Vec<adw::PreferencesGroup>, adw::EntryRow) {
+    let sat_name = satellite.as_ref().map(|s| s.name.clone()).unwrap_or_default();
     let device = adw::PreferencesGroup::builder()
         .title(tr("Gerät"))
-        .description(tr(
-            "SAT>IP-Empfänger im Netz (z. B. EyeTV Netstream 4Sat); Satellit Astra 19,2° Ost",
-        ))
-        .build();
-    let enabled = adw::SwitchRow::builder()
-        .title(tr("SAT-Quelle verwenden"))
-        .active(s.satip_enabled)
+        .description(tf!("SAT>IP-Empfänger im Netz; Satellit {satellite}. Eigene Gerätebeschreibungen liegen im Ordner „adapter“ der Konfiguration.", satellite = sat_name))
         .build();
     let host = adw::EntryRow::builder()
         .title(tr("Adresse des SAT>IP-Geräts (IP-Adresse)"))
-        .text(&s.satip_host)
+        .text(host)
         .build();
     let check_row = adw::ActionRow::builder()
         .title(tr("Prüfen"))
@@ -44,7 +39,6 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
         .valign(gtk::Align::Center)
         .build();
     check_row.add_suffix(&check);
-    device.add(&enabled);
     device.add(&host);
     device.add(&check_row);
 
@@ -52,12 +46,10 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
         .title(tr("Ergebnis"))
         .visible(false)
         .build();
-    page.add(&device);
-    page.add(&result);
 
     let list = adw::PreferencesGroup::builder()
         .title(tr("Senderliste"))
-        .description(tr("Frei empfangbare TV-Sender aller Transponder von Astra 19,2° Ost; verschlüsselte Sender und Radio werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen."))
+        .description(tf!("Frei empfangbare TV-Sender aller Transponder von {satellite}; verschlüsselte Sender und Radio werden ausgelassen. Ein erneuter Suchlauf behält Nummern und eigene Namen.", satellite = sat_name))
         .build();
     let scan_row = adw::ActionRow::builder()
         .title(tr("Suchlauf"))
@@ -66,6 +58,7 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     let scan = gtk::Button::builder()
         .label(tr("Suchlauf starten"))
         .valign(gtk::Align::Center)
+        .sensitive(satellite.is_some())
         .build();
     scan_row.add_suffix(&scan);
     let bar = gtk::ProgressBar::builder()
@@ -76,11 +69,10 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
         .build();
     list.add(&scan_row);
     list.add(&bar);
-    page.add(&list);
-    {
+    if let Some(sat) = satellite {
         let (host, row, bar) = (host.clone(), scan_row.clone(), bar.clone());
         let weak = Rc::downgrade(app);
-        scan.connect_clicked(move |b| run_scan(&weak, host.text().trim(), b, &row, &bar));
+        scan.connect_clicked(move |b| run_scan(&weak, host.text().trim(), &sat, b, &row, &bar));
     }
 
     let rows: Rc<std::cell::RefCell<Vec<gtk::Widget>>> = Rc::default();
@@ -91,12 +83,7 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     });
     let r = run.clone();
     check.connect_clicked(move |_| r());
-
-    let apply = move |s: &mut Settings| {
-        s.satip_enabled = enabled.is_active();
-        s.satip_host = host.text().trim().to_string();
-    };
-    (page, apply)
+    (vec![device, result, list], host)
 }
 
 fn run_check(
@@ -311,6 +298,7 @@ enum ScanMsg {
 fn run_scan(
     app: &std::rc::Weak<App>,
     host: &str,
+    sat: &Satellite,
     button: &gtk::Button,
     row: &adw::ActionRow,
     bar: &gtk::ProgressBar,
@@ -325,6 +313,7 @@ fn run_scan(
     bar.set_text(Some(tr("Prüfe Tuner …")));
     let (tx, rx) = async_channel::unbounded();
     let h = host.to_string();
+    let sat = sat.clone();
     std::thread::spawn(move || {
         let workers = satip::check(&h, Duration::from_secs(1))
             .map(|r| r.status.iter().filter(|t| t.lock).count())
@@ -334,7 +323,7 @@ fn run_scan(
         let progress = |p: ScanProgress| {
             let _ = tx.send_blocking(ScanMsg::Progress(p));
         };
-        let result = satip::scan(&h, workers, &progress);
+        let result = satip::scan(&h, &sat, workers, &progress);
         let _ = tx.send_blocking(ScanMsg::Done(result));
     });
     let (app, button, row, bar, host) = (

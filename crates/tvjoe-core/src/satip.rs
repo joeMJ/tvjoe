@@ -780,9 +780,6 @@ pub struct ScanProgress {
     pub services: usize,
 }
 
-/// Starttransponder (ARD, sendet die Netzwerktabelle mit allen Transpondern).
-const SEED: Transponder = CHECK_TRANSPONDERS[0];
-const ORBITAL_ASTRA: u16 = 192;
 
 /// Pakete einer Sitzung empfangen und an den Sammler geben, bis `done` erfüllt oder die Zeit
 /// um ist.
@@ -844,11 +841,12 @@ pub fn tuning_of(url: &str) -> Option<(String, String)> {
     Some((host, q.join("&")))
 }
 
-/// Transponder von Astra 19,2° Ost aus der Netzwerktabelle des Starttransponders.
-pub fn transponders(host: &str) -> Result<Vec<Transponder>, String> {
+/// Transponder des Satelliten aus der Netzwerktabelle seines Starttransponders (laut
+/// Beschreibung der Empfangsquelle).
+pub fn transponders(host: &str, sat: &crate::adapter::Satellite) -> Result<Vec<Transponder>, String> {
     let sock = bind_rtp()?;
     let port = sock.local_addr().map_err(|e| e.to_string())?.port();
-    let s = Session::setup(host, &format!("{}&pids=0,16", SEED.query()), port)?;
+    let s = Session::setup(host, &format!("{}&pids=0,16", sat.seed.query()), port)?;
     s.play()?;
     let col = collect(&sock, Duration::from_secs(15), &|pid| pid == 16, &|c| {
         // Alle Abschnitte der eigenen NIT da? (letzte Abschnittsnummer erreicht)
@@ -861,7 +859,7 @@ pub fn transponders(host: &str) -> Result<Vec<Transponder>, String> {
     let mut out: Vec<Transponder> = Vec::new();
     for sec in col.tables(0x40).chain(col.tables(0x41)) {
         for d in crate::ts::parse_nit(sec) {
-            if d.orbital != ORBITAL_ASTRA || !d.east || d.freq == 0 {
+            if d.orbital != sat.orbital || d.east != sat.east || d.freq == 0 {
                 continue;
             }
             let tp = Transponder {
@@ -972,10 +970,11 @@ fn scan_transponder(host: &str, tp: &Transponder) -> Result<Option<Vec<ScannedSe
 /// werden am Ende einmal wiederholt (anderer Tuner).
 pub fn scan(
     host: &str,
+    sat: &crate::adapter::Satellite,
     workers: usize,
     progress: &(dyn Fn(ScanProgress) + Sync),
 ) -> Result<Vec<ScannedService>, String> {
-    let list = transponders(host)?;
+    let list = transponders(host, sat)?;
     let total = list.len();
     let queue = std::sync::Mutex::new(list.into_iter().map(|t| (t, 0u8)).collect::<Vec<_>>());
     let found = std::sync::Mutex::new(Vec::<ScannedService>::new());
@@ -1257,15 +1256,18 @@ mod tests {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(1);
+        let sat = crate::adapter::find("netstream-4sat", None)
+            .and_then(|d| d.satellite)
+            .unwrap();
         let t = Instant::now();
-        let tps = transponders(&host).unwrap();
+        let tps = transponders(&host, &sat).unwrap();
         println!(
             "{} Transponder in {:.1} s",
             tps.len(),
             t.elapsed().as_secs_f64()
         );
         let t = Instant::now();
-        let all = scan(&host, workers, &|p| {
+        let all = scan(&host, &sat, workers, &|p| {
             if p.done % 10 == 0 || p.done == p.total {
                 println!(
                     "  {}/{} Transponder, {} Sender",

@@ -144,6 +144,67 @@ pub struct Settings {
     pub satip_active: bool,
     /// Zuletzt gesehener Sender der SAT-Quelle.
     pub satip_last_channel: Option<u64>,
+    /// XMLTV-Quellen, einmal angelegt und betitelt; die Empfangsquellen wählen daraus.
+    #[serde(rename = "xmltv", skip_serializing_if = "Vec::is_empty")]
+    pub xmltv_sources: Vec<XmltvSource>,
+    /// Empfangsquellen (Reiter „Empfang“). Fehlen sie, entstehen sie aus den älteren Feldern
+    /// (`satip_*`, `epg_*`, Logos, Aufnahmegrenzen), die beim Speichern weiter mitgeschrieben
+    /// werden, damit ältere Fassungen sie lesen.
+    #[serde(rename = "adapter", skip_serializing_if = "Vec::is_empty")]
+    pub adapters: Vec<Adapter>,
+}
+
+/// Kennung der Empfangsquelle mit der Senderliste `library.toml` (Internet-TV).
+pub const ADAPTER_TV: &str = "tv";
+/// Kennung der Empfangsquelle mit der Senderliste `satip.toml` (SAT>IP).
+pub const ADAPTER_SAT: &str = "sat";
+
+/// Eine XMLTV-Quelle (Datei oder URL) mit eigenem Titel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct XmltvSource {
+    /// Stabile Nummer (Bezug aus den Empfangsquellen).
+    pub id: u32,
+    pub title: String,
+    pub location: String,
+}
+
+/// Eine eingerichtete Empfangsquelle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Adapter {
+    /// `tv` oder `sat` (bestimmt die Senderliste).
+    pub id: String,
+    /// Kennung der Beschreibung (`iptv-m3u`, `netstream-4sat`, …).
+    pub kind: String,
+    pub enabled: bool,
+    /// Adresse des Geräts (SAT>IP).
+    pub host: String,
+    /// Genutzte XMLTV-Quellen (Nummern aus `Settings::xmltv_sources`); leer = kein XMLTV.
+    pub xmltv: Vec<u32>,
+    /// XMLTV neu laden nach (Stunden; 0 = nur per Knopf).
+    pub xmltv_hours: u32,
+    /// Programmdaten aus dem Signal sammeln alle (Stunden; nur mit Signal-EPG).
+    pub signal_epg_hours: u32,
+    /// Senderlogos zeigen (schwarzweiß; Bauchbinde, Info, Senderliste).
+    pub logos: bool,
+    /// Gleichzeitige Aufnahmen höchstens (0 = ohne Grenze).
+    pub record_max: u32,
+}
+
+impl Default for Adapter {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            kind: String::new(),
+            enabled: true,
+            host: String::new(),
+            xmltv: Vec::new(),
+            xmltv_hours: 24,
+            signal_epg_hours: 6,
+            logos: true,
+            record_max: 0,
+        }
+    }
 }
 
 impl Default for Settings {
@@ -211,6 +272,8 @@ impl Default for Settings {
             satip_active: false,
             satip_last_channel: None,
             language: String::new(),
+            xmltv_sources: Vec::new(),
+            adapters: Vec::new(),
             jellyfin_hidden: crate::jellyfin_lib::HIDDEN_DEFAULT
                 .iter()
                 .map(|s| s.to_string())
@@ -221,16 +284,162 @@ impl Default for Settings {
 
 impl Settings {
     pub fn load(path: &Path) -> Result<Self, StoreError> {
-        load_toml(path)
+        let mut s: Self = load_toml(path)?;
+        s.migrate();
+        Ok(s)
     }
 
     pub fn save(&self, path: &Path) -> Result<(), StoreError> {
-        let mut table = toml::Table::try_from(self).map_err(|e| StoreError::Parse(e.to_string()))?;
+        let copy = self.for_saving();
+        let mut table = toml::Table::try_from(&copy).map_err(|e| StoreError::Parse(e.to_string()))?;
         for (k, v) in &self.unknown {
             table.entry(k.clone()).or_insert_with(|| v.clone());
         }
         save_toml(path, &table)
     }
+
+    /// Fassung zum Speichern: Empfangsquellen vollständig, ältere Felder mitgeschrieben.
+    pub fn for_saving(&self) -> Self {
+        let mut copy = self.clone();
+        copy.migrate();
+        copy.sync_legacy();
+        copy
+    }
+
+    /// Empfangsquellen und XMLTV-Quellen aus den älteren Feldern anlegen, falls sie fehlen.
+    pub fn migrate(&mut self) {
+        if self.xmltv_sources.is_empty() && !self.epg_sources.is_empty() {
+            self.xmltv_sources = self
+                .epg_sources
+                .iter()
+                .enumerate()
+                .map(|(i, loc)| XmltvSource {
+                    id: i as u32 + 1,
+                    title: xmltv_title(loc),
+                    location: loc.clone(),
+                })
+                .collect();
+        }
+        let all: Vec<u32> = self.xmltv_sources.iter().map(|x| x.id).collect();
+        if self.adapter(ADAPTER_TV).is_none() {
+            self.adapters.push(Adapter {
+                id: ADAPTER_TV.into(),
+                kind: "iptv-m3u".into(),
+                enabled: true,
+                xmltv: all.clone(),
+                xmltv_hours: self.epg_refresh_hours,
+                logos: self.osd_logo,
+                record_max: self.record_max_internet,
+                ..Adapter::default()
+            });
+        }
+        if self.adapter(ADAPTER_SAT).is_none() {
+            self.adapters.push(Adapter {
+                id: ADAPTER_SAT.into(),
+                kind: "netstream-4sat".into(),
+                enabled: self.satip_enabled,
+                host: self.satip_host.clone(),
+                xmltv: all,
+                xmltv_hours: self.epg_refresh_hours,
+                signal_epg_hours: self.sat_epg_hours,
+                logos: self.sat_logo,
+                record_max: self.record_max_sat,
+            });
+        }
+    }
+
+    /// Ältere Felder aus den Empfangsquellen setzen (für ältere Fassungen beim Zurückwechseln).
+    fn sync_legacy(&mut self) {
+        if let Some(tv) = self.adapter(ADAPTER_TV).cloned() {
+            self.epg_refresh_hours = tv.xmltv_hours;
+            self.osd_logo = tv.logos;
+            self.record_max_internet = tv.record_max;
+        }
+        if let Some(sat) = self.adapter(ADAPTER_SAT).cloned() {
+            self.satip_enabled = sat.enabled;
+            self.satip_host = sat.host.clone();
+            self.sat_epg_hours = sat.signal_epg_hours;
+            self.sat_logo = sat.logos;
+            self.record_max_sat = sat.record_max;
+        }
+        // Ältere Fassungen kennen nur eine gemeinsame Liste: alle genutzten Quellen.
+        let mut used = Vec::new();
+        for a in &self.adapters {
+            for loc in self.xmltv_locations(&a.id) {
+                if !used.contains(&loc) {
+                    used.push(loc);
+                }
+            }
+        }
+        self.epg_sources = used;
+    }
+
+    /// Empfangsquelle nach Kennung.
+    pub fn adapter(&self, id: &str) -> Option<&Adapter> {
+        self.adapters.iter().find(|a| a.id == id)
+    }
+
+    /// Empfangsquelle nach Kennung (legt fehlende aus den älteren Feldern an).
+    pub fn adapter_mut(&mut self, id: &str) -> &mut Adapter {
+        self.migrate();
+        let i = self.adapters.iter().position(|a| a.id == id).unwrap_or(0);
+        &mut self.adapters[i]
+    }
+
+    /// Empfangsquelle eingeschaltet (fehlt sie: wie in den älteren Feldern).
+    pub fn adapter_enabled(&self, id: &str) -> bool {
+        match self.adapter(id) {
+            Some(a) => a.enabled,
+            None => id == ADAPTER_TV || self.satip_enabled,
+        }
+    }
+
+    /// Dateien/URLs der XMLTV-Quellen, die eine Empfangsquelle nutzt.
+    pub fn xmltv_locations(&self, adapter: &str) -> Vec<String> {
+        let Some(a) = self.adapter(adapter) else {
+            return self.epg_sources.clone();
+        };
+        a.xmltv
+            .iter()
+            .filter_map(|id| self.xmltv_sources.iter().find(|x| x.id == *id))
+            .map(|x| x.location.clone())
+            .collect()
+    }
+
+    /// Neue XMLTV-Quelle anlegen (gibt die Nummer zurück; vorhandene Adresse: deren Nummer).
+    pub fn add_xmltv(&mut self, title: &str, location: &str) -> u32 {
+        if let Some(x) = self.xmltv_sources.iter().find(|x| x.location == location) {
+            return x.id;
+        }
+        let id = self.xmltv_sources.iter().map(|x| x.id).max().unwrap_or(0) + 1;
+        let title = if title.trim().is_empty() {
+            xmltv_title(location)
+        } else {
+            title.trim().to_string()
+        };
+        self.xmltv_sources.push(XmltvSource {
+            id,
+            title,
+            location: location.to_string(),
+        });
+        id
+    }
+}
+
+/// Titel aus einer Adresse: Rechnername bzw. Dateiname.
+pub fn xmltv_title(location: &str) -> String {
+    let rest = location
+        .split_once("://")
+        .map(|(_, r)| r)
+        .unwrap_or(location);
+    let host = rest.split('/').next().unwrap_or(rest);
+    if location.contains("://") && !host.is_empty() {
+        return host.to_string();
+    }
+    Path::new(location)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| location.to_string())
 }
 
 #[cfg(test)]
@@ -255,6 +464,37 @@ mod tests {
         assert_eq!(s.numpad_pause_ms, 900);
         assert_eq!(s.quality, Some(Quality::P720));
         assert_eq!(s.overlay_secs, 4);
+    }
+
+    #[test]
+    fn empfangsquellen_aus_aelteren_feldern() {
+        let text = "satip_enabled = true\nsatip_host = \"10.0.0.5\"\nsat_logo = false\n\
+                    record_max_sat = 2\nepg_sources = [\"https://epg.example/a.xml.gz\", \"/x/b.xml\"]\n";
+        let dir = std::env::temp_dir().join(format!("tvjoe-settings-a-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.toml");
+        std::fs::write(&path, text).unwrap();
+        let mut s = Settings::load(&path).unwrap();
+        let sat = s.adapter(ADAPTER_SAT).unwrap().clone();
+        assert!(sat.enabled && sat.host == "10.0.0.5" && !sat.logos && sat.record_max == 2);
+        assert_eq!(sat.xmltv, vec![1, 2]);
+        assert!(s.adapter(ADAPTER_TV).unwrap().logos);
+        assert_eq!(s.xmltv_sources[0].title, "epg.example");
+        assert_eq!(s.xmltv_sources[1].title, "b.xml");
+        // Änderungen landen beim Speichern auch in den älteren Feldern.
+        s.adapter_mut(ADAPTER_SAT).enabled = false;
+        s.adapter_mut(ADAPTER_SAT).xmltv = vec![2];
+        s.adapter_mut(ADAPTER_TV).xmltv.clear();
+        s.save(&path).unwrap();
+        let old: toml::Table = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(old["satip_enabled"].as_bool(), Some(false));
+        assert_eq!(old["epg_sources"].as_array().unwrap().len(), 1);
+        let back = Settings::load(&path).unwrap();
+        assert!(!back.adapter_enabled(ADAPTER_SAT));
+        assert_eq!(back.xmltv_locations(ADAPTER_SAT), vec!["/x/b.xml".to_string()]);
+        assert!(back.xmltv_locations(ADAPTER_TV).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -286,11 +526,13 @@ mod tests {
             ..Settings::default()
         };
         s.save(&path).unwrap();
-        assert_eq!(Settings::load(&path).unwrap(), s);
-        assert_eq!(
-            Settings::load(&dir.join("fehlt.toml")).unwrap(),
-            Settings::default()
-        );
+        // Beim Laden entstehen die Empfangsquellen aus den älteren Feldern.
+        let mut expected = s.clone();
+        expected.migrate();
+        assert_eq!(Settings::load(&path).unwrap(), expected);
+        let mut default = Settings::default();
+        default.migrate();
+        assert_eq!(Settings::load(&dir.join("fehlt.toml")).unwrap(), default);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

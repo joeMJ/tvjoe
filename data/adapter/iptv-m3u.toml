@@ -1,0 +1,6 @@
+# Empfangsquelle: Internet-TV aus M3U-Listen (HLS und andere Streams über HTTP).
+id = "iptv-m3u"
+name = "Internet-TV (M3U)"
+driver = "iptv"
+# Die Streams bringen kein Programm mit; EPG nur über XMLTV (freiwillig).
+signal_epg = false

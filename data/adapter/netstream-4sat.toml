@@ -1,0 +1,19 @@
+# Empfangsquelle: Elgato EyeTV Netstream 4Sat (SAT>IP, DVB-S/S2, vier Tuner).
+id = "netstream-4sat"
+name = "EyeTV Netstream 4Sat"
+driver = "satip"
+systems = ["dvbs", "dvbs2"]
+tuners = 4
+# Programmdaten (EIT) kommen mit dem Signal.
+signal_epg = true
+# Eigenheiten des Geräts: RTP nur über UDP an die Absenderadresse (kein RTP über TCP),
+# eine eigene RTSP-Verbindung je Anfrage.
+rtp_tcp = false
+connection_per_request = true
+
+[satellite]
+name = "Astra 19,2° Ost"
+orbital = 192
+east = true
+# Starttransponder des Suchlaufs (sendet die Netzwerktabelle mit allen Transpondern).
+seed = { freq = 11494, pol = "h", dvbs2 = true, mtype = "8psk", sr = 22000, fec = "23" }

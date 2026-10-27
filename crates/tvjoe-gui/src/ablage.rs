@@ -1141,10 +1141,13 @@ impl Ablage {
         let (max, min_free, queue_bytes) = {
             let s = app.settings();
             (
-                if sat {
-                    s.record_max_sat
-                } else {
-                    s.record_max_internet
+                {
+                    let id = if sat {
+                        tvjoe_core::settings::ADAPTER_SAT
+                    } else {
+                        tvjoe_core::settings::ADAPTER_TV
+                    };
+                    s.adapter(id).map_or(0, |a| a.record_max)
                 },
                 gb(s.min_free_gb),
                 u64::from(s.buffer_mb) << 19,
@@ -1154,12 +1157,12 @@ impl Ablage {
         if max > 0 && running >= max as usize {
             app.message(&if sat {
                 tf!(
-                    "Keine weitere SAT-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Ablage)",
+                    "Keine weitere SAT-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Empfang)",
                     max = max
                 )
             } else {
                 tf!(
-                    "Keine weitere Internet-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Ablage)",
+                    "Keine weitere Internet-Aufnahme: höchstens {max} gleichzeitig (Einstellungen → Empfang)",
                     max = max
                 )
             });
@@ -1507,15 +1510,8 @@ pub fn prefs_page(
     post.set_title(tr("Nachlauf"));
     post.set_subtitle(tr("Minuten nach Ende laut Programm"));
     post.set_value(f64::from(s.record_post_min));
-    let max_sat = adw::SpinRow::with_range(0.0, 8.0, 1.0);
-    max_sat.set_title(tr("SAT: gleichzeitig höchstens"));
-    max_sat.set_subtitle(tr("Aufnahmen; jede belegt einen Tuner (bei gleichem Transponder geteilt); 0 = ohne Grenze"));
-    max_sat.set_value(f64::from(s.record_max_sat));
-    let max_net = adw::SpinRow::with_range(0.0, 20.0, 1.0);
-    max_net.set_title(tr("Internet: gleichzeitig höchstens"));
-    max_net.set_subtitle(tr("Aufnahmen; 0 = ohne Grenze"));
-    max_net.set_value(f64::from(s.record_max_internet));
-    for r in [&pre, &post, &max_sat, &max_net] {
+    // Höchstzahl gleichzeitiger Aufnahmen: je Empfangsquelle (Einstellungen → Empfang).
+    for r in [&pre, &post] {
         record.add(r);
     }
     let service = adw::SwitchRow::builder()
@@ -1544,8 +1540,6 @@ pub fn prefs_page(
         s.jellyfin_download_kbps = jf_kbps.value() as u32;
         s.record_pre_min = pre.value() as u32;
         s.record_post_min = post.value() as u32;
-        s.record_max_sat = max_sat.value() as u32;
-        s.record_max_internet = max_net.value() as u32;
         if service.is_active() != s.record_service {
             crate::dienst::set_enabled(s, service.is_active());
         }

@@ -40,7 +40,11 @@ pub fn start(app: &Rc<App>) {
 /// Sammeln, wenn der Zwischenspeicher älter ist als eingestellt (oder fehlt).
 fn maybe_run(app: &Rc<App>) {
     let Some(dir) = paths::cache_dir() else { return };
-    let hours = u64::from(app.settings().sat_epg_hours.max(1));
+    let hours = {
+        let s = app.settings();
+        let a = s.adapter(tvjoe_core::settings::ADAPTER_SAT);
+        u64::from(a.map_or(s.sat_epg_hours, |a| a.signal_epg_hours).max(1))
+    };
     let fresh = std::fs::metadata(tvjoe_core::epg::sat_cache_path(&dir))
         .and_then(|m| m.modified())
         .ok()
@@ -53,7 +57,7 @@ fn maybe_run(app: &Rc<App>) {
 
 /// Jetzt sammeln (z. B. nachdem ein Sender auf „SAT“ gestellt wurde).
 pub fn run(app: &Rc<App>) {
-    if RUNNING.with(Cell::get) || !app.settings().satip_enabled {
+    if RUNNING.with(Cell::get) || !app.settings().adapter_enabled(tvjoe_core::settings::ADAPTER_SAT) {
         return;
     }
     // Transponder der Sender mit EPG-Quelle „SAT“, je Transponder einmal.

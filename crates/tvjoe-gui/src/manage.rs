@@ -120,7 +120,7 @@ impl Manager {
         header_start.append(&import_url);
         let epg_sources = gtk::Button::builder()
             .label(tr("EPG-Quellen…"))
-            .tooltip_text(tr("XMLTV-Quellen eintragen und neu laden"))
+            .tooltip_text(tr("XMLTV-Quellen anlegen und je Empfangsquelle wählen (Einstellungen → Empfang)"))
             .build();
         header_end.append(&epg_sources);
         header_end.append(&export);
@@ -767,40 +767,9 @@ impl Manager {
         d.present(Some(&self.body));
     }
 
+    /// XMLTV-Quellen liegen in den Einstellungen unter „Empfang“ (je Empfangsquelle wählbar).
     fn edit_epg_sources(self: &Rc<Self>) {
-        let text = self.app.settings().epg_sources.join("\n");
-        let buffer = gtk::TextBuffer::new(None);
-        buffer.set_text(&text);
-        let view = gtk::TextView::builder()
-            .buffer(&buffer)
-            .monospace(true)
-            .wrap_mode(gtk::WrapMode::Char)
-            .height_request(120)
-            .width_request(520)
-            .build();
-        let d = self.ask(
-            tr("EPG-Quellen"),
-            tr("Eine XMLTV-Quelle je Zeile (Datei oder URL, auch .xml.gz):"),
-            Some(view.upcast_ref()),
-            tr("Speichern und neu laden"),
-            false,
-        );
-        let m = self.clone();
-        d.connect_response(Some("ok"), move |_, _| {
-            let (a, b) = buffer.bounds();
-            let sources: Vec<String> = buffer
-                .text(&a, &b, false)
-                .lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty())
-                .map(String::from)
-                .collect();
-            m.app.settings_mut().epg_sources = sources;
-            m.app.save_settings();
-            m.app.load_epg(true);
-            m.toast(tr("EPG wird neu geladen …"));
-        });
-        d.present(Some(&self.body));
+        crate::prefs::open_at(&self.app, Some("empfang"), &self.body);
     }
 
     /// Verschiebt die Auswahl um eine Position (Reihenfolge, nicht Nummer).
@@ -911,6 +880,21 @@ impl Manager {
 
 /// M3U-Übernahme gilt der TV-Senderliste: läuft die SAT-Quelle, nach Hinweis auf TV
 /// umschalten und die Verwaltung der TV-Liste öffnen.
+/// Übernahme in die Internet-TV-Senderliste aus den Einstellungen (Empfang → Internet-TV):
+/// ggf. auf Internet-TV umschalten, Verwaltung öffnen, Übernahme aus Datei bzw. URL starten.
+pub fn import_tv(app: &Rc<App>, from_url: bool) {
+    if app.is_sat() {
+        app.switch_live(false);
+    }
+    if let Some(m) = open_manager(app) {
+        if from_url {
+            crate::import::from_url(&m);
+        } else {
+            crate::import::from_file(&m);
+        }
+    }
+}
+
 fn with_tv_list(parent: &gtk::Button, m: &Rc<Manager>, f: fn(&Rc<Manager>)) {
     if !m.app.is_sat() {
         f(m);

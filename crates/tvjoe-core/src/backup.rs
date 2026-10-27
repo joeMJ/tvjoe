@@ -31,11 +31,15 @@ impl Backup {
     }
 
     pub fn to_toml(&self) -> Result<String, String> {
-        toml::to_string_pretty(self).map_err(|e| e.to_string())
+        // Mit den älteren Feldern, damit ältere Fassungen die Sicherung lesen.
+        let mut b = self.clone();
+        b.settings = b.settings.for_saving();
+        toml::to_string_pretty(&b).map_err(|e| e.to_string())
     }
 
     pub fn from_toml(text: &str) -> Result<Self, String> {
-        let b: Self = toml::from_str(text).map_err(|e| e.to_string())?;
+        let mut b: Self = toml::from_str(text).map_err(|e| e.to_string())?;
+        b.settings.migrate();
         match b.tvjoe_sicherung {
             0 => Err(tr("keine tvjoe-Sicherung").into()),
             FORMAT => Ok(b),

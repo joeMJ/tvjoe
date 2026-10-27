@@ -599,7 +599,12 @@ pub fn install(s: &tvjoe_core::Settings) -> Result<(), String> {
     for d in [&jobs, &status, &records] {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
-    let host = s.satip_host.trim().to_string();
+    // Nur das Gerät einer eingeschalteten SAT-Empfangsquelle ist erlaubt.
+    let host = s
+        .adapter(tvjoe_core::settings::ADAPTER_SAT)
+        .filter(|a| a.enabled)
+        .map(|a| a.host.trim().to_string())
+        .unwrap_or_default();
     let cfg = ServiceConfig {
         version: tvjoe_core::VERSION.to_string(),
         jobs_dir: jobs.to_string_lossy().to_string(),
