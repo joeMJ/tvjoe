@@ -193,7 +193,8 @@ fn sub_dir(app: &App, art: Art, source: &str) -> PathBuf {
     storage_dir(app).join(match (art, source) {
         (Art::Cache, _) => "cache",
         (Art::Recording, _) => "records",
-        (_, "jellyfin") => "jellyfin",
+        (_, "oer") => "mediathek",
+        (_, s) if is_server_source(s) => s,
         _ => "mediathek",
     })
 }
@@ -331,9 +332,9 @@ pub fn fetch_film(app: &Rc<App>, film: &Film, art: Art) {
 }
 
 /// Jellyfin-Eintrag (Film oder Folge) herunterladen bzw. zwischenspeichern.
-pub fn fetch_item(app: &Rc<App>, item: &Item, art: Art) {
+pub fn fetch_item(app: &Rc<App>, library: &str, item: &Item, art: Art) {
     let Some(a) = get() else { return };
-    let Some(account) = crate::jellyfin::account() else {
+    let Some(account) = crate::jellyfin::account(library) else {
         app.message(tr("Jellyfin: nicht angemeldet"));
         return;
     };
@@ -354,7 +355,7 @@ pub fn fetch_item(app: &Rc<App>, item: &Item, art: Art) {
     a.enqueue(
         app,
         art,
-        "jellyfin",
+        library,
         &item.id,
         &title,
         "Jellyfin",
@@ -559,11 +560,11 @@ pub fn film_store_button(app: &Rc<App>, film: &Film) -> gtk::Button {
 }
 
 /// Knopf „Herunterladen“ für einen Jellyfin-Eintrag.
-pub fn item_store_button(app: &Weak<App>, item: &Item) -> gtk::Button {
-    let (weak, it) = (app.clone(), item.clone());
-    store_button("jellyfin", &item.id, move |art| {
+pub fn item_store_button(app: &Weak<App>, library: &str, item: &Item) -> gtk::Button {
+    let (weak, it, lib) = (app.clone(), item.clone(), library.to_string());
+    store_button(library, &item.id, move |art| {
         if let Some(app) = weak.upgrade() {
-            fetch_item(&app, &it, art);
+            fetch_item(&app, &lib, &it, art);
         }
     })
 }
@@ -579,11 +580,11 @@ pub fn film_badge(app: &Rc<App>, film: &Film) -> gtk::Button {
 }
 
 /// Kennzeichen eines Jellyfin-Eintrags.
-pub fn item_badge(app: &Weak<App>, item: &Item) -> gtk::Button {
-    let (weak, it) = (app.clone(), item.clone());
-    badge("jellyfin", &item.id, move |art| {
+pub fn item_badge(app: &Weak<App>, library: &str, item: &Item) -> gtk::Button {
+    let (weak, it, lib) = (app.clone(), item.clone(), library.to_string());
+    badge(library, &item.id, move |art| {
         if let Some(app) = weak.upgrade() {
-            fetch_item(&app, &it, art);
+            fetch_item(&app, &lib, &it, art);
         }
     })
 }
@@ -1753,8 +1754,8 @@ pub fn resume_entry(app: &Rc<App>, id: i64) {
     };
     match e.source.as_str() {
         "oer" => fetch_film(app, &film_of(&e), e.art),
-        "jellyfin" => match crate::jfview::item(&e.key) {
-            Some(it) => fetch_item(app, &it, e.art),
+        s if is_server_source(s) => match crate::jfview::item(s, &e.key) {
+            Some(it) => fetch_item(app, s, &it, e.art),
             None => app.message(tr("Jellyfin: Eintrag nicht mehr in der Bibliothek")),
         },
         _ => {}
@@ -1768,15 +1769,25 @@ pub fn play_entry(app: &Rc<App>, id: i64) {
     };
     match e.source.as_str() {
         "oer" => app.play_film(&film_of(&e), None),
-        "jellyfin" => match crate::jfview::item(&e.key) {
-            Some(it) => app.play_jellyfin(&it, None, Vec::new()),
+        s if is_server_source(s) => match crate::jfview::item(s, &e.key) {
+            Some(it) => app.play_jellyfin(s, &it, None, Vec::new()),
             None => app.play_file(&e.title, "Jellyfin", &e.path),
         },
         _ => app.play_file(&e.title, &e.subtitle, &e.path),
     }
 }
 
-/// Meldung im Hauptfenster (aus Einstellungen und Dienst-Einrichtung).
+/// Herkunft aus einer Server-Bibliothek (Jellyfin; Kennung der Instanz): nicht ÖR-Mediathek
+/// und keine Aufnahme (Fernsehquellen `tv`, `sat`, weitere mit Nummer).
+pub fn is_server_source(source: &str) -> bool {
+    source == tvjoe_core::settings::LIBRARY_JELLYFIN
+        || app().is_some_and(|app| {
+            app.settings()
+                .library(source)
+                .is_some_and(|l| l.kind != "oer-mediathek")
+        })
+}
+
 /// Hauptfenster (für Abläufe ohne eigenen Zugriff darauf, z. B. Einrichtung des Windows-Dienstes,
 /// Verschieben der Ablage).
 pub fn app() -> Option<Rc<App>> {

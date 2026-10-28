@@ -166,10 +166,9 @@ Libraries are media libraries and media servers: films, series with seasons and 
 collections. Playback, resume, downloading to storage and the “Downloaded” toggle work the same
 for all of them.
 
-> [!NOTE]
-> The class is defined; setting libraries up from your own descriptions follows with the next
-> expansion (Settings → Media libraries, several servers per type). Until then the Mediathek and
-> Jellyfin are set up as before under **Settings → Mediathek** and **→ Jellyfin**.
+They are set up under **Settings → Media libraries**: one row per library with a switch and a
+page of its own (name in the header bar, settings of its type); “+” adds another one. Several
+Jellyfin servers are possible, the Mediathek exists once.
 
 ### Drivers
 

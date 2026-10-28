@@ -21,7 +21,7 @@ kommen direkt von den Servern der Sender.
   zusammengefasst und lassen sich auf der Seite des Beitrags wählen.
 - **Abspielen:** Pause, Spulen, Tonspur (A); tvjoe merkt sich die Stelle und spielt beim nächsten
   Mal dort weiter. Bei Serien läuft die nächste Folge automatisch.
-- **Einstellungen → Mediathek:** Mediathek ein/aus, Sender ausblenden, Audiodeskription
+- **Einstellungen → Mediatheken → ÖR-Mediathek:** Mediathek ein/aus, Sender ausblenden, Audiodeskription
   ausblenden.
 
 Ziffern oder die Senderliste führen zurück zum Fernsehen.
@@ -30,7 +30,8 @@ Ziffern oder die Senderliste führen zurück zum Fernsehen.
 
 Ein eigener Jellyfin-Server lässt sich als zweite Mediathek einbinden.
 
-1. **Einstellungen → Jellyfin:** einschalten und die Adresse des Servers eintragen.
+1. **Einstellungen → Mediatheken → Jellyfin:** einschalten und die Adresse des Servers eintragen.
+   Weitere Jellyfin-Server fügt „+“ hinzu, jeder mit eigenem Knopf und eigener Anmeldung.
 2. **Anmelden** per Quick Connect: tvjoe zeigt einen Code, den man in der Jellyfin-Weboberfläche
    (oben rechts über das Benutzersymbol → Quick Connect) bestätigt. tvjoe fragt nie nach einem
    Passwort; der Zugangsschlüssel liegt nur für den Nutzer lesbar in
@@ -39,7 +40,7 @@ Ein eigener Jellyfin-Server lässt sich als zweite Mediathek einbinden.
    Suche**. Die Bibliothek wird zwischengespeichert und im Hintergrund abgeglichen.
 
 - **Wiedergabe:** Die Originaldatei läuft per Hardware-Decoding. Mit einer **Bandbreitengrenze**
-  (Einstellungen → Jellyfin) rechnet der Server auf H.264 um; das kostet dort Rechenzeit.
+  (Einstellungen → Mediatheken → Jellyfin) rechnet der Server auf H.264 um; das kostet dort Rechenzeit.
 - **Gesehen-Stand:** Fortschritt und „gesehen“ werden an Jellyfin gemeldet und gelten damit auch
   in anderen Jellyfin-Programmen.
 - Bibliotheken lassen sich in den Einstellungen ausblenden.

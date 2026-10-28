@@ -175,9 +175,8 @@ pub struct App {
     source_buttons: RefCell<Vec<(u32, gtk::Button)>>,
     /// Quellenumschalter: Empfangsquellen, dann Mediathek und Jellyfin.
     sources_box: gtk::Box,
-    mediathek_button: gtk::Button,
-    jellyfin_button: gtk::Button,
-    jellyfin_logo: gtk::Image,
+    /// Knöpfe der eingeschalteten Bibliotheken (Kennung, Knopf, Bild für das Server-Logo).
+    library_buttons: RefCell<Vec<(String, gtk::Button, gtk::Image)>>,
     /// „<“ in der Kopfleiste, solange eine Ebene offen ist: zurück bzw. schließen (Nutzer,
     /// 2026-10-26: die Meldungsleiste überdeckte das Kreuz der Ebene).
     pub layer_back: gtk::Button,
@@ -355,28 +354,11 @@ impl App {
             .tooltip_text(tr("Info (I)"))
             .build();
         header.pack_end(&info_button);
-        let mediathek_button = gtk::Button::builder()
-            .icon_name("folder-videos-symbolic")
-            .tooltip_text(tr("ÖR-Mediathek"))
-            .css_classes(["tvjoe-source"])
-            .build();
-        // Jellyfin: Logo des Servers (einfarbig), bis es geladen ist ein Server-Symbol.
-        let jellyfin_logo = gtk::Image::builder()
-            .icon_name("network-server-symbolic")
-            .pixel_size(18)
-            .build();
-        let jellyfin_button = gtk::Button::builder()
-            .child(&jellyfin_logo)
-            .tooltip_text("Jellyfin")
-            .css_classes(["tvjoe-source"])
-            .build();
         let sources = gtk::Box::builder()
             .css_classes(["linked"])
             .margin_end(18)
             .build();
-        // Knöpfe der Empfangsquellen setzt `update_media_buttons` davor.
-        sources.append(&mediathek_button);
-        sources.append(&jellyfin_button);
+        // Knöpfe der Empfangsquellen und Bibliotheken setzt `update_media_buttons`.
         header.pack_end(&sources);
         // Kopfleiste über die ganze Breite; darunter liegt die Senderliste über dem Bild
         // (eingeklappter Modus), das Bild behält seine Größe.
@@ -410,9 +392,7 @@ impl App {
             osd,
             source_buttons: RefCell::new(Vec::new()),
             sources_box: sources.clone(),
-            mediathek_button: mediathek_button.clone(),
-            jellyfin_button: jellyfin_button.clone(),
-            jellyfin_logo,
+            library_buttons: RefCell::new(Vec::new()),
             layer_back: layer_back.clone(),
             crop_button: crop_button.clone(),
             fill_button: fill_button.clone(),
@@ -543,22 +523,7 @@ impl App {
                 app.toggle_info();
             }
         });
-        let weak = Rc::downgrade(&app);
-        jellyfin_button.connect_clicked(move |_| {
-            let Some(app) = weak.upgrade() else { return };
-            if crate::jellyfin::account().is_none() {
-                crate::prefs::open_at(&app, Some("jellyfin"), &app.window);
-            } else {
-                crate::jfview::open(&app);
-            }
-        });
         app.update_media_buttons();
-        let weak = Rc::downgrade(&app);
-        mediathek_button.connect_clicked(move |_| {
-            if let Some(app) = weak.upgrade() {
-                crate::mediathek::open(&app);
-            }
-        });
         let weak = Rc::downgrade(&app);
         manage_button.connect_clicked(move |_| {
             if let Some(app) = weak.upgrade() {
@@ -796,12 +761,13 @@ impl App {
     fn update_source_indicator(&self) {
         let media = crate::layer::open_media(self);
         let live = media.is_none() && self.vod.borrow().is_none() && self.current.get().is_some();
-        let (oer, jelly) = match (media, self.vod.borrow().as_ref()) {
-            (Some(crate::layer::Media::Oer), _) => (true, false),
-            (Some(crate::layer::Media::Jellyfin), _) => (false, true),
-            (None, Some(Vod::Oer(_))) => (true, false),
-            (None, Some(Vod::Jelly(_))) => (false, true),
-            (None, Some(Vod::File(_)) | None) => (false, false),
+        // Kennung der Bibliothek, unter deren Knopf die Linie steht.
+        let shown: Option<String> = match (media, self.vod.borrow().as_ref()) {
+            (Some(crate::layer::Media::Oer), _) => Some(tvjoe_core::settings::LIBRARY_OER.into()),
+            (Some(crate::layer::Media::Server(id)), _) => Some(id),
+            (None, Some(Vod::Oer(_))) => Some(tvjoe_core::settings::LIBRARY_OER.into()),
+            (None, Some(Vod::Jelly(j))) => Some(j.library.clone()),
+            (None, Some(Vod::File(_)) | None) => None,
         };
         let mut buttons: Vec<(gtk::Button, bool)> = self
             .source_buttons
@@ -809,8 +775,9 @@ impl App {
             .iter()
             .map(|(n, b)| (b.clone(), live && *n == self.active.get()))
             .collect();
-        buttons.push((self.mediathek_button.clone(), oer));
-        buttons.push((self.jellyfin_button.clone(), jelly));
+        for (id, b, _) in self.library_buttons.borrow().iter() {
+            buttons.push((b.clone(), shown.as_deref() == Some(id.as_str())));
+        }
         for (b, on) in buttons {
             if on {
                 b.add_css_class("tvjoe-source-active");
@@ -822,9 +789,9 @@ impl App {
 
     /// Knöpfe der Mediatheken nach den Einstellungen ein-/ausblenden; Jellyfin-Logo laden.
     pub fn update_media_buttons(self: &Rc<Self>) {
-        let (oer, jelly, on) = {
+        let (libraries, on) = {
             let s = self.settings.borrow();
-            (s.mediathek_oer, s.jellyfin_enabled, s.enabled_sources())
+            (s.enabled_libraries(), s.enabled_sources())
         };
         self.build_source_buttons(&on);
         // Gezeigte Empfangsquelle ausgeschaltet: auf die erste eingeschaltete wechseln; sind
@@ -837,12 +804,60 @@ impl App {
                 self.message(tr("Keine Empfangsquelle eingeschaltet – Einstellungen → Empfang"));
             }
         }
-        self.mediathek_button.set_visible(oer);
-        self.jellyfin_button.set_visible(jelly);
-        if jelly {
-            crate::jellyfin::load_logo(self);
+        self.build_library_buttons(&libraries);
+        if libraries.iter().any(|l| l.kind == "jellyfin") {
+            for l in libraries.iter().filter(|l| l.kind == "jellyfin") {
+                crate::jellyfin::load_logo(self, &l.id);
+            }
             crate::jellyfin::start_background(self);
         }
+    }
+
+    /// Knöpfe der eingeschalteten Bibliotheken hinter die der Empfangsquellen setzen.
+    fn build_library_buttons(self: &Rc<Self>, libraries: &[tvjoe_core::settings::Library]) {
+        for (_, b, _) in self.library_buttons.borrow_mut().drain(..) {
+            self.sources_box.remove(&b);
+        }
+        for l in libraries {
+            let jelly = l.kind == "jellyfin";
+            // Server: Logo des Servers (einfarbig), bis es geladen ist ein Server-Symbol.
+            let icon = if !l.icon.is_empty() {
+                l.icon.as_str()
+            } else if jelly {
+                "network-server-symbolic"
+            } else {
+                "folder-videos-symbolic"
+            };
+            let image = gtk::Image::builder().icon_name(icon).pixel_size(18).build();
+            let title = if !l.title.is_empty() {
+                l.title.clone()
+            } else if jelly {
+                "Jellyfin".to_string()
+            } else {
+                tr("ÖR-Mediathek").to_string()
+            };
+            let b = gtk::Button::builder()
+                .child(&image)
+                .tooltip_text(&title)
+                .css_classes(["tvjoe-source"])
+                .build();
+            let (weak, id) = (Rc::downgrade(self), l.id.clone());
+            b.connect_clicked(move |_| {
+                let Some(app) = weak.upgrade() else { return };
+                if !jelly {
+                    crate::mediathek::open(&app);
+                } else if crate::jellyfin::account(&id).is_none() {
+                    crate::mediatheken::open(&app, &id, &app.window);
+                } else {
+                    crate::jfview::open(&app, &id);
+                }
+            });
+            self.sources_box.append(&b);
+            self.library_buttons
+                .borrow_mut()
+                .push((l.id.clone(), b, image));
+        }
+        self.update_source_indicator();
     }
 
     /// Knöpfe der eingeschalteten Empfangsquellen vor Mediathek und Jellyfin setzen.
@@ -899,10 +914,22 @@ impl App {
         }
     }
 
-    /// Logo des Jellyfin-Servers als weiße Fläche in den Knopf.
-    pub fn set_jellyfin_logo(&self, path: &Path) {
-        if let Some(t) = crate::logos::white_from_dark(path) {
-            self.jellyfin_logo.set_paintable(Some(&t));
+    /// Logo eines Servers als weiße Fläche in den Knopf seiner Bibliothek (nur ohne eigenes
+    /// Symbol).
+    pub fn set_library_logo(&self, library: &str, path: &Path) {
+        let own_icon = self
+            .settings
+            .borrow()
+            .library(library)
+            .is_some_and(|l| !l.icon.is_empty());
+        if own_icon {
+            return;
+        }
+        let Some(t) = crate::logos::white_from_dark(path) else { return };
+        for (id, _, image) in self.library_buttons.borrow().iter() {
+            if id == library {
+                image.set_paintable(Some(&t));
+            }
         }
     }
 
@@ -1908,12 +1935,18 @@ impl App {
     }
 
     /// Jellyfin-Eintrag abspielen; `rest` (Folgen, Teile einer Sammlung) laufen danach.
-    pub fn play_jellyfin(self: &Rc<Self>, item: &Item, start: Option<f64>, rest: Vec<Item>) {
+    pub fn play_jellyfin(
+        self: &Rc<Self>,
+        library: &str,
+        item: &Item,
+        start: Option<f64>,
+        rest: Vec<Item>,
+    ) {
         let rest = rest
             .into_iter()
-            .map(|i| Vod::Jelly(JellyVod::new(i)))
+            .map(|i| Vod::Jelly(JellyVod::new(library, i)))
             .collect();
-        self.play_vod(Vod::Jelly(JellyVod::new(item.clone())), start, rest);
+        self.play_vod(Vod::Jelly(JellyVod::new(library, item.clone())), start, rest);
     }
 
     /// Datei aus der Ablage abspielen (Aufnahme).
@@ -1940,7 +1973,7 @@ impl App {
         // Liegt die Sendung vollständig in der Ablage, spielt die lokale Datei.
         let local = match &vod {
             Vod::Oer(film) => crate::ablage::local_file("oer", &film.url),
-            Vod::Jelly(j) => crate::ablage::local_file("jellyfin", &j.item.id),
+            Vod::Jelly(j) => crate::ablage::local_file(&j.library, &j.item.id),
             Vod::File(f) => Some(f.path.clone()),
         };
         self.vod_local.set(local.is_some());
@@ -1998,12 +2031,16 @@ impl App {
     /// Jellyfin: Quelle beim Server erfragen (Original oder umgerechnet), dann laden und den
     /// Start melden. Der Anmeldekopf geht nur mit diesem Stream an den Jellyfin-Server.
     fn load_jellyfin(self: &Rc<Self>, j: &JellyVod, start: Option<f64>) {
-        let Some(acc) = crate::jellyfin::account() else {
+        let Some(acc) = crate::jellyfin::account(&j.library) else {
             self.msg
                 .show(tr("Jellyfin: nicht angemeldet"), self.overlay_secs());
             return;
         };
-        let max_kbps = self.settings.borrow().jellyfin_max_kbps;
+        let max_kbps = self
+            .settings
+            .borrow()
+            .library(&j.library)
+            .map_or(0, |l| l.max_kbps);
         let (id, session) = (j.item.id.clone(), j.session.clone());
         let (tx, rx) = async_channel::bounded(1);
         let a = acc.clone();

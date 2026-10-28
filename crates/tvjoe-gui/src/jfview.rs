@@ -36,7 +36,8 @@ enum Tab {
 }
 
 thread_local! {
-    static VIEW: RefCell<Option<Rc<JfView>>> = const { RefCell::new(None) };
+    /// Ansicht je Bibliothek (Kennung der Instanz).
+    static VIEWS: RefCell<HashMap<String, Rc<JfView>>> = RefCell::new(HashMap::new());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -176,9 +177,9 @@ fn label(text: &str, class: &str) -> gtk::Label {
 
 /// Abspielen im Hauptfenster; als Ebene schließt sich die Ansicht, als Fenster kommt das
 /// Hauptfenster nach vorn.
-fn play(app: &Rc<App>, item: &Item, start: Option<f64>, rest: Vec<Item>) {
-    app.play_jellyfin(item, start, rest);
-    if let Some(v) = VIEW.with(|v| v.borrow().clone()) {
+fn play(app: &Rc<App>, library: &str, item: &Item, start: Option<f64>, rest: Vec<Item>) {
+    app.play_jellyfin(library, item, start, rest);
+    if let Some(v) = VIEWS.with(|v| v.borrow().get(library).cloned()) {
         let view: Rc<dyn crate::layer::View> = v;
         let in_layer = crate::layer::window_of(app, &view)
             .is_some_and(|w| w == *app.window.upcast_ref::<gtk::Window>());
@@ -202,10 +203,10 @@ struct Stored {
 }
 
 impl Stored {
-    fn load() -> Self {
-        let keys = crate::ablage::stored_keys("jellyfin");
+    fn load(library: &str) -> Self {
+        let keys = crate::ablage::stored_keys(library);
         let mut series: HashMap<String, i64> = HashMap::new();
-        if let Some(d) = db() {
+        if let Some(d) = db(library) {
             for id in keys.iter().filter_map(|k| d.item(k)?.series_id) {
                 *series.entry(id).or_default() += 1;
             }
@@ -232,6 +233,8 @@ impl Stored {
 
 struct JfView {
     app: Weak<App>,
+    /// Bibliothek (Kennung der Instanz).
+    source: String,
     body: gtk::Widget,
     header_start: gtk::Box,
     header_center: gtk::Widget,
@@ -255,13 +258,13 @@ struct JfView {
 }
 
 /// Jellyfin-Eintrag aus der Bibliothek (Ablage).
-pub fn item(id: &str) -> Option<Item> {
-    db()?.item(id)
+pub fn item(library: &str, id: &str) -> Option<Item> {
+    db(library)?.item(id)
 }
 
 /// Folgen einer Staffel in der Bibliothek (Ablage: „Prüfen“).
-pub fn season_count(series_id: &str, season: Option<i64>) -> usize {
-    db().map_or(0, |d| {
+pub fn season_count(library: &str, series_id: &str, season: Option<i64>) -> usize {
+    db(library).map_or(0, |d| {
         d.episodes(series_id)
             .iter()
             .filter(|e| e.season_no == season)
@@ -269,19 +272,19 @@ pub fn season_count(series_id: &str, season: Option<i64>) -> usize {
     })
 }
 
-fn db() -> Option<JellyfinLibrary> {
-    paths::jellyfin_db()
+fn db(library: &str) -> Option<JellyfinLibrary> {
+    paths::library_db(library)
         .filter(|p| p.exists())
         .and_then(|p| JellyfinLibrary::open(&p).ok())
 }
 
-pub fn open(app: &Rc<App>) {
-    let existing = VIEW.with(|v| v.borrow().clone());
+pub fn open(app: &Rc<App>, library: &str) {
+    let existing = VIEWS.with(|v| v.borrow().get(library).cloned());
     let view = match existing {
         Some(v) => v,
         None => {
-            let v = JfView::new(app);
-            VIEW.with(|slot| *slot.borrow_mut() = Some(v.clone()));
+            let v = JfView::new(app, library);
+            VIEWS.with(|slot| slot.borrow_mut().insert(library.to_string(), v.clone()));
             v
         }
     };
@@ -290,8 +293,8 @@ pub fn open(app: &Rc<App>) {
 }
 
 /// Nach einem Abgleich oder geänderten Einstellungen: eine offene Ansicht neu aufbauen.
-pub fn refresh() {
-    if let Some(v) = VIEW.with(|v| v.borrow().clone()) {
+pub fn refresh(library: &str) {
+    if let Some(v) = VIEWS.with(|v| v.borrow().get(library).cloned()) {
         if v.body.is_mapped() && !v.detail_open.get() {
             v.rebuild();
         }
@@ -300,15 +303,16 @@ pub fn refresh() {
 
 /// Selbstprobe: öffnen, Reiter wählen, erste Kachel öffnen.
 pub fn probe_open(app: &Rc<App>, tab: usize) -> Option<gtk::Window> {
-    open(app);
-    let v = VIEW.with(|v| v.borrow().clone())?;
+    let library = tvjoe_core::settings::LIBRARY_JELLYFIN;
+    open(app, library);
+    let v = VIEWS.with(|v| v.borrow().get(library).cloned())?;
     v.tabs.get(tab)?.set_active(true);
     let view: Rc<dyn crate::layer::View> = v;
     crate::layer::window_of(app, &view)
 }
 
 pub fn probe_first(app: &Rc<App>) -> Option<gtk::Window> {
-    let v = VIEW.with(|v| v.borrow().clone())?;
+    let v = VIEWS.with(|v| v.borrow().get(tvjoe_core::settings::LIBRARY_JELLYFIN).cloned())?;
     let first = v.items.borrow().first().cloned()?;
     v.activate(&first);
     let view: Rc<dyn crate::layer::View> = v;
@@ -317,7 +321,11 @@ pub fn probe_first(app: &Rc<App>) -> Option<gtk::Window> {
 
 impl crate::layer::View for JfView {
     fn title(&self) -> String {
-        "Jellyfin".to_string()
+        self.app
+            .upgrade()
+            .and_then(|a| a.settings().library(&self.source).map(|l| l.title.clone()))
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| "Jellyfin".to_string())
     }
     fn min_size(&self) -> (i32, i32) {
         MIN_SIZE
@@ -346,12 +354,13 @@ impl crate::layer::View for JfView {
         self.detail_open.get()
     }
     fn media(&self) -> Option<crate::layer::Media> {
-        Some(crate::layer::Media::Jellyfin)
+        Some(crate::layer::Media::Server(self.source.clone()))
     }
 }
 
 impl JfView {
-    fn new(app: &Rc<App>) -> Rc<Self> {
+    fn new(app: &Rc<App>, library: &str) -> Rc<Self> {
+        let lib = app.settings().library(library).cloned().unwrap_or_default();
         let tabs = [
             icons::toggle(icons::FILM, tr("Filme")),
             icons::toggle(icons::COLLECTION, tr("Sammlungen")),
@@ -375,7 +384,7 @@ impl JfView {
             .label("A–Z")
             .group(&newest)
             .build();
-        if app.settings().jellyfin_az {
+        if lib.az {
             az.set_active(true);
         } else {
             newest.set_active(true);
@@ -390,7 +399,7 @@ impl JfView {
         let stored_only = icons::toggle(icons::DOWNLOADED, tr("Geladen"));
         stored_only.set_valign(gtk::Align::Center);
         stored_only.add_css_class("tvjoe-filter");
-        stored_only.set_active(app.settings().jellyfin_stored_only);
+        stored_only.set_active(lib.stored_only);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
             .tooltip_text(tr("Einstellungen von Jellyfin"))
@@ -458,11 +467,12 @@ impl JfView {
             Some((i, r)) => (Some(i), Some(r)),
             None => (None, None),
         };
-        let server = crate::jellyfin::account()
+        let server = crate::jellyfin::account(library)
             .map(|a| a.server)
             .unwrap_or_default();
         let v = Rc::new(Self {
             app: Rc::downgrade(app),
+            source: library.to_string(),
             body: body.upcast(),
             header_start,
             header_center: tab_box.upcast(),
@@ -533,7 +543,9 @@ impl JfView {
         az.connect_toggled(move |b| {
             let Some(v) = weak.upgrade() else { return };
             if let Some(app) = v.app.upgrade() {
-                app.settings_mut().jellyfin_az = b.is_active();
+                if let Some(l) = app.settings_mut().library_mut(&v.source) {
+                    l.az = b.is_active();
+                }
                 app.save_settings();
             }
             v.reload();
@@ -542,7 +554,9 @@ impl JfView {
         stored_only.connect_toggled(move |b| {
             let Some(v) = weak.upgrade() else { return };
             if let Some(app) = v.app.upgrade() {
-                app.settings_mut().jellyfin_stored_only = b.is_active();
+                if let Some(l) = app.settings_mut().library_mut(&v.source) {
+                    l.stored_only = b.is_active();
+                }
                 app.save_settings();
             }
             v.close_detail();
@@ -552,7 +566,7 @@ impl JfView {
         prefs_button.connect_clicked(move |_| {
             let Some(v) = weak.upgrade() else { return };
             if let Some(app) = v.app.upgrade() {
-                crate::prefs::open_at(&app, Some("jellyfin"), &v.body);
+                crate::mediatheken::open(&app, &v.source, &v.body);
             }
         });
         v
@@ -561,20 +575,24 @@ impl JfView {
     fn hidden(&self) -> Vec<String> {
         self.app
             .upgrade()
-            .map(|a| a.settings().jellyfin_hidden.clone())
+            .and_then(|a| a.settings().library(&self.source).map(|l| l.hidden.clone()))
             .unwrap_or_default()
     }
 
     fn az(&self) -> bool {
-        self.app.upgrade().is_some_and(|a| a.settings().jellyfin_az)
+        self.app
+            .upgrade()
+            .and_then(|a| a.settings().library(&self.source).map(|l| l.az))
+            .unwrap_or(false)
     }
 
     /// Schalter „Geladen“: Kennungen des Heruntergeladenen, sonst `None`.
     fn stored_only(&self) -> Option<Stored> {
         self.app
             .upgrade()
-            .is_some_and(|a| a.settings().jellyfin_stored_only)
-            .then(Stored::load)
+            .and_then(|a| a.settings().library(&self.source).map(|l| l.stored_only))
+            .unwrap_or(false)
+            .then(|| Stored::load(&self.source))
     }
 
     fn rebuild(self: &Rc<Self>) {
@@ -588,7 +606,7 @@ impl JfView {
             self.libbar.remove(&c);
         }
         let hidden = self.hidden();
-        let libs: Vec<String> = db()
+        let libs: Vec<String> = db(&self.source)
             .map(|d| d.libraries())
             .unwrap_or_default()
             .into_iter()
@@ -670,7 +688,7 @@ impl JfView {
 
     /// Kacheln des Reiters neu laden.
     fn reload(self: &Rc<Self>) {
-        let Some(db) = db() else {
+        let Some(db) = db(&self.source) else {
             self.items.borrow_mut().clear();
             self.show_empty(
                 tr("Bibliothek wird abgeglichen"),
@@ -750,12 +768,12 @@ impl JfView {
                 .join(" · "),
             };
             let badge = (!matches!(it.kind.as_str(), "Series" | "BoxSet"))
-                .then(|| crate::ablage::item_badge(&self.app, it));
+                .then(|| crate::ablage::item_badge(&self.app, &self.source, it));
             let (tile, poster) = tile(it, &sub, badge.as_ref());
             match it.kind.as_str() {
-                "Series" => series_menu(&self.app, &tile, it.id.clone()),
+                "Series" => series_menu(&self.app, &self.source, &tile, it.id.clone()),
                 "BoxSet" => {}
-                _ => item_menu(&self.app, &tile, it.clone()),
+                _ => item_menu(&self.app, &self.source, &tile, it.clone()),
             }
             self.flow.append(&tile);
             if let (Some(img), Some(url)) =
@@ -773,18 +791,18 @@ impl JfView {
     fn activate(self: &Rc<Self>, it: &Item) {
         match it.kind.as_str() {
             "BoxSet" => {
-                let parts = db().map(|d| d.collection(&it.id)).unwrap_or_default();
+                let parts = db(&self.source).map(|d| d.collection(&it.id)).unwrap_or_default();
                 self.show_list(it, self.only_stored(parts), false);
             }
             "Series" => {
-                let eps = db().map(|d| d.episodes(&it.id)).unwrap_or_default();
+                let eps = db(&self.source).map(|d| d.episodes(&it.id)).unwrap_or_default();
                 self.show_list(it, self.only_stored(eps), true);
             }
             "Episode" => {
                 let series = it
                     .series_id
                     .as_deref()
-                    .and_then(|id| db().and_then(|d| d.item(id)));
+                    .and_then(|id| db(&self.source).and_then(|d| d.item(id)));
                 match series {
                     Some(s) => self.activate(&s),
                     None => self.show_movie(it),
@@ -938,7 +956,7 @@ impl JfView {
             None,
             Vec::new(),
         ));
-        buttons.append(&crate::ablage::item_store_button(&self.app, it));
+        buttons.append(&crate::ablage::item_store_button(&self.app, &self.source, it));
         right.append(&buttons);
         let desc = label(it.overview.trim(), "tvjoe-mt-detail-desc");
         desc.set_margin_top(10);
@@ -973,7 +991,7 @@ impl JfView {
         b.connect_clicked(move |_| {
             let Some(v) = weak.upgrade() else { return };
             if let Some(app) = v.app.upgrade() {
-                play(&app, &it, start, rest.clone());
+                play(&app, &v.source, &it, start, rest.clone());
             }
         });
         b
@@ -1047,16 +1065,18 @@ impl JfView {
             .build();
         {
             let (app, list, current) = (self.app.clone(), list.clone(), current.clone());
+            let library = self.source.clone();
             download.connect_clicked(move |_| {
                 let Some(app) = app.upgrade() else { return };
                 let season = current.get();
                 for it in list.iter().filter(|it| season.is_none_or(|s| it.season_no == s)) {
-                    crate::ablage::fetch_item(&app, it, tvjoe_core::ablage::Art::Download);
+                    crate::ablage::fetch_item(&app, &library, it, tvjoe_core::ablage::Art::Download);
                 }
             });
         }
         let fill = {
             let (rows, list, app) = (rows.clone(), list.clone(), self.app.clone());
+            let library = self.source.clone();
             let (current, download) = (current.clone(), download.clone());
             move |season: Option<Option<i64>>| {
                 current.set(season);
@@ -1068,8 +1088,8 @@ impl JfView {
                 }
                 for (i, it) in list.iter().enumerate() {
                     if season.is_none_or(|s| it.season_no == s) {
-                        let row = list_row(i, it, series, crate::ablage::item_badge(&app, it));
-                        item_menu(&app, &row, it.clone());
+                        let row = list_row(i, it, series, crate::ablage::item_badge(&app, &library, it));
+                        item_menu(&app, &library, &row, it.clone());
                         rows.append(&row);
                     }
                 }
@@ -1113,7 +1133,7 @@ impl JfView {
                     }
                 });
                 // Rechtsklick auf den Staffelknopf: diese Staffel oder alle Folgen laden.
-                let (weak, list) = (self.app.clone(), list.clone());
+                let (weak, list, library) = (self.app.clone(), list.clone(), self.source.clone());
                 crate::ablage::context_menu(&b, move || {
                     let Some(app) = weak.upgrade() else {
                         return Vec::new();
@@ -1122,10 +1142,10 @@ impl JfView {
                         list.iter().filter(|e| e.season_no == s).cloned().collect();
                     let all: Vec<Item> = list.to_vec();
                     let fetch = |items: Vec<Item>| -> Box<dyn Fn()> {
-                        let app = app.clone();
+                        let (app, library) = (app.clone(), library.clone());
                         Box::new(move || {
                             for it in &items {
-                                crate::ablage::fetch_item(&app, it, tvjoe_core::ablage::Art::Download);
+                                crate::ablage::fetch_item(&app, &library, it, tvjoe_core::ablage::Art::Download);
                             }
                         })
                     };
@@ -1166,7 +1186,7 @@ impl JfView {
                 return;
             };
             let start = seen_fraction(it).map(|_| it.position_secs);
-            play(&app, it, start, l[i + 1..].to_vec());
+            play(&app, &v.source, it, start, l[i + 1..].to_vec());
         });
         let poster = self.big_poster(head);
         self.present_detail(&self.page(&poster, &right));
@@ -1189,34 +1209,35 @@ fn jf_season_label(list: &[Item], season: Option<Option<i64>>) -> String {
 }
 
 /// Rechtsklick auf Film oder Folge: Herunterladen, Zwischenspeichern oder Abbrechen.
-fn item_menu<W: IsA<gtk::Widget>>(app: &Weak<App>, widget: &W, item: Item) {
-    let weak = app.clone();
+fn item_menu<W: IsA<gtk::Widget>>(app: &Weak<App>, library: &str, widget: &W, item: Item) {
+    let (weak, library) = (app.clone(), library.to_string());
     crate::ablage::context_menu(widget, move || {
         let Some(app) = weak.upgrade() else {
             return Vec::new();
         };
         let (i1, i2, a2) = (item.clone(), item.clone(), app.clone());
+        let (l1, l2) = (library.clone(), library.clone());
         crate::ablage::entries_for(
-            "jellyfin",
+            &library,
             &item.id,
-            move || crate::ablage::fetch_item(&app, &i1, tvjoe_core::ablage::Art::Download),
-            move || crate::ablage::fetch_item(&a2, &i2, tvjoe_core::ablage::Art::Cache),
+            move || crate::ablage::fetch_item(&app, &l1, &i1, tvjoe_core::ablage::Art::Download),
+            move || crate::ablage::fetch_item(&a2, &l2, &i2, tvjoe_core::ablage::Art::Cache),
         )
     });
 }
 
 /// Rechtsklick auf eine Serie: alle Folgen oder eine Staffel herunterladen.
-fn series_menu<W: IsA<gtk::Widget>>(app: &Weak<App>, widget: &W, series_id: String) {
-    let weak = app.clone();
+fn series_menu<W: IsA<gtk::Widget>>(app: &Weak<App>, library: &str, widget: &W, series_id: String) {
+    let (weak, library) = (app.clone(), library.to_string());
     crate::ablage::context_menu(widget, move || {
         let mut out: Vec<(String, Box<dyn Fn()>)> = Vec::new();
         let Some(app) = weak.upgrade() else { return out };
-        let episodes = db().map(|d| d.episodes(&series_id)).unwrap_or_default();
+        let episodes = db(&library).map(|d| d.episodes(&series_id)).unwrap_or_default();
         let fetch = |list: Vec<Item>| -> Box<dyn Fn()> {
-            let app = app.clone();
+            let (app, library) = (app.clone(), library.clone());
             Box::new(move || {
                 for it in &list {
-                    crate::ablage::fetch_item(&app, it, tvjoe_core::ablage::Art::Download);
+                    crate::ablage::fetch_item(&app, &library, it, tvjoe_core::ablage::Art::Download);
                 }
             })
         };

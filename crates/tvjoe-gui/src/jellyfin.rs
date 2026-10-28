@@ -1,8 +1,10 @@
-//! Jellyfin: Einstellungen (Server, Anmeldung per Quick Connect, Bandbreite, Bibliotheken),
-//! Abgleich der Bibliothek im Hintergrund und das Logo des Servers für den Knopf in der
-//! Kopfleiste. Die Ansicht folgt im nächsten Schritt.
+//! Jellyfin: Einstellungen je Server-Bibliothek (Server, Anmeldung per Quick Connect,
+//! Bandbreite, Bibliotheken des Servers), Abgleich im Hintergrund und das Logo des Servers für
+//! den Knopf in der Kopfleiste. Mehrere Jellyfin-Server sind möglich; jede Bibliothek hat ihre
+//! Kennung (`jellyfin`, `jellyfin-2`, …), danach Zugang, Zwischenspeicher und Logo.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -12,6 +14,7 @@ use adw::prelude::*;
 use gtk::glib;
 use tvjoe_core::jellyfin::{self, Account};
 use tvjoe_core::jellyfin_lib::JellyfinLibrary;
+use tvjoe_core::settings::Library;
 use tvjoe_core::{Settings, epg, paths, tf, tr};
 
 use crate::app::App;
@@ -23,52 +26,70 @@ const FULL_EVERY_SECS: i64 = 24 * 3600;
 const CHANGES_EVERY_SECS: u32 = 30 * 60;
 
 thread_local! {
-    static SYNCING: Cell<bool> = const { Cell::new(false) };
+    /// Bibliotheken, deren Abgleich gerade läuft.
+    static SYNCING: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
     static TIMER: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Stufen der Bandbreitenbegrenzung (kbit/s, 0 = aus).
 const LIMITS: [u32; 4] = [0, 2000, 4000, 8000];
 
-/// Gespeicherter Zugang, falls angemeldet.
-pub fn account() -> Option<Account> {
-    paths::jellyfin_account_path().and_then(|p| Account::load(&p))
+/// Gespeicherter Zugang einer Bibliothek, falls angemeldet.
+pub fn account(library: &str) -> Option<Account> {
+    paths::library_account_path(library).and_then(|p| Account::load(&p))
 }
 
-/// Abgleich im Hintergrund starten (30 s nach dem Start, dann alle 30 Minuten), wenn Jellyfin
-/// eingeschaltet und angemeldet ist.
+/// Eingeschaltete Jellyfin-Bibliotheken.
+fn jellyfin_libraries(app: &App) -> Vec<String> {
+    app.settings()
+        .enabled_libraries()
+        .into_iter()
+        .filter(|l| l.kind == "jellyfin")
+        .map(|l| l.id)
+        .collect()
+}
+
+/// Abgleich im Hintergrund starten (30 s nach dem Start, dann alle 30 Minuten) für jede
+/// eingeschaltete und angemeldete Jellyfin-Bibliothek.
 pub fn start_background(app: &Rc<App>) {
+    let all = |app: &Rc<App>| {
+        for id in jellyfin_libraries(app) {
+            sync(app, &id);
+        }
+    };
     // Später erneut (z. B. nach den Einstellungen): sofort abgleichen.
     if TIMER.with(|t| t.replace(true)) {
-        sync(app);
+        all(app);
         return;
     }
     // Beim Start erst nach 30 s, damit Fenster und erstes Bild nicht warten.
     let weak = Rc::downgrade(app);
     glib::timeout_add_seconds_local_once(30, move || {
         if let Some(app) = weak.upgrade() {
-            sync(&app);
+            all(&app);
         }
     });
     let weak = Rc::downgrade(app);
     glib::timeout_add_seconds_local(CHANGES_EVERY_SECS, move || match weak.upgrade() {
         Some(app) => {
-            sync(&app);
+            all(&app);
             glib::ControlFlow::Continue
         }
         None => glib::ControlFlow::Break,
     });
 }
 
-/// Ein Abgleich (voll, wenn älter als ein Tag oder leer; sonst nur Änderungen).
-pub fn sync(app: &Rc<App>) {
-    if !app.settings().jellyfin_enabled || SYNCING.with(|s| s.get()) {
+/// Ein Abgleich einer Bibliothek (voll, wenn älter als ein Tag oder leer; sonst nur Änderungen).
+pub fn sync(app: &Rc<App>, library: &str) {
+    let enabled = app.settings().library(library).is_some_and(|l| l.enabled);
+    if !enabled || SYNCING.with(|s| s.borrow().contains(library)) {
         return;
     }
-    let (Some(acc), Some(db)) = (account(), paths::jellyfin_db()) else {
+    let (Some(acc), Some(db)) = (account(library), paths::library_db(library)) else {
         return;
     };
-    SYNCING.with(|s| s.set(true));
+    SYNCING.with(|s| s.borrow_mut().insert(library.to_string()));
+    let library = library.to_string();
     let (tx, rx) = async_channel::bounded(1);
     std::thread::spawn(move || {
         let run = || -> Result<String, String> {
@@ -89,20 +110,20 @@ pub fn sync(app: &Rc<App>) {
     });
     glib::spawn_future_local(async move {
         let Ok(result) = rx.recv().await else { return };
-        SYNCING.with(|s| s.set(false));
+        SYNCING.with(|s| s.borrow_mut().remove(&library));
         match result {
             Ok(text) => {
-                trace(&format!("Jellyfin-Abgleich {text}"));
-                crate::jfview::refresh();
+                trace(&format!("Jellyfin-Abgleich {library}: {text}"));
+                crate::jfview::refresh(&library);
             }
-            Err(e) => eprintln!("tvjoe: Jellyfin-Abgleich: {e}"),
+            Err(e) => eprintln!("tvjoe: Jellyfin-Abgleich {library}: {e}"),
         }
     });
 }
 
 /// Stand des Zwischenspeichers für die Einstellungen.
-fn library_status() -> String {
-    let Some(lib) = paths::jellyfin_db()
+fn library_status(library: &str) -> String {
+    let Some(lib) = paths::library_db(library)
         .filter(|p| p.exists())
         .and_then(|p| JellyfinLibrary::open(&p).ok())
     else {
@@ -125,77 +146,35 @@ fn library_status() -> String {
 }
 
 /// Serveradresse: aus den Einstellungen, sonst aus dem gespeicherten Zugang.
-fn server_of(s: &Settings) -> String {
-    let from_settings = jellyfin::normalize_server(&s.jellyfin_server);
+fn server_of(l: &Library) -> String {
+    let from_settings = jellyfin::normalize_server(&l.server);
     if from_settings.is_empty() {
-        account().map(|a| a.server).unwrap_or_default()
+        account(&l.id).map(|a| a.server).unwrap_or_default()
     } else {
         from_settings
     }
 }
 
+/// Dateiname im Zwischenspeicher je Bibliothek (die erste Jellyfin-Bibliothek wie bis 0.1.4).
+fn cache_name(library: &str, suffix: &str) -> Option<PathBuf> {
+    let name = if library == tvjoe_core::settings::LIBRARY_JELLYFIN {
+        format!("jellyfin-{suffix}")
+    } else {
+        format!("{library}-{suffix}")
+    };
+    paths::cache_dir().map(|d| d.join(name))
+}
+
 /// Weiße Fassung des Logos (Bauchbinde, Info).
-pub fn white_logo_path() -> Option<PathBuf> {
-    paths::cache_dir().map(|d| d.join("jellyfin-logo-weiss.png"))
-}
-
-/// Symbolname für den Reiter „Jellyfin“ in den Einstellungen: das weiße Logo als eigenes
-/// Symbol (der Reiterbalken nimmt nur Namen aus dem Symbolthema; als `.symbolic.png` färbt
-/// GTK es in der Textfarbe, passend zu hell und dunkel). Ohne Logo das Server-Symbol.
-fn prefs_icon() -> &'static str {
-    const NAME: &str = "tvjoe-jellyfin-symbolic";
-    let (Some(src), Some(dir)) = (
-        white_logo_path().filter(|p| p.exists()),
-        crate::icons::dir(),
-    ) else {
-        return "network-server-symbolic";
-    };
-    let dst = dir.join(format!("{NAME}.symbolic.png"));
-    let modified = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-    if (modified(&dst).is_none() || modified(&dst) < modified(&src)) && !save_symbolic(&src, &dst) {
-        return "network-server-symbolic";
-    }
-    NAME
-}
-
-/// Symbolische PNG ablegen: GTK liest die Farbkanäle als Rollen (schwarz = Textfarbe,
-/// weiß würde zur Fehlerfarbe rot); daher die Form schwarz mit der Transparenz des Logos.
-fn save_symbolic(src: &std::path::Path, dst: &std::path::Path) -> bool {
-    let Ok(pb) = gtk::gdk_pixbuf::Pixbuf::from_file(src) else {
-        return false;
-    };
-    let Some(pb) = pb.add_alpha(false, 0, 0, 0).ok() else {
-        return false;
-    };
-    let (w, h, rs) = (
-        pb.width() as usize,
-        pb.height() as usize,
-        pb.rowstride() as usize,
-    );
-    let mut px = pb.read_pixel_bytes().to_vec();
-    for y in 0..h {
-        for x in 0..w {
-            let i = y * rs + x * 4;
-            px[i..i + 3].fill(0);
-        }
-    }
-    let out = gtk::gdk_pixbuf::Pixbuf::from_bytes(
-        &gtk::glib::Bytes::from_owned(px),
-        gtk::gdk_pixbuf::Colorspace::Rgb,
-        true,
-        8,
-        w as i32,
-        h as i32,
-        rs as i32,
-    );
-    out.savev(dst, "png", &[]).is_ok()
+pub fn white_logo_path(library: &str) -> Option<PathBuf> {
+    cache_name(library, "logo-weiss.png")
 }
 
 /// Position an Jellyfin melden (im Hintergrund) und im Zwischenspeicher nachführen.
 /// `stop`: Wiedergabe endet (Jellyfin wertet dann „gesehen“ aus; Umrechnung beenden).
 pub fn report_position(j: &crate::vod::JellyVod, pos: f64, dur: f64, paused: bool, stop: bool) {
     let played = dur > 0.0 && pos >= dur * 0.9;
-    if let Some(lib) = paths::jellyfin_db()
+    if let Some(lib) = paths::library_db(&j.library)
         .filter(|p| p.exists())
         .and_then(|p| JellyfinLibrary::open(&p).ok())
     {
@@ -205,7 +184,7 @@ pub fn report_position(j: &crate::vod::JellyVod, pos: f64, dur: f64, paused: boo
             played || j.item.played,
         );
     }
-    let (Some(acc), Some(pb)) = (account(), j.playback.clone()) else {
+    let (Some(acc), Some(pb)) = (account(&j.library), j.playback.clone()) else {
         return;
     };
     let (id, session) = (j.item.id.clone(), j.session.clone());
@@ -230,19 +209,20 @@ pub fn report_position(j: &crate::vod::JellyVod, pos: f64, dur: f64, paused: boo
     }
 }
 
-fn logo_path() -> Option<PathBuf> {
-    paths::cache_dir().map(|d| d.join("jellyfin-logo.png"))
+fn logo_path(library: &str) -> Option<PathBuf> {
+    cache_name(library, "logo.png")
 }
 
 /// Logo des Servers für den Knopf: aus dem Cache, sonst im Hintergrund laden.
-pub fn load_logo(app: &Rc<App>) {
-    let Some(path) = logo_path() else { return };
+pub fn load_logo(app: &Rc<App>, library: &str) {
+    let Some(path) = logo_path(library) else { return };
     if path.exists() {
-        app.set_jellyfin_logo(&path);
-        make_white(&path);
+        app.set_library_logo(library, &path);
+        make_white(library, &path);
         return;
     }
-    let server = server_of(&app.settings());
+    let Some(l) = app.settings().library(library).cloned() else { return };
+    let server = server_of(&l);
     if server.is_empty() {
         return;
     }
@@ -263,13 +243,14 @@ pub fn load_logo(app: &Rc<App>) {
         let _ = tx.send_blocking(result);
     });
     let weak = Rc::downgrade(app);
+    let library = library.to_string();
     glib::spawn_future_local(async move {
         match rx.recv().await {
             Ok(Ok(())) => {
                 if let Some(app) = weak.upgrade() {
-                    app.set_jellyfin_logo(&path);
+                    app.set_library_logo(&library, &path);
                 }
-                make_white(&path);
+                make_white(&library, &path);
             }
             Ok(Err(e)) => trace(&format!("Jellyfin-Logo: {e}")),
             Err(_) => {}
@@ -277,23 +258,22 @@ pub fn load_logo(app: &Rc<App>) {
     });
 }
 
-fn make_white(path: &std::path::Path) {
-    if let Some(dst) = white_logo_path().filter(|p| !p.exists()) {
+fn make_white(library: &str, path: &std::path::Path) {
+    if let Some(dst) = white_logo_path(library).filter(|p| !p.exists()) {
         if let Err(e) = crate::logos::save_white_from_dark(path, &dst) {
             trace(&format!("Jellyfin-Logo weiß: {e}"));
         }
     }
 }
 
-/// Reiter „Jellyfin“ im Einstellungsfenster. Gibt die Seite und die Übernahme beim Schließen
-/// zurück.
-pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings) + 'static) {
-    let s = app.settings().clone();
-    let page = adw::PreferencesPage::builder()
-        .name("jellyfin")
-        .title("Jellyfin")
-        .icon_name(prefs_icon())
-        .build();
+/// Gruppen einer Jellyfin-Bibliothek für ihre Seite unter „Mediatheken“. Gibt die Gruppen und
+/// die Übernahme beim Schließen zurück.
+pub fn prefs_groups(
+    app: &Rc<App>,
+    library: &str,
+) -> (Vec<adw::PreferencesGroup>, impl Fn(&mut Settings) + 'static) {
+    let l = app.settings().library(library).cloned().unwrap_or_default();
+    let id = library.to_string();
 
     let server_group = adw::PreferencesGroup::builder()
         .title(tr("Server"))
@@ -301,7 +281,7 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
         .build();
     let server = adw::EntryRow::builder()
         .title(tr("Adresse (z. B. https://jellyfin.example.org)"))
-        .text(server_of(&s))
+        .text(server_of(&l))
         .build();
     let login_row = adw::ActionRow::builder().title(tr("Anmeldung")).build();
     let login_hint = adw::ActionRow::builder()
@@ -323,8 +303,8 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     server_group.add(&login_hint);
 
     let show_state = {
-        let (row, login, logout) = (login_row.clone(), login.clone(), logout.clone());
-        move || match account() {
+        let (row, login, logout, id) = (login_row.clone(), login.clone(), logout.clone(), id.clone());
+        move || match account(&id) {
             Some(a) => {
                 row.set_subtitle(&tf!(
                     "Angemeldet als {user} bei {server}",
@@ -345,8 +325,9 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     let show_state = Rc::new(show_state);
 
     let st = show_state.clone();
+    let lid = id.clone();
     logout.connect_clicked(move |_| {
-        if let (Some(a), Some(path)) = (account(), paths::jellyfin_account_path()) {
+        if let (Some(a), Some(path)) = (account(&lid), paths::library_account_path(&lid)) {
             std::thread::spawn(move || a.logout());
             let _ = std::fs::remove_file(path);
         }
@@ -354,13 +335,14 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     });
     let st = show_state.clone();
     let entry = server.clone();
+    let lid = id.clone();
     login.connect_clicked(move |b| {
         let url = jellyfin::normalize_server(&entry.text());
         if url.is_empty() {
             return;
         }
         entry.set_text(&url);
-        quick_connect(b, url, st.clone());
+        quick_connect(b, &lid, url, st.clone());
     });
 
     let traffic = adw::PreferencesGroup::builder()
@@ -378,7 +360,7 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
         .selected(
             LIMITS
                 .iter()
-                .position(|l| *l == s.jellyfin_max_kbps)
+                .position(|k| *k == l.max_kbps)
                 .unwrap_or(0) as u32,
         )
         .build();
@@ -387,9 +369,9 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     // Bibliotheken aus dem letzten Abgleich, je ein Schalter.
     let libs_group = adw::PreferencesGroup::builder()
         .title(tr("Bibliotheken"))
-        .description(library_status())
+        .description(library_status(library))
         .build();
-    let libs = paths::jellyfin_db()
+    let libs = paths::library_db(library)
         .filter(|p| p.exists())
         .and_then(|p| JellyfinLibrary::open(&p).ok())
         .map(|l| l.libraries())
@@ -403,37 +385,36 @@ pub fn prefs_page(app: &Rc<App>) -> (adw::PreferencesPage, impl Fn(&mut Settings
     }
     let lib_rows: Vec<(String, adw::SwitchRow)> = libs
         .into_iter()
-        .map(|l| {
+        .map(|sl| {
             let row = adw::SwitchRow::builder()
-                .title(&l.name)
-                .active(!s.jellyfin_hidden.contains(&l.name))
+                .title(&sl.name)
+                .active(!l.hidden.contains(&sl.name))
                 .build();
             libs_group.add(&row);
-            (l.name, row)
+            (sl.name, row)
         })
         .collect();
 
-    page.add(&server_group);
-    page.add(&traffic);
-    page.add(&libs_group);
     let apply = move |s: &mut Settings| {
-        s.jellyfin_server = jellyfin::normalize_server(&server.text());
-        s.jellyfin_max_kbps = LIMITS.get(limit.selected() as usize).copied().unwrap_or(0);
+        let Some(l) = s.library_mut(&id) else { return };
+        l.server = jellyfin::normalize_server(&server.text());
+        l.max_kbps = LIMITS.get(limit.selected() as usize).copied().unwrap_or(0);
         if !lib_rows.is_empty() {
-            s.jellyfin_hidden = lib_rows
+            l.hidden = lib_rows
                 .iter()
                 .filter(|(_, r)| !r.is_active())
                 .map(|(n, _)| n.clone())
                 .collect();
         }
     };
-    (page, apply)
+    (vec![server_group, traffic, libs_group], apply)
 }
 
 /// Quick Connect: Code anzeigen, im Hintergrund auf die Bestätigung warten (höchstens 5 min),
 /// dann den Zugang speichern.
-fn quick_connect(parent: &impl IsA<gtk::Widget>, server: String, done: Rc<dyn Fn()>) {
-    let device_id = account()
+fn quick_connect(parent: &impl IsA<gtk::Widget>, library: &str, server: String, done: Rc<dyn Fn()>) {
+    let library = library.to_string();
+    let device_id = account(&library)
         .map(|a| a.device_id)
         .unwrap_or_else(jellyfin::new_device_id);
     let dialog = adw::AlertDialog::new(Some(tr("Bei Jellyfin anmelden")), Some(tr("Verbinde …")));
@@ -489,7 +470,7 @@ fn quick_connect(parent: &impl IsA<gtk::Widget>, server: String, done: Rc<dyn Fn
                     code = code
                 )),
                 Step::Done(Ok(account)) => {
-                    let saved = paths::jellyfin_account_path()
+                    let saved = paths::library_account_path(&library)
                         .ok_or_else(|| tr("kein Konfigurationsordner").to_string())
                         .and_then(|p| account.save(&p));
                     match saved {

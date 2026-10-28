@@ -25,6 +25,7 @@ mod layer;
 mod logos;
 mod manage;
 mod mediathek;
+mod mediatheken;
 mod osd;
 mod player;
 mod prefs;

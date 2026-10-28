@@ -5,6 +5,7 @@
 //! - zusätzlich `TVJOE_SELFTEST_IMPORT=/liste.m3u`: Verwaltung und Import mit Vorschau.
 //! - zusätzlich `TVJOE_SELFTEST_MEDIATHEK=1`: Mediathek (lädt beim ersten Mal die Filmliste).
 //! - `TVJOE_SELFTEST_BAUCHBINDE=1` (nur diese Schritte): Höhe der Bauchbinde in allen Lagen.
+//! - `TVJOE_SELFTEST_MEDIATHEKEN=1` (nur diese Schritte): Reiter „Mediatheken“, Seite Jellyfin.
 //! - `TVJOE_SELFTEST_WECHSEL=1` (nur diese Schritte): Quellenwechsel SAT ↔ Internet-TV, Bildzähler.
 //! - `TVJOE_SELFTEST_UMZUG=/ziel` (nur diese Schritte, nur mit Testordnern): Ablage verschieben.
 //! - `TVJOE_SELFTEST_ABLAGE=1` (nur diese Schritte): Reiter „Ablage“, Gruppe, Prüfen, Seite „Über“.
@@ -517,6 +518,29 @@ const WECHSEL_STEPS: &[Step] = &[
     ("79b-zaehler", |p| { frames_trace(p, "Internet2 b"); main_window(p) }, 500),
 ];
 
+/// Mediatheken (`TVJOE_SELFTEST_MEDIATHEKEN=1`, nur diese Schritte): Reiter „Mediatheken“,
+/// Seite der Jellyfin-Bibliothek, Unterseite „Mediathek hinzufügen“.
+const MEDIATHEKEN_STEPS: &[Step] = &[
+    ("50-start", main_window, 4000),
+    (
+        "51-mediatheken",
+        |p| {
+            let d = crate::prefs::open_at(&p.app, Some("mediatheken"), &p.app.window);
+            PREFS.with(|s| *s.borrow_mut() = Some(d));
+            main_window(p)
+        },
+        2000,
+    ),
+    (
+        "52-jellyfin-seite",
+        |p| {
+            activate_row("Jellyfin");
+            main_window(p)
+        },
+        2000,
+    ),
+];
+
 /// Ebene (`TVJOE_SELFTEST_EBENE=1`, nur diese Schritte): Bild, Programm als Ebene (Bild nicht
 /// gezeichnet, Ton läuft), Ebene wieder zu. Für Lastmessung von außen je 15 s.
 const EBENE_STEPS: &[Step] = &[
@@ -749,7 +773,7 @@ const JFPLAY_STEPS: &[Step] = &[
             let item = tvjoe_core::paths::jellyfin_db()
                 .and_then(|d| tvjoe_core::jellyfin_lib::JellyfinLibrary::open(&d).ok())
                 .and_then(|lib| lib.item(&id))?;
-            p.app.play_jellyfin(&item, None, Vec::new());
+            p.app.play_jellyfin(tvjoe_core::settings::LIBRARY_JELLYFIN, &item, None, Vec::new());
             main_window(p)
         },
         12000,
@@ -953,6 +977,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         SEITE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_GROESSE").is_some() {
         GROESSE_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_MEDIATHEKEN").is_some() {
+        MEDIATHEKEN_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_WECHSEL").is_some() {
         WECHSEL_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_UMZUG").is_some() {

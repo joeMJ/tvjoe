@@ -32,14 +32,17 @@ pub struct FileVod {
 /// Laufender Jellyfin-Eintrag; `playback` ist gesetzt, sobald der Server die Quelle genannt hat.
 #[derive(Debug, Clone)]
 pub struct JellyVod {
+    /// Bibliothek (Kennung der Instanz, Herkunft in der Ablage).
+    pub library: String,
     pub item: Item,
     pub session: String,
     pub playback: Option<Playback>,
 }
 
 impl JellyVod {
-    pub fn new(item: Item) -> Self {
+    pub fn new(library: &str, item: Item) -> Self {
         Self {
+            library: library.to_string(),
             item,
             session: tvjoe_core::jellyfin::new_device_id(),
             playback: None,
@@ -168,7 +171,7 @@ impl Vod {
     pub fn logo(&self, app: &App) -> Option<PathBuf> {
         match self {
             Vod::Oer(f) => crate::mediathek::sender_logo(app, &f.sender),
-            Vod::Jelly(_) => crate::jellyfin::white_logo_path().filter(|p| p.exists()),
+            Vod::Jelly(j) => crate::jellyfin::white_logo_path(&j.library).filter(|p| p.exists()),
             Vod::File(_) => None,
         }
     }

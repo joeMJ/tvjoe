@@ -169,10 +169,9 @@ Bibliotheken sind Mediatheken und Medienserver: Filme, Serien mit Staffeln und F
 Sammlungen. Abspielen, Weitersehen, Herunterladen in die Ablage und der Schalter „Geladen“
 funktionieren für alle gleich.
 
-> [!NOTE]
-> Die Klasse ist festgelegt, die Einrichtung über eigene Beschreibungen folgt mit dem nächsten
-> Ausbau (Einstellungen → Mediatheken, mehrere Server je Typ). Bis dahin werden ÖR-Mediathek und
-> Jellyfin wie bisher unter **Einstellungen → Mediathek** bzw. **→ Jellyfin** eingerichtet.
+Eingerichtet wird unter **Einstellungen → Mediatheken**: je Bibliothek eine Zeile mit Schalter
+und eigener Seite (Name in der Kopfleiste, Einstellungen des Typs); „+“ fügt eine weitere hinzu.
+Mehrere Jellyfin-Server sind möglich, die ÖR-Mediathek gibt es einmal.
 
 ### Treiber
 

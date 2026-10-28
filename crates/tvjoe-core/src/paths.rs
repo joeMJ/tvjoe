@@ -48,6 +48,23 @@ pub fn jellyfin_account_path() -> Option<PathBuf> {
     config_dir().map(|d| d.join("jellyfin.toml"))
 }
 
+/// Zwischenspeicher einer Server-Bibliothek; die erste Jellyfin-Bibliothek behält
+/// `jellyfin.sqlite`.
+pub fn library_db(id: &str) -> Option<PathBuf> {
+    if id == crate::settings::LIBRARY_JELLYFIN {
+        return jellyfin_db();
+    }
+    cache_dir().map(|d| d.join(format!("bibliothek-{id}.sqlite")))
+}
+
+/// Zugang zu einer Server-Bibliothek; die erste Jellyfin-Bibliothek behält `jellyfin.toml`.
+pub fn library_account_path(id: &str) -> Option<PathBuf> {
+    if id == crate::settings::LIBRARY_JELLYFIN {
+        return jellyfin_account_path();
+    }
+    config_dir().map(|d| d.join("konten").join(format!("{id}.toml")))
+}
+
 /// Ort einer Datei ohne das Windows-Präfix `\\?\` (Langform aus `canonicalize`), damit
 /// gespeicherte Orte lesbar bleiben und gleiche Dateien gleich heißen.
 pub fn plain_location(location: &str) -> String {

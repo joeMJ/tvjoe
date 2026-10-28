@@ -163,6 +163,65 @@ pub struct Settings {
     pub adapters: Vec<Adapter>,
     /// Zuletzt gezeigte Empfangsquelle (Nummer); fehlt sie, gilt `satip_active`.
     pub active_source: Option<u32>,
+    /// Bibliotheken (Reiter „Mediatheken“): ÖR-Mediathek, Jellyfin-Server (mehrere möglich).
+    /// Fehlen sie, entstehen sie aus den älteren Feldern (`mediathek_oer`, `jellyfin_*`), die
+    /// beim Speichern für die erste Jellyfin-Bibliothek weiter mitgeschrieben werden.
+    #[serde(rename = "library", skip_serializing_if = "Vec::is_empty")]
+    pub libraries: Vec<Library>,
+}
+
+/// Kennung der ÖR-Mediathek und der ersten Jellyfin-Bibliothek (Dateien und Ablage wie bis
+/// 0.1.4: `jellyfin.toml`, `jellyfin.sqlite`, Herkunft `jellyfin` in der Ablage).
+pub const LIBRARY_OER: &str = "oer";
+pub const LIBRARY_JELLYFIN: &str = "jellyfin";
+
+/// Eine eingerichtete Bibliothek (Mediathek bzw. Medienserver).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Library {
+    /// Kennung der Instanz (Dateien, Herkunft in der Ablage): `oer`, `jellyfin`, weitere z. B.
+    /// `jellyfin-2`.
+    pub id: String,
+    /// Reihenfolge der Knöpfe in der Kopfleiste.
+    pub num: u32,
+    /// Kennung der Beschreibung (`oer-mediathek`, `jellyfin`, …).
+    pub kind: String,
+    /// Name in Kopfleiste und Einstellungen (leer = Name der Beschreibung).
+    pub title: String,
+    pub enabled: bool,
+    /// Serveradresse (Jellyfin).
+    pub server: String,
+    /// Symbol in der Kopfleiste (leer = Logo des Servers bzw. Vorgabe).
+    pub icon: String,
+    /// Ausgeblendete Bibliotheken des Servers (Namen).
+    pub hidden: Vec<String>,
+    /// Titel von A bis Z statt zuletzt hinzugefügt.
+    pub az: bool,
+    /// Nur Heruntergeladenes zeigen (Schalter „Geladen“).
+    pub stored_only: bool,
+    /// Bandbreite begrenzen (kbit/s, 0 = aus; sonst Umrechnen auf dem Server).
+    pub max_kbps: u32,
+}
+
+impl Default for Library {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            num: 0,
+            kind: String::new(),
+            title: String::new(),
+            enabled: true,
+            server: String::new(),
+            icon: String::new(),
+            hidden: crate::jellyfin_lib::HIDDEN_DEFAULT
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            az: false,
+            stored_only: false,
+            max_kbps: 0,
+        }
+    }
 }
 
 /// Kennung der Empfangsquelle mit der Senderliste `library.toml` (Internet-TV).
@@ -300,6 +359,7 @@ impl Default for Settings {
             xmltv_sources: Vec::new(),
             adapters: Vec::new(),
             active_source: None,
+            libraries: Vec::new(),
             jellyfin_hidden: crate::jellyfin_lib::HIDDEN_DEFAULT
                 .iter()
                 .map(|s| s.to_string())
@@ -394,6 +454,28 @@ impl Settings {
         if self.active_source.is_none() {
             self.active_source = Some(if self.satip_active { SRC_SAT } else { SRC_TV });
         }
+        if self.libraries.is_empty() {
+            self.libraries.push(Library {
+                id: LIBRARY_OER.into(),
+                num: 0,
+                kind: "oer-mediathek".into(),
+                enabled: self.mediathek_oer,
+                stored_only: self.mediathek_stored_only,
+                ..Library::default()
+            });
+            self.libraries.push(Library {
+                id: LIBRARY_JELLYFIN.into(),
+                num: 1,
+                kind: "jellyfin".into(),
+                enabled: self.jellyfin_enabled,
+                server: self.jellyfin_server.clone(),
+                hidden: self.jellyfin_hidden.clone(),
+                az: self.jellyfin_az,
+                stored_only: self.jellyfin_stored_only,
+                max_kbps: self.jellyfin_max_kbps,
+                ..Library::default()
+            });
+        }
     }
 
     /// Ältere Felder aus den Empfangsquellen setzen (für ältere Fassungen beim Zurückwechseln).
@@ -412,6 +494,18 @@ impl Settings {
             self.sat_logo = sat.logos;
             self.record_max_sat = sat.record_max;
         }
+        if let Some(oer) = self.library(LIBRARY_OER).cloned() {
+            self.mediathek_oer = oer.enabled;
+            self.mediathek_stored_only = oer.stored_only;
+        }
+        if let Some(j) = self.library(LIBRARY_JELLYFIN).cloned() {
+            self.jellyfin_enabled = j.enabled;
+            self.jellyfin_server = j.server.clone();
+            self.jellyfin_hidden = j.hidden.clone();
+            self.jellyfin_az = j.az;
+            self.jellyfin_stored_only = j.stored_only;
+            self.jellyfin_max_kbps = j.max_kbps;
+        }
         // Ältere Fassungen kennen nur Internet-TV und SAT.
         self.satip_active = self.active_source == Some(SRC_SAT);
         // Ältere Fassungen kennen nur eine gemeinsame Liste: alle genutzten Quellen.
@@ -424,6 +518,43 @@ impl Settings {
             }
         }
         self.epg_sources = used;
+    }
+
+    /// Bibliothek nach Kennung.
+    pub fn library(&self, id: &str) -> Option<&Library> {
+        self.libraries.iter().find(|l| l.id == id)
+    }
+
+    /// Bibliothek nach Kennung, veränderbar (legt fehlende aus den älteren Feldern an).
+    pub fn library_mut(&mut self, id: &str) -> Option<&mut Library> {
+        self.migrate();
+        self.libraries.iter_mut().find(|l| l.id == id)
+    }
+
+    /// Eingeschaltete Bibliotheken in der Reihenfolge der Knöpfe.
+    pub fn enabled_libraries(&self) -> Vec<Library> {
+        let mut v: Vec<Library> = self.libraries.iter().filter(|l| l.enabled).cloned().collect();
+        v.sort_by_key(|l| l.num);
+        v
+    }
+
+    /// Neue Bibliothek nach einer Beschreibung anlegen; gibt die Kennung zurück.
+    pub fn add_library(&mut self, kind: &str) -> String {
+        self.migrate();
+        let num = self.libraries.iter().map(|l| l.num + 1).max().unwrap_or(0);
+        let mut n = 2;
+        let mut id = kind.to_string();
+        while self.libraries.iter().any(|l| l.id == id) {
+            id = format!("{kind}-{n}");
+            n += 1;
+        }
+        self.libraries.push(Library {
+            id: id.clone(),
+            num,
+            kind: kind.to_string(),
+            ..Library::default()
+        });
+        id
     }
 
     /// Empfangsquelle nach Kennung.

@@ -51,10 +51,11 @@ pub trait View {
 }
 
 /// Mediatheken mit eigenem Knopf in der Kopfleiste.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Media {
     Oer,
-    Jellyfin,
+    /// Server-Bibliothek (Jellyfin), Kennung der Instanz.
+    Server(String),
 }
 
 /// Offene Mediathek: die Ebene, sonst das zuletzt geöffnete Fenster.

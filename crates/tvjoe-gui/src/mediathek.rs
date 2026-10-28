@@ -101,7 +101,11 @@ fn maybe_update(app: &Rc<App>) {
     let Some(db) = paths::mediathek_db().filter(|p| p.exists()) else {
         return;
     };
-    if !app.settings().mediathek_oer {
+    let on = app
+        .settings()
+        .library(tvjoe_core::settings::LIBRARY_OER)
+        .is_some_and(|l| l.enabled);
+    if !on {
         return;
     }
     let hours = app
@@ -209,37 +213,15 @@ pub fn resume_position(film: &Film) -> Option<f64> {
         .map(|(p, _)| p)
 }
 
-/// Reiter „Mediathek“ im Einstellungsfenster: Filmliste, Audiodeskription, Sender einzeln.
-/// Gibt die Seite und eine Funktion zurück, die die Werte beim Schließen übernimmt.
-pub fn prefs_page(
+/// Gruppen der ÖR-Mediathek für ihre Seite unter „Mediatheken“: Filmliste, Audiodeskription,
+/// Sender einzeln. Gibt die Gruppen und die Übernahme beim Schließen zurück.
+pub fn prefs_groups(
     app: &App,
 ) -> (
-    adw::PreferencesPage,
+    Vec<adw::PreferencesGroup>,
     impl Fn(&mut tvjoe_core::Settings) + 'static,
 ) {
     let s = app.settings().clone();
-    let page = adw::PreferencesPage::builder()
-        .name("mediathek")
-        .title(tr("Mediathek"))
-        .icon_name("folder-videos-symbolic")
-        .build();
-
-    let which = adw::PreferencesGroup::builder()
-        .title(tr("Mediatheken"))
-        .description(tr("Ausgeschaltet verschwindet der Knopf in der Kopfleiste, und im Hintergrund wird nichts geladen"))
-        .build();
-    let oer = adw::SwitchRow::builder()
-        .title(tr("ÖR-Mediathek"))
-        .subtitle(tr("Öffentlich-rechtliche Sender, Filmliste von MediathekView"))
-        .active(s.mediathek_oer)
-        .build();
-    let jelly = adw::SwitchRow::builder()
-        .title("Jellyfin")
-        .subtitle(tr("Eigener Server, einrichten im Reiter „Jellyfin“"))
-        .active(s.jellyfin_enabled)
-        .build();
-    which.add(&oer);
-    which.add(&jelly);
 
     let list = adw::PreferencesGroup::builder()
         .title(tr("Filmliste"))
@@ -293,13 +275,8 @@ pub fn prefs_page(
         })
         .collect();
 
-    page.add(&which);
-    page.add(&list);
-    page.add(&view);
-    page.add(&senders);
+    let groups = vec![list.clone(), view.clone(), senders.clone()];
     let apply = move |s: &mut tvjoe_core::Settings| {
-        s.mediathek_oer = oer.is_active();
-        s.jellyfin_enabled = jelly.is_active();
         s.mediathek_refresh_hours = hours.value() as u32;
         s.mediathek_days = days.value() as u32;
         s.mediathek_hide_ad = hide_ad.is_active();
@@ -309,7 +286,7 @@ pub fn prefs_page(
             .map(|(n, _)| n.clone())
             .collect();
     };
-    (page, apply)
+    (groups, apply)
 }
 
 /// Nach geänderten Einstellungen: eine offene Mediathek neu aufbauen.
@@ -679,7 +656,11 @@ impl MtWindow {
         let stored_only = icons::toggle(icons::DOWNLOADED, tr("Geladen"));
         stored_only.set_valign(gtk::Align::Center);
         stored_only.add_css_class("tvjoe-filter");
-        stored_only.set_active(app.settings().mediathek_stored_only);
+        stored_only.set_active(
+            app.settings()
+                .library(tvjoe_core::settings::LIBRARY_OER)
+                .is_some_and(|l| l.stored_only),
+        );
         header_end.append(&stored_only);
         header_end.append(&sort_box);
         header_end.append(&prefs_button);
@@ -802,7 +783,9 @@ impl MtWindow {
         stored_only.connect_toggled(move |b| {
             let Some(w) = weak.upgrade() else { return };
             if let Some(app) = w.app.upgrade() {
-                app.settings_mut().mediathek_stored_only = b.is_active();
+                if let Some(l) = app.settings_mut().library_mut(tvjoe_core::settings::LIBRARY_OER) {
+                    l.stored_only = b.is_active();
+                }
                 app.save_settings();
             }
             w.reload();
@@ -1440,7 +1423,7 @@ impl MtWindow {
     /// Zahnrad: gemeinsames Einstellungsfenster, Reiter „Mediathek“.
     fn open_prefs(self: &Rc<Self>) {
         if let Some(app) = self.app.upgrade() {
-            crate::prefs::open_at(&app, Some("mediathek"), &self.body);
+            crate::mediatheken::open(&app, tvjoe_core::settings::LIBRARY_OER, &self.body);
         }
     }
 
@@ -1584,7 +1567,12 @@ impl MtWindow {
     fn stored_only(&self) -> bool {
         self.app
             .upgrade()
-            .is_some_and(|a| a.settings().mediathek_stored_only)
+            .and_then(|a| {
+                a.settings()
+                    .library(tvjoe_core::settings::LIBRARY_OER)
+                    .map(|l| l.stored_only)
+            })
+            .unwrap_or(false)
     }
 
     /// Heruntergeladenes, neueste Sendung zuerst; was nicht mehr in der Filmliste steht, aus

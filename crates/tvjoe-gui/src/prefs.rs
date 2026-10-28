@@ -231,8 +231,7 @@ pub fn open_at(
     let p_quality = new_page("qualitaet", tr("Qualität"), "emblem-photos-symbolic");
     p_quality.add(&quality);
     p_quality.add(&storage);
-    let (p_media, apply_media) = crate::mediathek::prefs_page(app);
-    let (p_jellyfin, apply_jellyfin) = crate::jellyfin::prefs_page(app);
+    let (p_media, apply_media) = crate::mediatheken::prefs_page(app, &dialog);
     let (p_empfang, apply_empfang) = crate::empfang::prefs_page(app, &dialog);
     let (p_ablage, apply_ablage) = crate::ablage::prefs_page(app);
     let p_updates = new_page("updates", tr("Updates"), "software-update-available-symbolic");
@@ -289,7 +288,6 @@ pub fn open_at(
         &p_quality,
         &p_empfang,
         &p_media,
-        &p_jellyfin,
         &p_ablage,
         &p_updates,
         &p_about,
@@ -363,7 +361,6 @@ pub fn open_at(
             s.osd_description = osd_description.is_active();
             s.update_check = check.is_active();
             apply_media(&mut s);
-            apply_jellyfin(&mut s);
             apply_empfang(&mut s);
             apply_ablage(&mut s);
         }
@@ -381,7 +378,10 @@ pub fn open_at(
         app.update_inhibit();
         crate::mediathek::settings_changed();
         app.update_media_buttons();
-        crate::jfview::refresh();
+        let libraries: Vec<String> = app.settings().libraries.iter().map(|l| l.id.clone()).collect();
+        for id in libraries {
+            crate::jfview::refresh(&id);
+        }
         let after = sources_of(&app.settings());
         if after != before {
             app.rebuild_list();

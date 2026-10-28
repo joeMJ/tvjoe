@@ -232,7 +232,7 @@ fn section(e: &Entry) -> usize {
     match (e.art, e.source.as_str()) {
         (Art::Cache, _) => 3,
         (Art::Recording, _) => 2,
-        (_, "jellyfin") => 1,
+        (_, s) if crate::ablage::is_server_source(s) => 1,
         _ => 0,
     }
 }
@@ -256,6 +256,8 @@ fn series_of(title: &str) -> Option<&str> {
 /// Gruppe der Ablage: Serie bzw. Sendung und Staffel; bei Jellyfin die Serie für den Abgleich.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GroupKey {
+    /// Herkunft (Bibliothek) der Einträge.
+    library: String,
     title: String,
     season: Option<i64>,
     series_id: Option<String>,
@@ -273,18 +275,20 @@ fn season_of_title(title: &str) -> Option<i64> {
 
 fn group_key(e: &Entry) -> Option<GroupKey> {
     match e.source.as_str() {
-        "jellyfin" => {
-            if let Some(it) = crate::jfview::item(&e.key).filter(|it| it.kind == "Episode") {
+        s if crate::ablage::is_server_source(s) => {
+            if let Some(it) = crate::jfview::item(s, &e.key).filter(|it| it.kind == "Episode") {
                 if let Some(series) = it.series_name.clone() {
                     return Some(GroupKey {
+                        library: s.to_string(),
                         title: series,
                         season: it.season_no,
                         series_id: it.series_id.clone(),
                     });
                 }
             }
-            series_of(&e.title).map(|s| GroupKey {
-                title: s.to_string(),
+            series_of(&e.title).map(|t| GroupKey {
+                library: s.to_string(),
+                title: t.to_string(),
                 season: season_of_title(&e.title),
                 series_id: None,
             })
@@ -292,6 +296,7 @@ fn group_key(e: &Entry) -> Option<GroupKey> {
         "oer" if e.art == Art::Download => {
             let topic = e.subtitle.trim();
             (!topic.is_empty()).then(|| GroupKey {
+                library: e.source.clone(),
                 title: topic.to_string(),
                 season: tvjoe_core::mediathek::season_episode(&e.title)
                     .0
@@ -305,8 +310,8 @@ fn group_key(e: &Entry) -> Option<GroupKey> {
 
 /// Reihenfolge in einer Gruppe: Staffel, Folge, Titel.
 fn episode_order(e: &Entry) -> (u32, u32, String) {
-    let (se, ep) = match crate::jfview::item(&e.key) {
-        Some(it) if e.source == "jellyfin" => (
+    let (se, ep) = match crate::jfview::item(&e.source, &e.key) {
+        Some(it) if crate::ablage::is_server_source(&e.source) => (
             it.season_no.map(|n| n as u32),
             it.episode_no.map(|n| n as u32),
         ),
@@ -344,7 +349,7 @@ fn group_row(
     let in_library = key
         .series_id
         .as_deref()
-        .map(|id| crate::jfview::season_count(id, key.season));
+        .map(|id| crate::jfview::season_count(&key.library, id, key.season));
     let mut sub = vec![
         trn("{n} Folge", "{n} Folgen", members.len() as u64),
         size_text(total),
@@ -577,7 +582,7 @@ pub fn overview_page(app: &Rc<App>) -> gtk::Widget {
                     .filter(|(_, k)| k.as_ref() == Some(key))
                     .map(|(x, _)| *x)
                     .collect();
-                if e.source != "jellyfin" && members.len() < 2 {
+                if !crate::ablage::is_server_source(&e.source) && members.len() < 2 {
                     g.add(&entry_row(&app, e, size(e)));
                     continue;
                 }
@@ -616,7 +621,7 @@ fn entry_row(app: &Rc<App>, e: &Entry, size: u64) -> gtk::Widget {
         }
     };
     let mut sub = vec![state, size_text(size), day(e.created)];
-    if !e.subtitle.is_empty() && e.source != "jellyfin" {
+    if !e.subtitle.is_empty() && !crate::ablage::is_server_source(&e.source) {
         sub.insert(0, e.subtitle.clone());
     }
     let row = adw::ActionRow::builder()
