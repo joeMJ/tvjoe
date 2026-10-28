@@ -577,6 +577,25 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    /// Emby: Anmeldung mit Benutzer und Passwort; `TVJOE_TEST_EMBY=http://host:8096`,
+    /// `TVJOE_TEST_EMBY_PASS=<Datei mit „Benutzer:Passwort“>`. Falsches Passwort: klare Meldung.
+    #[test]
+    #[ignore]
+    fn emby_passwort() {
+        let server = std::env::var("TVJOE_TEST_EMBY").unwrap();
+        let line = std::fs::read_to_string(std::env::var("TVJOE_TEST_EMBY_PASS").unwrap()).unwrap();
+        let (user, password) = line.trim().split_once(':').unwrap();
+        let acc = emby_login(&server, "tvjoe-test", user, password).unwrap();
+        assert!(!acc.api_key && !acc.token.is_empty() && !acc.user_id.is_empty());
+        eprintln!("angemeldet als {} ({:?}), Zugangsschlüssel erhalten", acc.user_name, acc.kind);
+        let v = acc.get_json(&format!("/Users/{}/Items", acc.user_id), &[("Limit", "1"), ("Recursive", "true")]).unwrap();
+        eprintln!("Bibliothek lesbar: {} Einträge insgesamt", v["TotalRecordCount"]);
+        let wrong = emby_login(&server, "tvjoe-test", user, "falsch-falsch").unwrap_err();
+        eprintln!("falsches Passwort: {wrong}");
+        // Sitzung wieder beenden (der Zugangsschlüssel gilt dann nicht mehr).
+        acc.logout();
+    }
+
     #[test]
     fn zugang_speichern_nur_fuer_nutzer() {
         let dir = std::env::temp_dir().join(format!("tvjoe-jf-{}", std::process::id()));

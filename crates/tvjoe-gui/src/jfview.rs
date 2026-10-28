@@ -422,6 +422,10 @@ pub fn refresh(library: &str) {
 
 /// Selbstprobe: öffnen, Reiter wählen, erste Kachel öffnen.
 /// Bibliothek der Selbstprobe (`TVJOE_SELFTEST_LIBRARY`, sonst die erste Jellyfin-Bibliothek).
+pub fn probe_library_id() -> String {
+    probe_library()
+}
+
 fn probe_library() -> String {
     std::env::var("TVJOE_SELFTEST_LIBRARY")
         .unwrap_or_else(|_| tvjoe_core::settings::LIBRARY_JELLYFIN.to_string())

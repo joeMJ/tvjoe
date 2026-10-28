@@ -475,7 +475,29 @@ mod tests {
         let path = std::env::temp_dir().join(format!("tvjoe-plex-{}.sqlite", std::process::id()));
         let mut lib = JellyfinLibrary::open(&path).unwrap();
         let st = sync(&mut lib, &acc, 1).unwrap();
-        eprintln!("Abgleich: {st:?}, Filme {}", lib.count("Movie"));
+        eprintln!(
+            "Abgleich: {st:?}, Filme {}, Serien {}, Folgen {}, Sammlungen {}",
+            lib.count("Movie"),
+            lib.count("Series"),
+            lib.count("Episode"),
+            lib.count("BoxSet")
+        );
+        // Eine Folge: Serie, Staffel, Nummer, abspielbar.
+        if let Some(series) = lib.series(&[], false).into_iter().next() {
+            let eps = lib.episodes(&series.id);
+            if let Some(ep) = eps.first() {
+                eprintln!(
+                    "Serie „{}“: {} Folgen, erste S{:02}E{:02} „{}“",
+                    series.name,
+                    eps.len(),
+                    ep.season_no.unwrap_or(0),
+                    ep.episode_no.unwrap_or(0),
+                    ep.name
+                );
+                let pb = playback(&acc, &ep.id, 0, "t").unwrap();
+                eprintln!("Folge abspielbar: {} ms Laufzeit", pb.duration_ms);
+            }
+        }
         assert!(lib.count("Movie") > 0);
         let first = lib.movies(&[], None, false).into_iter().next().unwrap();
         let direct = playback(&acc, &first.id, 0, "t").unwrap();

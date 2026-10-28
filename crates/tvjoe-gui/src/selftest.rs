@@ -8,6 +8,7 @@
 //! - `TVJOE_SELFTEST_MEDIATHEKEN=1` (nur diese Schritte): Reiter „Mediatheken“, Seite Jellyfin.
 //! - `TVJOE_SELFTEST_WECHSEL=1` (nur diese Schritte): Quellenwechsel SAT ↔ Internet-TV, Bildzähler.
 //! - `TVJOE_SELFTEST_UMZUG=/ziel` (nur diese Schritte, nur mit Testordnern): Ablage verschieben.
+//! - `TVJOE_SELFTEST_ABO=1` (nur diese Schritte, nur mit Testordner): Nachladen und Abo.
 //! - `TVJOE_SELFTEST_TVH=1` (nur diese Schritte): Tvheadend-Quelle, Kanäle holen, umschalten.
 //! - `TVJOE_SELFTEST_UPDATE=1` (nur diese Schritte): Update-Dialog, Aufzeichnung der Bedienung.
 //! - `TVJOE_SELFTEST_ABLAGE=1` (nur diese Schritte): Reiter „Ablage“, Gruppe, Prüfen, Seite „Über“.
@@ -405,6 +406,56 @@ fn click_in(w: &gtk::Widget, label: &str) {
         None => eprintln!("tvjoe: Selbstprobe: Knopf „{label}“ nicht gefunden"),
     }
 }
+
+thread_local! {
+    /// Serie und Staffel der Abo-Probe.
+    static ABO: RefCell<Option<(String, Option<i64>)>> = const { RefCell::new(None) };
+}
+
+/// Abo und Nachladen (`TVJOE_SELFTEST_ABO=1`, nur mit Testordner als Ablage): eine Folge als
+/// vorhanden eintragen, Ablage öffnen (Nachladen (n)), Abo „automatisch“ setzen und den Abgleich
+/// nachstellen (lädt die fehlenden Folgen), dann alle Downloads wieder abbrechen.
+const ABO_STEPS: &[Step] = &[
+    ("88-start", main_window, 4000),
+    (
+        "89-folge-vorhanden",
+        |p| {
+            let lib = crate::jfview::probe_library_id();
+            match crate::ablage::probe_fake_episode(&p.app, &lib) {
+                Some((series, season, missing)) => {
+                    eprintln!("tvjoe: Selbstprobe Abo: Staffel {season:?}, {missing} Folgen fehlen");
+                    ABO.with(|a| *a.borrow_mut() = Some((series, season)));
+                }
+                None => eprintln!("tvjoe: Selbstprobe Abo: keine passende Staffel"),
+            }
+            crate::ablageview::open(&p.app);
+            main_window(p)
+        },
+        4000,
+    ),
+    (
+        "89a-abo-automatisch",
+        |p| {
+            let lib = crate::jfview::probe_library_id();
+            if let Some((series, season)) = ABO.with(|a| a.borrow().clone()) {
+                crate::ablage::set_subscription(&lib, &series, season, Some(tvjoe_core::ablage::Subscription::Auto));
+                eprintln!("tvjoe: Selbstprobe Abo: gespeichert {:?}", crate::ablage::subscription(&lib, &series, season));
+                crate::ablage::after_sync(&p.app, &lib);
+            }
+            main_window(p)
+        },
+        6000,
+    ),
+    (
+        "89b-abgebrochen",
+        |p| {
+            let n = crate::ablage::probe_cancel_downloads();
+            eprintln!("tvjoe: Selbstprobe Abo: {n} Downloads gestartet und abgebrochen");
+            main_window(p)
+        },
+        2000,
+    ),
+];
 
 /// Tvheadend (`TVJOE_SELFTEST_TVH=1`, nur diese Schritte): Seite der Quelle, „Kanäle holen“,
 /// dann auf die Quelle umschalten und den Bildzähler prüfen.
@@ -888,6 +939,19 @@ const JELLYFIN_STEPS: &[Step] = &[
         |p| crate::jfview::probe_first(&p.app),
         4000,
     ),
+    (
+        "65-jellyfin-sammlungen",
+        |p| {
+            crate::layer::close_layer(&p.app);
+            crate::jfview::probe_open(&p.app, 1)
+        },
+        6000,
+    ),
+    (
+        "66-jellyfin-sammlung",
+        |p| crate::jfview::probe_first(&p.app),
+        4000,
+    ),
 ];
 
 /// Jellyfin-Wiedergabe (`TVJOE_SELFTEST_JFPLAY=<Eintrags-ID>`, nur diese Schritte): Eintrag
@@ -1111,6 +1175,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         WECHSEL_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_UMZUG").is_some() {
         UMZUG_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_ABO").is_some() {
+        ABO_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_TVH").is_some() {
         TVH_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_UPDATE").is_some() {

@@ -1834,6 +1834,51 @@ pub fn after_sync(app: &Rc<App>, library: &str) {
     }
 }
 
+/// Selbstprobe Abo: erste Staffel mit mindestens drei Folgen; die erste Folge als vorhanden
+/// eintragen (kleine Platzhalterdatei im Ablageordner). Gibt Serie, Staffel und Zahl der
+/// fehlenden Folgen zurück.
+pub(crate) fn probe_fake_episode(app: &App, library: &str) -> Option<(String, Option<i64>, usize)> {
+    let a = get()?;
+    let db = tvjoe_core::paths::library_db(library)
+        .filter(|p| p.exists())
+        .and_then(|p| tvjoe_core::jellyfin_lib::JellyfinLibrary::open(&p).ok())?;
+    for series in db.series(&[], true) {
+        let eps = db.episodes(&series.id);
+        let Some(season) = eps.first().map(|e| e.season_no) else { continue };
+        let in_season: Vec<_> = eps.iter().filter(|e| e.season_no == season).collect();
+        if in_season.len() < 3 {
+            continue;
+        }
+        let first = in_season[0];
+        let path = sub_dir(app, Art::Download, library).join(format!("probe-{}.mkv", first.id));
+        std::fs::create_dir_all(path.parent()?).ok()?;
+        std::fs::write(&path, b"tvjoe-probe").ok()?;
+        let title = format!("{} S{:02}E{:02} {}", series.name, season.unwrap_or(0), first.episode_no.unwrap_or(0), first.name);
+        let id = a.index.add(Art::Download, library, &first.id, &title, &crate::jellyfin::server_name(library), &path).ok()?;
+        a.index.set_state(id, State::Done, None);
+        a.refresh_badges();
+        let missing = missing_episodes(library, &series.id, season).len();
+        return Some((series.id.clone(), season, missing));
+    }
+    None
+}
+
+/// Selbstprobe Abo: wartende und laufende Downloads zählen und abbrechen (Einträge entfernen).
+pub(crate) fn probe_cancel_downloads() -> usize {
+    let Some(a) = get() else { return 0 };
+    let ids: Vec<i64> = a
+        .index
+        .all()
+        .into_iter()
+        .filter(|e| matches!(e.state, State::Queued | State::Loading) || running_fraction(e.id).is_some())
+        .map(|e| e.id)
+        .collect();
+    for id in &ids {
+        delete_entry(*id);
+    }
+    ids.len()
+}
+
 /// Befund von „Alles prüfen“ (Nutzer, 2026-10-28).
 #[derive(Debug, Clone)]
 pub struct Finding {
