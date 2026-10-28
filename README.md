@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="data/io.github.joeMJ.tvjoe.svg" alt="tvjoe" width="160">
+  <img src="data/io.github.joeMJ.tvjoe.png" alt="tvjoe" width="160">
 </p>
 
 # tvjoe

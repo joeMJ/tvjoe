@@ -29,6 +29,10 @@ mkdir -p "$stage/usr/bin"
 ln -s ../lib/tvjoe/tvjoe "$stage/usr/bin/tvjoe"
 install -Dm644 data/io.github.joeMJ.tvjoe.desktop "$stage/usr/share/applications/io.github.joeMJ.tvjoe.desktop"
 install -Dm644 data/io.github.joeMJ.tvjoe.svg "$stage/usr/share/icons/hicolor/scalable/apps/io.github.joeMJ.tvjoe.svg"
+# Programmsymbol auch als PNG (das SVG bettet ein Bild ein; manche Oberflächen bevorzugen PNG).
+for s in 48 64 128 256 512; do
+    install -Dm644 "data/icons/app/io.github.joeMJ.tvjoe-$s.png" "$stage/usr/share/icons/hicolor/${s}x${s}/apps/io.github.joeMJ.tvjoe.png"
+done
 install -Dm644 LICENSE "$stage/usr/share/doc/tvjoe/copyright"
 install -Dm644 THIRD_PARTY.md "$stage/usr/share/doc/tvjoe/THIRD_PARTY.md"
 install -Dm644 THIRD_PARTY_LICENSES.txt "$stage/usr/share/doc/tvjoe/THIRD_PARTY_LICENSES.txt"
