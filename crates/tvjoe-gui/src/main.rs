@@ -11,6 +11,7 @@ mod crop;
 mod dienst;
 #[cfg(windows)]
 mod dienst_win;
+mod diag;
 mod dnd;
 #[cfg(target_os = "linux")]
 mod dvbcard;
@@ -74,6 +75,7 @@ fn init_trace() {
 
 /// Zeitmarke seit dem Start des Starters (nur mit `TVJOE_TRACE=1`).
 pub fn trace(msg: &str) {
+    diag::line("tvjoe", msg);
     if let Some(Some(c)) = TRACE.get() {
         let ms = c.offset_ms + c.start.elapsed().as_secs_f64() * 1e3;
         eprintln!("[tvjoe {ms:8.1} ms] {msg}");
@@ -95,6 +97,8 @@ fn parse_options() -> Options {
     while let Some(a) = it.next() {
         match a.as_str() {
             "--mute" => o.mute = true,
+            // Diagnoseprotokoll (wird schon in `main` über die Umgebung eingeschaltet).
+            "--diagnose" => {}
             "--protokoll" => o.protocol = true,
             "--quit-after" => o.quit_after = it.next().and_then(|v| v.parse().ok()),
             "--channel" => o.channel = it.next().and_then(|v| v.parse().ok()),
@@ -137,6 +141,7 @@ fn activate(application: &adw::Application, opts: &Options) {
         .as_deref()
         .and_then(|p| Settings::load(p).map_err(|e| eprintln!("tvjoe: {e}")).ok())
         .unwrap_or_default();
+    diag::settings(&settings);
     let lib = paths::library_path()
         .as_deref()
         .and_then(|p| Library::load(p).map_err(|e| eprintln!("tvjoe: {e}")).ok())
@@ -228,6 +233,13 @@ fn main() -> glib::ExitCode {
         _ => {}
     }
     init_trace();
+    if args.iter().any(|a| a == "--diagnose") {
+        // SAFETY: vor dem Start weiterer Threads.
+        unsafe { std::env::set_var("TVJOE_DIAGNOSE", "1") };
+    }
+    if let Some(path) = diag::init() {
+        eprintln!("tvjoe: Diagnoseprotokoll: {}", path.display());
+    }
     trace("Oberfläche gestartet");
     let opts = parse_options();
     let application = adw::Application::builder()

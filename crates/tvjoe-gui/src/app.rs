@@ -546,6 +546,15 @@ impl App {
     /// tauschen und den zuletzt gesehenen Sender dieser Quelle zeigen. Läuft sie schon,
     /// nichts weiter.
     pub fn switch_live(self: &Rc<Self>, src: u32) {
+        crate::diag::line(
+            "app",
+            &format!(
+                "Quellenwechsel von {} nach {src} (Sender {:?}, Abrufvideo {})",
+                self.active.get(),
+                self.current.get(),
+                self.vod.borrow().is_some()
+            ),
+        );
         crate::layer::close_layer(self);
         if src != self.active.get() {
             self.relay.replace(None);
@@ -1558,6 +1567,8 @@ impl App {
         overlay.add_controller(scroll);
 
         if let Some(player) = &self.player {
+            let p = player.clone();
+            crate::diag::start_snapshots(player.mpv, move || p.renders());
             let events = player.spawn_events();
             let weak = Rc::downgrade(self);
             glib::spawn_future_local(async move {
@@ -1865,6 +1876,10 @@ impl App {
     /// Sender laden; SAT>IP-Adressen über die eigene Sitzung (libmpv kann kein SAT>IP).
     /// Nach 3 s den Empfang in der Senderanzeige nachtragen.
     fn load_live(self: &Rc<Self>, player: &Player, url: &str, bitrate: Option<u64>) {
+        crate::diag::line(
+            "app",
+            &format!("Sender laden: {url}; bisherige Weitergabe vorhanden: {}", self.relay.borrow().is_some()),
+        );
         self.relay.replace(None);
         self.live_gap.set(None);
         #[cfg(target_os = "linux")]

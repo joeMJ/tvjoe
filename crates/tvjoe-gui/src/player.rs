@@ -118,6 +118,14 @@ impl Player {
         trace("mpv bereit");
         // Lebt so lange wie das Programm; der RenderContext leiht es mit 'static.
         let mpv: &'static Mpv = Box::leak(Box::new(mpv));
+        if crate::diag::on() {
+            // Vollständiges Protokoll von libmpv und ffmpeg (Stufe debug, wie mpv --log-file).
+            unsafe { libmpv2_sys::mpv_request_log_messages(mpv.ctx.as_ptr(), c"debug".as_ptr()) };
+            for p in ["mpv-version", "ffmpeg-version", "libass-version", "hwdec", "vo", "ao"] {
+                let v = mpv.get_property::<String>(p).unwrap_or_else(|e| format!("– ({e:?})"));
+                crate::diag::line("umgebung", &format!("libmpv {p} = {v}"));
+            }
+        }
 
         let area = gtk::GLArea::new();
         area.set_hexpand(true);
@@ -194,6 +202,11 @@ impl Player {
         });
         *self.render.borrow_mut() = Some(ctx);
         trace("Render-Kontext bereit");
+        if crate::diag::on() {
+            for (name, id) in [("Hersteller", 0x1F00u32), ("Renderer", 0x1F01), ("Version", 0x1F02)] {
+                crate::diag::line("umgebung", &format!("OpenGL {name}: {}", crate::gl::string(id)));
+            }
+        }
     }
 
     fn on_render(&self, area: &gtk::GLArea) {
@@ -255,6 +268,13 @@ impl Player {
         ts: bool,
     ) {
         let (format, analyze) = if ts { ("mpegts", "1") } else { ("", "0") };
+        crate::diag::line(
+            "player",
+            &format!(
+                "laden: {url} (ts {ts}, Format „{format}“, Analyse {analyze} s, Start {start:?}, Grenze {max_bitrate:?}, Kopfzeile {})",
+                if header.is_some() { "ja" } else { "nein" }
+            ),
+        );
         let _ = self.mpv.set_property("demuxer-lavf-format", format);
         let _ = self
             .mpv
@@ -289,7 +309,13 @@ impl Player {
         let _ = self.mpv.set_property("sid", sid);
         // Eine Pause aus einem Mediathek-Video gilt nicht für den nächsten Stream.
         let _ = self.mpv.set_property("pause", false);
-        if let Err(e) = self.mpv.command("loadfile", &[url]) {
+        let t = std::time::Instant::now();
+        let r = self.mpv.command("loadfile", &[url]);
+        crate::diag::line(
+            "player",
+            &format!("loadfile zurück nach {} ms: {r:?}", t.elapsed().as_millis()),
+        );
+        if let Err(e) = r {
             eprintln!("tvjoe: Laden fehlgeschlagen: {e:?}");
         }
     }
@@ -457,7 +483,8 @@ impl Player {
 
     /// Wiedergabe beenden (kein Stream).
     pub fn stop(&self) {
-        let _ = self.mpv.command("stop", &[]);
+        let r = self.mpv.command("stop", &[]);
+        crate::diag::line("player", &format!("stop: {r:?}"));
     }
 
     /// Bild zeichnen ein/aus (Ebene offen: schwarz, Ton läuft weiter, Dekodieren geht weiter).
@@ -628,9 +655,20 @@ impl Player {
         let (tx, rx) = async_channel::unbounded();
         let mpv = self.mpv;
         let _ = mpv.disable_deprecated_events();
-        std::thread::spawn(move || {
+        let _ = std::thread::Builder::new().name("mpv-ereignisse".into()).spawn(move || {
             loop {
-                let ev = match mpv.wait_event(-1.0) {
+                let raw = mpv.wait_event(-1.0);
+                if crate::diag::on() {
+                    match &raw {
+                        Some(Ok(Event::LogMessage { prefix, level, text, .. })) => {
+                            crate::diag::line(&format!("mpv/{prefix}"), &format!("{level}: {}", text.trim_end()));
+                        }
+                        Some(Ok(e)) => crate::diag::line("mpv-ereignis", &format!("{e:?}")),
+                        Some(Err(e)) => crate::diag::line("mpv-ereignis", &format!("Fehler: {e:?}")),
+                        None => {}
+                    }
+                }
+                let ev = match raw {
                     Some(Ok(Event::FileLoaded)) => PlayerEvent::Loaded,
                     Some(Ok(Event::EndFile(r))) if r == Error => PlayerEvent::Failed,
                     Some(Ok(Event::EndFile(r))) if r == Eof => PlayerEvent::Ended,

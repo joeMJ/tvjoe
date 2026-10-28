@@ -752,7 +752,7 @@ impl Relay {
         let bytes = Arc::new(AtomicUsize::new(0));
         let eit: Arc<Mutex<Vec<crate::ts::EitSection>>> = Arc::default();
         let (sg, sp, by, ei) = (signal.clone(), stop.clone(), bytes.clone(), eit.clone());
-        let thread = std::thread::spawn(move || {
+        let thread = std::thread::Builder::new().name("dvb-weitergabe".into()).spawn(move || {
             let stopped = || sp.load(Ordering::Relaxed);
             let mut buf = vec![0u8; 188 * 512];
             let mut col = crate::ts::SectionCollector::default();
@@ -763,6 +763,7 @@ impl Relay {
                 let t0 = Instant::now();
                 let mut client = loop {
                     if stopped() || t0.elapsed() > wait {
+                        crate::diag::log("dvb-weitergabe", if stopped() { "Ende (gestoppt) beim Warten auf den Player" } else { "Ende: kein Player verbunden" });
                         break 'clients;
                     }
                     match listener.accept() {
@@ -774,6 +775,7 @@ impl Relay {
                     }
                 };
                 wait = Duration::from_secs(3);
+                crate::diag::log("dvb-weitergabe", &format!("Player verbunden: {:?}", client.peer_addr()));
                 client.set_nonblocking(false).ok();
                 client.set_read_timeout(Some(Duration::from_secs(2))).ok();
                 client.set_write_timeout(Some(Duration::from_secs(5))).ok();
@@ -800,13 +802,17 @@ impl Relay {
                             for p in rest[..whole].chunks(188) {
                                 col.push_packet(p, &|pid| pid == 18);
                             }
-                            if client.write_all(&rest[..whole]).is_err() {
+                            if let Err(e) = client.write_all(&rest[..whole]) {
+                                crate::diag::log("dvb-weitergabe", &format!("Player getrennt: {e}"));
                                 continue 'clients;
                             }
                             rest.drain(..whole);
                         }
                         Ok(_) => {}
-                        Err(_) => break 'clients,
+                        Err(e) => {
+                            crate::diag::log("dvb-weitergabe", &format!("Lesefehler Demux: {e}"));
+                            break 'clients;
+                        }
                     }
                     if Instant::now() >= next_status {
                         next_status = Instant::now() + Duration::from_secs(2);
@@ -826,6 +832,7 @@ impl Relay {
                     }
                 }
             }
+            crate::diag::log("dvb-weitergabe", "Schleife beendet, Thread endet");
             drop(dmx);
             drop(fe);
         });
@@ -835,7 +842,7 @@ impl Relay {
             bytes,
             eit,
             stop,
-            thread: Some(thread),
+            thread: thread.ok(),
         })
     }
 
@@ -865,6 +872,7 @@ impl Relay {
 
 impl Drop for Relay {
     fn drop(&mut self) {
+        crate::diag::log("dvb-weitergabe", &format!("Stopp angefordert ({})", self.local_url));
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }

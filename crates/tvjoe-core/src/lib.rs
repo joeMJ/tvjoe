@@ -10,6 +10,7 @@ pub mod check;
 pub mod dvb;
 pub mod console;
 pub mod detail;
+pub mod diag;
 pub mod epg;
 pub mod hdhomerun;
 pub mod i18n;
