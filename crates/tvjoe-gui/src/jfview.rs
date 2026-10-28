@@ -192,16 +192,23 @@ fn label(text: &str, class: &str) -> gtk::Label {
 /// (waagerecht blätterbar), Knöpfe zu externen Seiten.
 fn fill_detail(area: &gtk::Box, info: &tvjoe_core::detail::Info) {
     if !info.fields.is_empty() {
-        let grid = gtk::Grid::builder().column_spacing(16).row_spacing(4).build();
-        for (i, (k, v)) in info.fields.iter().enumerate() {
+        // Zeilen statt Tabelle: ein GtkGrid nahm der Seite das Umbrechen der Beschreibung.
+        let rows = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(4)
+            .build();
+        for (k, v) in &info.fields {
+            let line = gtk::Box::builder().spacing(16).build();
             let key = label(k, "tvjoe-osd-sub");
             key.set_valign(gtk::Align::Start);
+            key.set_width_request(96);
             let value = label(v, "tvjoe-mt-detail-desc");
             value.set_hexpand(true);
-            grid.attach(&key, 0, i as i32, 1, 1);
-            grid.attach(&value, 1, i as i32, 1, 1);
+            line.append(&key);
+            line.append(&value);
+            rows.append(&line);
         }
-        area.append(&grid);
+        area.append(&rows);
     }
     for (title, people) in &info.people {
         area.append(&label(title, "tvjoe-osd-sub"));
@@ -248,10 +255,14 @@ fn fill_detail(area: &gtk::Box, info: &tvjoe_core::detail::Info) {
             }
             row.append(&tile);
         }
+        // Die Reihe darf die Seite nicht verbreitern (sonst laufen die Texte aus dem Bild).
         area.append(
             &gtk::ScrolledWindow::builder()
                 .hscrollbar_policy(gtk::PolicyType::Automatic)
                 .vscrollbar_policy(gtk::PolicyType::Never)
+                .propagate_natural_width(false)
+                .min_content_width(1)
+                .hexpand(true)
                 .child(&row)
                 .build(),
         );
