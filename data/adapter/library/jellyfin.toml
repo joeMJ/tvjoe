@@ -1,0 +1,8 @@
+# Bibliothek: eigener Jellyfin-Server. Anmeldung per Quick Connect (Code in der
+# Weboberfläche bestätigen), tvjoe speichert nur den Zugangsschlüssel.
+class = "library"
+id = "jellyfin"
+name = "Jellyfin"
+driver = "jellyfin"
+login = "quick-connect"
+server = true

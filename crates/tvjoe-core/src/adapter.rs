@@ -1,10 +1,15 @@
-//! Beschreibungen der Empfangsquellen (Nutzer, 2026-10-27).
+//! Adapter: Beschreibungen der Quellen in zwei Klassen (Nutzer, 2026-10-27/28).
 //!
-//! Eine Beschreibung (TOML) legt fest, welcher Treiber im Programm eine Empfangsquelle bedient
-//! und welche Eigenheiten das Gerät hat. Die mitgelieferten liegen in `data/adapter/` und sind
-//! eingebaut; eigene liegen im Ordner `adapter/` der Konfiguration und ersetzen eine
-//! eingebaute gleicher Kennung. Ein neuer Übertragungsweg braucht weiterhin einen Treiber im
-//! Programm; eine Beschreibung kann nur vorhandene Treiber nutzen.
+//! - **Fernsehen** (`class = "television"`, Ordner `television/`): Empfangsquellen für lineares
+//!   Fernsehen – Internet-TV, SAT>IP-Geräte, DVB-Karten, HDHomeRun.
+//! - **Bibliothek** (`class = "library"`, Ordner `library/`): Mediatheken und Medienserver –
+//!   ÖR-Mediathek, Jellyfin (Plex geplant).
+//!
+//! Eine Beschreibung (TOML) legt fest, welcher Treiber im Programm die Quelle bedient und welche
+//! Eigenheiten sie hat. Die mitgelieferten liegen in `data/adapter/<klasse>/` und sind eingebaut;
+//! eigene liegen im Ordner `adapter/<klasse>/` der Konfiguration (Fernsehen auch direkt in
+//! `adapter/`, wie bis 0.1.4) und ersetzen eine eingebaute gleicher Kennung. Ein neuer
+//! Übertragungsweg braucht weiterhin einen Treiber im Programm.
 
 use std::path::Path;
 
@@ -15,16 +20,16 @@ use crate::{tf, tr};
 
 /// Eingebaute Beschreibungen (Dateiname, Inhalt).
 const BUILTIN: &[(&str, &str)] = &[
-    ("iptv-m3u.toml", include_str!("../../../data/adapter/iptv-m3u.toml")),
-    ("netstream-4sat.toml", include_str!("../../../data/adapter/netstream-4sat.toml")),
-    ("dvb-linux.toml", include_str!("../../../data/adapter/dvb-linux.toml")),
-    ("satip-norm.toml", include_str!("../../../data/adapter/satip-norm.toml")),
-    ("octopus-net.toml", include_str!("../../../data/adapter/octopus-net.toml")),
-    ("digibit.toml", include_str!("../../../data/adapter/digibit.toml")),
-    ("kathrein-exip.toml", include_str!("../../../data/adapter/kathrein-exip.toml")),
-    ("fritzbox-cable.toml", include_str!("../../../data/adapter/fritzbox-cable.toml")),
-    ("hdhomerun.toml", include_str!("../../../data/adapter/hdhomerun.toml")),
-    ("multicast-iptv.toml", include_str!("../../../data/adapter/multicast-iptv.toml")),
+    ("iptv-m3u.toml", include_str!("../../../data/adapter/television/iptv-m3u.toml")),
+    ("netstream-4sat.toml", include_str!("../../../data/adapter/television/netstream-4sat.toml")),
+    ("dvb-linux.toml", include_str!("../../../data/adapter/television/dvb-linux.toml")),
+    ("satip-norm.toml", include_str!("../../../data/adapter/television/satip-norm.toml")),
+    ("octopus-net.toml", include_str!("../../../data/adapter/television/octopus-net.toml")),
+    ("digibit.toml", include_str!("../../../data/adapter/television/digibit.toml")),
+    ("kathrein-exip.toml", include_str!("../../../data/adapter/television/kathrein-exip.toml")),
+    ("fritzbox-cable.toml", include_str!("../../../data/adapter/television/fritzbox-cable.toml")),
+    ("hdhomerun.toml", include_str!("../../../data/adapter/television/hdhomerun.toml")),
+    ("multicast-iptv.toml", include_str!("../../../data/adapter/television/multicast-iptv.toml")),
 ];
 
 /// Treiber im Programm.
@@ -86,6 +91,9 @@ impl Description {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Raw {
+    /// Klasse; fehlt sie, gilt der Ordner (Fernsehen bis 0.1.4 ohne Angabe).
+    #[serde(default)]
+    class: Option<String>,
     id: String,
     name: String,
     driver: Driver,
@@ -140,8 +148,9 @@ fn coderate(s: &str) -> Option<&'static str> {
 /// Beschreibung lesen und prüfen.
 pub fn parse(text: &str, builtin: bool) -> Result<Description, String> {
     let raw: Raw = toml::from_str(text).map_err(|e| e.to_string())?;
-    if raw.id.trim().is_empty() || !raw.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-        return Err(tr("Kennung (id) nur aus Buchstaben, Ziffern und Bindestrich").into());
+    check_id(&raw.id)?;
+    if raw.class.as_deref().is_some_and(|c| c != "television") {
+        return Err(tr("Klasse (class) muss hier „television“ sein").into());
     }
     if raw.driver == Driver::Satip {
         // Der SAT>IP-Treiber kann nur RTP über UDP und eine Verbindung je Anfrage.
@@ -198,7 +207,28 @@ pub fn parse(text: &str, builtin: bool) -> Result<Description, String> {
     })
 }
 
-/// Alle Beschreibungen: eingebaute, ergänzt bzw. ersetzt durch die aus `dir`. Dazu die
+fn check_id(id: &str) -> Result<(), String> {
+    if id.trim().is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err(tr("Kennung (id) nur aus Buchstaben, Ziffern und Bindestrich").into());
+    }
+    Ok(())
+}
+
+/// `.toml`-Dateien eines Ordners, sortiert.
+fn toml_files(dir: Option<&Path>) -> Vec<std::path::PathBuf> {
+    let mut files: Vec<_> = dir
+        .and_then(|d| std::fs::read_dir(d).ok())
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "toml"))
+        .collect();
+    files.sort();
+    files
+}
+
+/// Alle Beschreibungen der Klasse Fernsehen: eingebaute, ergänzt bzw. ersetzt durch die aus
+/// `dir` (Ordner `adapter/` der Konfiguration: direkt darin und in `television/`). Dazu die
 /// Meldungen zu Dateien, die sich nicht lesen ließen.
 pub fn all(dir: Option<&Path>) -> (Vec<Description>, Vec<String>) {
     let mut out: Vec<Description> = BUILTIN
@@ -206,14 +236,8 @@ pub fn all(dir: Option<&Path>) -> (Vec<Description>, Vec<String>) {
         .filter_map(|(_, text)| parse(text, true).ok())
         .collect();
     let mut notes = Vec::new();
-    let mut files: Vec<_> = dir
-        .and_then(|d| std::fs::read_dir(d).ok())
-        .into_iter()
-        .flatten()
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
-        .collect();
-    files.sort();
+    let mut files = toml_files(dir);
+    files.extend(toml_files(dir.map(|d| d.join("television")).as_deref()));
     for path in files {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         match std::fs::read_to_string(&path)
@@ -233,6 +257,87 @@ pub fn all(dir: Option<&Path>) -> (Vec<Description>, Vec<String>) {
 /// Beschreibung zu einer Kennung (eingebaute und eigene).
 pub fn find(id: &str, dir: Option<&Path>) -> Option<Description> {
     all(dir).0.into_iter().find(|d| d.id == id)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Klasse Bibliothek
+
+/// Eingebaute Beschreibungen der Klasse Bibliothek.
+const BUILTIN_LIBRARY: &[(&str, &str)] = &[
+    ("oer-mediathek.toml", include_str!("../../../data/adapter/library/oer-mediathek.toml")),
+    ("jellyfin.toml", include_str!("../../../data/adapter/library/jellyfin.toml")),
+];
+
+/// Treiber einer Bibliothek im Programm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LibraryDriver {
+    /// ÖR-Mediathek: Filmliste von MediathekView.
+    Oer,
+    /// Jellyfin-Server.
+    Jellyfin,
+}
+
+/// Anmeldung an einer Bibliothek.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Login {
+    /// Keine Anmeldung.
+    None,
+    /// Jellyfin Quick Connect: Code in der Weboberfläche bestätigen.
+    QuickConnect,
+}
+
+/// Beschreibung einer Bibliothek.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryDescription {
+    pub class: String,
+    pub id: String,
+    pub name: String,
+    pub driver: LibraryDriver,
+    pub login: Login,
+    /// Braucht die Adresse eines Servers.
+    #[serde(default)]
+    pub server: bool,
+    /// Eingebaut (sonst aus dem Ordner `adapter/library/`).
+    #[serde(skip)]
+    pub builtin: bool,
+}
+
+/// Beschreibung einer Bibliothek lesen und prüfen.
+pub fn parse_library(text: &str, builtin: bool) -> Result<LibraryDescription, String> {
+    let mut d: LibraryDescription = toml::from_str(text).map_err(|e| e.to_string())?;
+    check_id(&d.id)?;
+    if d.class != "library" {
+        return Err(tr("Klasse (class) muss hier „library“ sein").into());
+    }
+    d.builtin = builtin;
+    Ok(d)
+}
+
+/// Alle Beschreibungen der Klasse Bibliothek: eingebaute, ergänzt bzw. ersetzt durch die aus
+/// `dir/library/`. Dazu die Meldungen zu Dateien, die sich nicht lesen ließen.
+pub fn libraries(dir: Option<&Path>) -> (Vec<LibraryDescription>, Vec<String>) {
+    let mut out: Vec<LibraryDescription> = BUILTIN_LIBRARY
+        .iter()
+        .filter_map(|(_, text)| parse_library(text, true).ok())
+        .collect();
+    let mut notes = Vec::new();
+    for path in toml_files(dir.map(|d| d.join("library")).as_deref()) {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        match std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|t| parse_library(&t, false))
+        {
+            Ok(d) => {
+                out.retain(|o| o.id != d.id);
+                out.push(d);
+            }
+            Err(e) => notes.push(tf!("{file}: {error}", file = name, error = e)),
+        }
+    }
+    (out, notes)
 }
 
 #[cfg(test)]
@@ -261,6 +366,46 @@ mod tests {
         assert!(parse(&base.replace("driver = \"satip\"", "driver = \"dvbt\""), false).is_err());
         assert!(parse(&format!("{base}\nunbekannt = 1\n"), false).is_err());
         assert!(parse("id = \"a b\"\nname = \"x\"\ndriver = \"iptv\"\n", false).is_err());
+    }
+
+    #[test]
+    fn library_descriptions() {
+        for (file, text) in BUILTIN_LIBRARY {
+            parse_library(text, true).unwrap_or_else(|e| panic!("{file}: {e}"));
+        }
+        let j = parse_library(BUILTIN_LIBRARY[1].1, true).unwrap();
+        assert_eq!((j.driver, j.login, j.server), (LibraryDriver::Jellyfin, Login::QuickConnect, true));
+        // Klasse muss passen; Fernsehen-Beschreibung ist keine Bibliothek und umgekehrt.
+        assert!(parse_library(BUILTIN[0].1, false).is_err());
+        assert!(parse(BUILTIN_LIBRARY[0].1, false).is_err());
+        let dir = std::env::temp_dir().join(format!("tvjoe-library-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("library")).unwrap();
+        std::fs::write(
+            dir.join("library/zweiter.toml"),
+            BUILTIN_LIBRARY[1].1.replace("id = \"jellyfin\"", "id = \"jellyfin-2\""),
+        )
+        .unwrap();
+        let (all, notes) = libraries(Some(&dir));
+        assert_eq!(all.len(), BUILTIN_LIBRARY.len() + 1);
+        assert!(notes.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn own_descriptions_in_class_folder() {
+        let dir = std::env::temp_dir().join(format!("tvjoe-television-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("television")).unwrap();
+        std::fs::write(
+            dir.join("television/eigen.toml"),
+            BUILTIN[1].1.replace("id = \"netstream-4sat\"", "id = \"meine-box\""),
+        )
+        .unwrap();
+        let (all, notes) = all(Some(&dir));
+        assert!(all.iter().any(|d| d.id == "meine-box" && !d.builtin));
+        assert!(notes.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

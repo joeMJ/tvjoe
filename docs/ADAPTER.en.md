@@ -1,6 +1,23 @@
-# Reception sources and adapters
+# Adapters: reception sources and libraries
 
 [Deutsch](ADAPTER.md)
+
+## Adapter classes
+
+tvjoe describes every source with an **adapter** – a small TOML file. There are two classes:
+
+| Class (`class`) | Purpose | Examples | Folder |
+|---|---|---|---|
+| `television` | live TV with channel list and guide | Internet TV (M3U), SAT>IP receivers, DVB card, HDHomeRun | `television/` |
+| `library` | media libraries and media servers with films, series, episodes | Mediathek of the public broadcasters, Jellyfin (Plex planned) | `library/` |
+
+The included adapters live in the repository under
+[`data/adapter/television/`](../data/adapter/television) and
+[`data/adapter/library/`](../data/adapter/library) and are built into tvjoe. An adapter always
+uses a **driver** inside the program; an adapter alone cannot add a new transmission path, but it
+can describe any further device or service an existing driver can handle – without programming.
+
+## Class television
 
 tvjoe can offer TV from several sources at once: Internet TV, SAT>IP receivers, DVB cards,
 HDHomeRun and multicast IPTV. Each source has its own button in the header bar, its own channel
@@ -15,7 +32,7 @@ Set them up under **Settings → Reception**; “+” adds a source.
 > virtual device `dvb_vidtv`. Feedback with real devices is welcome – via
 > [Report a bug / request a feature](https://github.com/joeMJ/tvjoe/issues).
 
-## Terms
+### Terms
 
 - **Driver:** the part of the program that handles one transmission path (e.g. SAT>IP over
   RTSP/RTP). Drivers are built in.
@@ -25,7 +42,7 @@ Set them up under **Settings → Reception**; “+” adds a source.
 - **Reception source:** a configured instance of a description, e.g. “SAT>IP nach Norm” with the
   address of your receiver. The same description can be used several times.
 
-## Drivers
+### Drivers
 
 | Driver (`driver`) | Path | Platform | Status |
 |---|---|---|---|
@@ -36,7 +53,7 @@ Set them up under **Settings → Reception**; “+” adds a source.
 
 DVB cards are not yet available on Windows (planned via BDA); there is no Mac version yet.
 
-## Included descriptions
+### Included descriptions
 
 The names are shown as below (German) in the program.
 
@@ -58,7 +75,7 @@ from there. For antenna and cable there are built-in frequency plans: **DVB-T2 G
 channels 21–48) and **DVB-C Germany**. Encrypted channels are skipped; a repeated scan keeps
 numbers and your own names.
 
-## Settings per reception source
+### Settings per reception source
 
 On the page of a source under **Settings → Reception**:
 
@@ -71,20 +88,22 @@ On the page of a source under **Settings → Reception**:
 - **Channel logos** – on or off per source.
 - **Recordings** – limit for simultaneous recordings (e.g. by the number of tuners).
 
-## Writing your own description
+### Writing your own description
 
-Your own descriptions are `.toml` files in the `adapter` folder of the configuration:
+Your own descriptions are `.toml` files in the `adapter/television/` folder of the configuration
+(files directly in `adapter/`, as up to 0.1.4, still count as television):
 
-- Linux: `~/.config/tvjoe/adapter/`
-- Windows: `%APPDATA%\tvjoe\adapter\`
+- Linux: `~/.config/tvjoe/adapter/television/`
+- Windows: `%APPDATA%\tvjoe\adapter\television\`
 
 They appear under “+” the next time the settings are opened. A file with the same `id` as an
 included description replaces it. A file with errors is skipped; tvjoe only names the reason with
 `TVJOE_TRACE=1` on the command line.
 
-### Example: SAT>IP receiver for Astra 19.2° East
+#### Example: SAT>IP receiver for Astra 19.2° East
 
 ```toml
+class = "television"
 id = "my-satip"
 name = "My SAT>IP receiver"
 driver = "satip"
@@ -100,9 +119,10 @@ east = true
 seed = { freq = 11494, pol = "h", dvbs2 = true, mtype = "8psk", sr = 22000, fec = "23" }
 ```
 
-### Example: device with its own channel list (like the FRITZ!Box)
+#### Example: device with its own channel list (like the FRITZ!Box)
 
 ```toml
+class = "television"
 id = "my-cable"
 name = "My cable SAT>IP"
 driver = "satip"
@@ -112,10 +132,11 @@ signal_epg = false
 channel_list = ["http://{host}/dvb/m3u/tvhd.m3u"]
 ```
 
-### Fields
+#### Fields
 
 | Field | Required | Meaning |
 |---|---|---|
+| `class` | recommended | `television` (if missing, the folder decides) |
 | `id` | yes | identifier of letters, digits and hyphens |
 | `name` | yes | name in the settings |
 | `driver` | yes | `iptv`, `satip`, `linux-dvb` or `hdhomerun` |
@@ -138,6 +159,67 @@ Section `[satellite]`:
 
 For `satip`, at least one of these is required: `[satellite]`, `channel_list` or a delivery system
 for antenna or cable (then the scan uses a frequency plan). Unknown fields are rejected.
+
+## Class library
+
+Libraries are media libraries and media servers: films, series with seasons and episodes,
+collections. Playback, resume, downloading to storage and the “Downloaded” toggle work the same
+for all of them.
+
+> [!NOTE]
+> The class is defined; setting libraries up from your own descriptions follows with the next
+> expansion (Settings → Media libraries, several servers per type). Until then the Mediathek and
+> Jellyfin are set up as before under **Settings → Mediathek** and **→ Jellyfin**.
+
+### Drivers
+
+| Driver (`driver`) | Source | Login | Status |
+|---|---|---|---|
+| `oer` | film list from [MediathekView](https://mediathekview.de/), videos straight from the broadcasters | none | tested |
+| `jellyfin` | your own Jellyfin server | Quick Connect | tested |
+| `plex` | your own Plex server | PIN via plex.tv | planned |
+
+### Included descriptions
+
+| Description | Driver | Login | Server address |
+|---|---|---|---|
+| ÖR-Mediathek | `oer` | none | no |
+| Jellyfin | `jellyfin` | Quick Connect | yes |
+
+### Example
+
+```toml
+class = "library"
+id = "jellyfin-basement"
+name = "Jellyfin in the basement"
+driver = "jellyfin"
+login = "quick-connect"
+server = true
+```
+
+### Fields
+
+| Field | Required | Meaning |
+|---|---|---|
+| `class` | yes | `library` |
+| `id` | yes | identifier of letters, digits and hyphens |
+| `name` | yes | name in the settings |
+| `driver` | yes | `oer` or `jellyfin` |
+| `login` | yes | `none` (no login) or `quick-connect` (Jellyfin) |
+| `server` | no | `true` if a server address has to be entered; default `false` |
+
+Your own descriptions go into the `adapter/library/` folder of the configuration
+(`~/.config/tvjoe/adapter/library/` or `%APPDATA%\tvjoe\adapter\library\`).
+
+## Contributing adapters
+
+1. Write a description following the fields above and try it in the `adapter/<class>/` folder of
+   your own configuration. tvjoe names errors in the file with `TVJOE_TRACE=1`.
+2. Once it works with your device or server, a pull request to `data/adapter/television/` or
+   `data/adapter/library/` is welcome – with a comment line at the top: device or service, models,
+   whether and how it was tested.
+3. A new transmission path (its own protocol) needs a driver in the program; please open an issue
+   describing the device.
 
 ## Limits
 

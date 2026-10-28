@@ -1,4 +1,5 @@
 # Empfangsquelle: Elgato EyeTV Netstream 4Sat (SAT>IP, DVB-S/S2, vier Tuner).
+class = "television"
 id = "netstream-4sat"
 name = "EyeTV Netstream 4Sat"
 driver = "satip"

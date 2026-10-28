@@ -1,6 +1,25 @@
-# Empfangsquellen und Adapter
+# Adapter: Empfangsquellen und Bibliotheken
 
 [English](ADAPTER.en.md)
+
+## Adapterklassen
+
+tvjoe beschreibt jede Quelle mit einem **Adapter** – einer kleinen TOML-Datei. Es gibt zwei
+Klassen:
+
+| Klasse (`class`) | Wofür | Beispiele | Ordner |
+|---|---|---|---|
+| `television` – Fernsehen | lineares Fernsehen mit Senderliste und Programm | Internet-TV (M3U), SAT>IP-Empfänger, DVB-Karte, HDHomeRun | `television/` |
+| `library` – Bibliothek | Mediatheken und Medienserver mit Filmen, Serien, Folgen | ÖR-Mediathek, Jellyfin (Plex geplant) | `library/` |
+
+Die mitgelieferten Adapter liegen im Repository unter
+[`data/adapter/television/`](../data/adapter/television) und
+[`data/adapter/library/`](../data/adapter/library) und sind in tvjoe eingebaut. Ein Adapter
+nutzt immer einen **Treiber**, der im Programm steckt; ein Adapter allein kann keinen neuen
+Übertragungsweg hinzufügen, aber jedes weitere Gerät oder jeden weiteren Dienst beschreiben, den
+ein vorhandener Treiber bedienen kann – ohne zu programmieren.
+
+## Klasse Fernsehen (`television`)
 
 tvjoe kann Fernsehen aus mehreren Quellen gleichzeitig anbieten: Internet-TV, SAT>IP-Empfänger,
 DVB-Karten, HDHomeRun und Multicast-IPTV. Jede Quelle hat einen eigenen Knopf in der Kopfleiste,
@@ -15,7 +34,7 @@ Eingerichtet wird unter **Einstellungen → Empfang**; „+“ fügt eine Quelle
 > virtuellen Gerät `dvb_vidtv` des Linux-Kernels geprüft. Rückmeldungen mit echten Geräten sind
 > willkommen – über [Fehler melden / Wunsch](https://github.com/joeMJ/tvjoe/issues).
 
-## Begriffe
+### Begriffe
 
 - **Treiber:** der Teil des Programms, der einen Übertragungsweg beherrscht (z. B. SAT>IP über
   RTSP/RTP). Treiber sind fest eingebaut.
@@ -26,7 +45,7 @@ Eingerichtet wird unter **Einstellungen → Empfang**; „+“ fügt eine Quelle
 - **Empfangsquelle:** eine eingerichtete Instanz einer Beschreibung, z. B. „SAT>IP nach Norm“ mit
   der Adresse deines Empfängers. Dieselbe Beschreibung lässt sich mehrfach verwenden.
 
-## Treiber
+### Treiber
 
 | Treiber (`driver`) | Weg | Plattform | Stand |
 |---|---|---|---|
@@ -38,7 +57,7 @@ Eingerichtet wird unter **Einstellungen → Empfang**; „+“ fügt eine Quelle
 Unter Windows gibt es noch keine DVB-Karten (geplant über BDA); eine Fassung für den Mac gibt es
 noch nicht.
 
-## Mitgelieferte Beschreibungen
+### Mitgelieferte Beschreibungen
 
 | Beschreibung | Treiber | Empfangsarten | Senderliste | Programm |
 |---|---|---|---|---|
@@ -58,7 +77,7 @@ Netzwerktabelle mit allen Transpondern. Für Antenne und Kabel gibt es eingebaut
 **DVB-T2 Deutschland** (UHF-Kanäle 21–48) und **DVB-C Deutschland**. Verschlüsselte Sender werden
 ausgelassen; ein erneuter Suchlauf behält Nummern und eigene Namen.
 
-## Einstellungen je Empfangsquelle
+### Einstellungen je Empfangsquelle
 
 Auf der Seite einer Quelle unter **Einstellungen → Empfang**:
 
@@ -71,20 +90,22 @@ Auf der Seite einer Quelle unter **Einstellungen → Empfang**:
 - **Senderlogos** – je Quelle ein- und ausschaltbar.
 - **Aufnahmen** – Grenze für gleichzeitige Aufnahmen (z. B. nach der Zahl der Tuner).
 
-## Eigene Beschreibung anlegen
+### Eigene Beschreibung anlegen
 
-Eigene Beschreibungen liegen als `.toml`-Datei im Ordner `adapter` der Konfiguration:
+Eigene Beschreibungen liegen als `.toml`-Datei im Ordner `adapter/television/` der
+Konfiguration (Dateien direkt in `adapter/`, wie bis 0.1.4, gelten weiter als Fernsehen):
 
-- Linux: `~/.config/tvjoe/adapter/`
-- Windows: `%APPDATA%\tvjoe\adapter\`
+- Linux: `~/.config/tvjoe/adapter/television/`
+- Windows: `%APPDATA%\tvjoe\adapter\television\`
 
 Sie erscheinen nach dem nächsten Öffnen der Einstellungen unter „+“. Eine eigene Datei mit derselben
 Kennung (`id`) wie eine mitgelieferte ersetzt diese. Eine Datei mit Fehlern wird übergangen; den
 Grund nennt tvjoe nur mit `TVJOE_TRACE=1` auf der Kommandozeile.
 
-### Beispiel: SAT>IP-Empfänger für Astra 19,2° Ost
+#### Beispiel: SAT>IP-Empfänger für Astra 19,2° Ost
 
 ```toml
+class = "television"
 id = "mein-satip"
 name = "Mein SAT>IP-Empfänger"
 driver = "satip"
@@ -100,9 +121,10 @@ east = true
 seed = { freq = 11494, pol = "h", dvbs2 = true, mtype = "8psk", sr = 22000, fec = "23" }
 ```
 
-### Beispiel: Gerät mit eigener Senderliste (wie die FRITZ!Box)
+#### Beispiel: Gerät mit eigener Senderliste (wie die FRITZ!Box)
 
 ```toml
+class = "television"
 id = "mein-kabel"
 name = "Mein Kabel-SAT>IP"
 driver = "satip"
@@ -112,10 +134,11 @@ signal_epg = false
 channel_list = ["http://{host}/dvb/m3u/tvhd.m3u"]
 ```
 
-### Felder
+#### Felder
 
 | Feld | Pflicht | Bedeutung |
 |---|---|---|
+| `class` | empfohlen | `television` (fehlt es, gilt der Ordner) |
 | `id` | ja | Kennung aus Buchstaben, Ziffern und Bindestrich |
 | `name` | ja | Name in den Einstellungen |
 | `driver` | ja | `iptv`, `satip`, `linux-dvb` oder `hdhomerun` |
@@ -139,6 +162,67 @@ Abschnitt `[satellite]`:
 Für `satip` muss mindestens eines vorhanden sein: `[satellite]`, `channel_list` oder eine
 Empfangsart für Antenne bzw. Kabel (dann Suchlauf über einen Frequenzplan). Unbekannte Felder
 lehnt tvjoe ab.
+
+## Klasse Bibliothek (`library`)
+
+Bibliotheken sind Mediatheken und Medienserver: Filme, Serien mit Staffeln und Folgen,
+Sammlungen. Abspielen, Weitersehen, Herunterladen in die Ablage und der Schalter „Geladen“
+funktionieren für alle gleich.
+
+> [!NOTE]
+> Die Klasse ist festgelegt, die Einrichtung über eigene Beschreibungen folgt mit dem nächsten
+> Ausbau (Einstellungen → Mediatheken, mehrere Server je Typ). Bis dahin werden ÖR-Mediathek und
+> Jellyfin wie bisher unter **Einstellungen → Mediathek** bzw. **→ Jellyfin** eingerichtet.
+
+### Treiber
+
+| Treiber (`driver`) | Quelle | Anmeldung | Stand |
+|---|---|---|---|
+| `oer` | Filmliste von [MediathekView](https://mediathekview.de/), Videos direkt von den Sendern | keine | getestet |
+| `jellyfin` | eigener Jellyfin-Server | Quick Connect | getestet |
+| `plex` | eigener Plex-Server | PIN über plex.tv | geplant |
+
+### Mitgelieferte Beschreibungen
+
+| Beschreibung | Treiber | Anmeldung | Server-Adresse |
+|---|---|---|---|
+| ÖR-Mediathek | `oer` | keine | nein |
+| Jellyfin | `jellyfin` | Quick Connect | ja |
+
+### Beispiel
+
+```toml
+class = "library"
+id = "jellyfin-keller"
+name = "Jellyfin im Keller"
+driver = "jellyfin"
+login = "quick-connect"
+server = true
+```
+
+### Felder
+
+| Feld | Pflicht | Bedeutung |
+|---|---|---|
+| `class` | ja | `library` |
+| `id` | ja | Kennung aus Buchstaben, Ziffern und Bindestrich |
+| `name` | ja | Name in den Einstellungen |
+| `driver` | ja | `oer` oder `jellyfin` |
+| `login` | ja | `none` (keine Anmeldung) oder `quick-connect` (Jellyfin) |
+| `server` | nein | `true`, wenn die Adresse eines Servers einzutragen ist; Vorgabe `false` |
+
+Eigene Beschreibungen gehören in den Ordner `adapter/library/` der Konfiguration
+(`~/.config/tvjoe/adapter/library/` bzw. `%APPDATA%\tvjoe\adapter\library\`).
+
+## Eigene Adapter beisteuern
+
+1. Eine Beschreibung nach den Feldern oben schreiben und im Ordner `adapter/<klasse>/` der
+   eigenen Konfiguration ausprobieren. Fehler in der Datei nennt tvjoe mit `TVJOE_TRACE=1`.
+2. Läuft sie mit dem eigenen Gerät bzw. Server, gern als Pull-Request nach
+   `data/adapter/television/` bzw. `data/adapter/library/` – mit einer Kommentarzeile oben: Gerät
+   bzw. Dienst, Modelle, ob getestet und womit.
+3. Für einen neuen Übertragungsweg (eigenes Protokoll) braucht es einen Treiber im Programm; dafür
+   bitte ein Issue mit Beschreibung des Geräts eröffnen.
 
 ## Grenzen
 

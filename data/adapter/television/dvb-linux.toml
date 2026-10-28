@@ -2,6 +2,7 @@
 # (DVB-T/T2), Kabel (DVB-C) oder Satellit (DVB-S/S2). Experimentell: geprüft nur mit dem
 # virtuellen Gerät dvb_vidtv. Die Karte selbst braucht einen Treiber des Kernels, oft auch
 # Firmware unter /lib/firmware; der Benutzer braucht Zugriff auf /dev/dvb (Gruppe „video“).
+class = "television"
 id = "dvb-linux"
 name = "DVB-Karte (Linux)"
 driver = "linux-dvb"

@@ -1,4 +1,5 @@
 # Empfangsquelle: Internet-TV aus M3U-Listen (HLS und andere Streams über HTTP).
+class = "television"
 id = "iptv-m3u"
 name = "Internet-TV (M3U)"
 driver = "iptv"

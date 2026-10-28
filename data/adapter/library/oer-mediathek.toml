@@ -1,0 +1,8 @@
+# Bibliothek: Mediathek der öffentlich-rechtlichen Sender. Die Filmliste kommt von
+# MediathekView (mediathekview.de), die Videos direkt von den Sendern; keine Anmeldung.
+class = "library"
+id = "oer-mediathek"
+name = "ÖR-Mediathek"
+driver = "oer"
+login = "none"
+server = false

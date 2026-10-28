@@ -1,5 +1,6 @@
 # Empfangsquelle: SiliconDust HDHomeRun (Netzwerktuner für Antenne oder Kabel). Senderliste aus
 # http://<Gerät>/lineup.json, Streams über HTTP; Programm über XMLTV. Ungetestet.
+class = "television"
 id = "hdhomerun"
 name = "HDHomeRun"
 driver = "hdhomerun"

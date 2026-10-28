@@ -222,6 +222,10 @@ pub struct App {
     vod: RefCell<Option<Vod>>,
     /// Für die offene Mediathek angehaltener Sender (läuft beim Schließen wieder an).
     held_live: Cell<Option<u64>>,
+    /// Prüfer „Bild bewegt sich“: Durchlauf (neuer Sender = neuer Durchlauf) und der Sender,
+    /// der nach stehendem Bild einmal neu geladen wurde.
+    watch: Cell<u32>,
+    picture_retried: Cell<Option<u64>>,
     /// Zeitgeber für die Fortschrittszeile läuft.
     vod_timer: Cell<bool>,
     vod_ticks: Cell<u32>,
@@ -435,6 +439,8 @@ impl App {
             epg_timer: Cell::new(false),
             vod: RefCell::new(None),
             held_live: Cell::new(None),
+            watch: Cell::new(0),
+            picture_retried: Cell::new(None),
             vod_timer: Cell::new(false),
             vod_ticks: Cell::new(0),
             vod_next: RefCell::new(Vec::new()),
@@ -1760,6 +1766,55 @@ impl App {
         self.osd.show_channel(&info, self.overlay_secs());
         self.update_inhibit();
         self.update_source_indicator();
+        let retried = self.picture_retried.take() == Some(id);
+        self.watch_picture(id, retried);
+    }
+
+    /// Prüfer „Bild bewegt sich“ (Nutzer, 2026-10-28; unter Ubuntu 24.04 blieb das Bild nach dem
+    /// Wechsel von SAT zu Internet-TV stehen): 8 s nach dem Start zweimal im Abstand von 3 s die
+    /// dekodierten und die gezeichneten Bilder zählen. Steht das Bild, den Sender einmal neu
+    /// laden; steht es danach immer noch, ein Hinweis. Nicht bei Radio, offener Ebene oder
+    /// verkleinertem Fenster.
+    fn watch_picture(self: &Rc<Self>, id: u64, retried: bool) {
+        let run = self.watch.get().wrapping_add(1);
+        self.watch.set(run);
+        let sample = move |app: &App| -> Option<(i64, u64)> {
+            let p = app.player.as_ref()?;
+            let still_ours = app.watch.get() == run
+                && app.current.get() == Some(id)
+                && app.vod.borrow().is_none();
+            let visible = app.window.is_visible()
+                && !app.window.is_suspended()
+                && !app.layer.is_open();
+            (still_ours && visible && p.has_video()).then(|| (p.frames().unwrap_or(0), p.renders()))
+        };
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local_once(Duration::from_secs(8), move || {
+            let Some(app) = weak.upgrade() else { return };
+            let Some(first) = sample(&app) else { return };
+            let weak = Rc::downgrade(&app);
+            glib::timeout_add_local_once(Duration::from_secs(3), move || {
+                let Some(app) = weak.upgrade() else { return };
+                let Some(second) = sample(&app) else { return };
+                let (frames, renders) = (second.0 - first.0, second.1 - first.1);
+                if frames > 0 && renders > 0 {
+                    return;
+                }
+                trace(&format!(
+                    "Prüfer: Bild steht (in 3 s {frames} Bilder dekodiert, {renders} gezeichnet){}",
+                    if retried { ", schon neu geladen" } else { ", lade den Sender neu" }
+                ));
+                if retried {
+                    app.msg.show(
+                        tr("Das Bild steht. Bitte den Sender neu wählen oder tvjoe neu starten."),
+                        app.overlay_secs() * 2,
+                    );
+                } else {
+                    app.picture_retried.set(Some(id));
+                    app.play_channel(id);
+                }
+            });
+        });
     }
 
     /// Sender laden; SAT>IP-Adressen über die eigene Sitzung (libmpv kann kein SAT>IP).

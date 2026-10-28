@@ -1,5 +1,6 @@
 # Empfangsquelle: Digital Devices Octopus NET (SAT>IP; je nach Bestückung Satellit, Antenne
 # oder Kabel). Beschreibung nach der SAT>IP-Norm, Eigenheiten des Geräts unbekannt; ungetestet.
+class = "television"
 id = "octopus-net"
 name = "Digital Devices Octopus NET"
 driver = "satip"

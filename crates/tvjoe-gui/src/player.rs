@@ -36,6 +36,8 @@ pub struct Player {
     pub mpv: &'static Mpv,
     render: RefCell<Option<RenderContext<'static>>>,
     first_frame: Cell<bool>,
+    /// Gezeichnete Bilder seit dem Start (Prüfer „Bild bewegt sich“).
+    renders: Cell<u64>,
     /// Untertitel beim Laden eines Streams (Einstellung); `U` wählt nur für den laufenden.
     subtitles: Cell<bool>,
     /// Schwarze Balken abschneiden / Bild füllen (Einstellung, Knöpfe, Taste Z).
@@ -124,6 +126,7 @@ impl Player {
             mpv,
             render: RefCell::new(None),
             first_frame: Cell::new(false),
+            renders: Cell::new(0),
             subtitles: Cell::new(false),
             crop_on: Cell::new(false),
             fill: Cell::new(false),
@@ -202,6 +205,10 @@ impl Player {
             eprintln!("tvjoe: Rendern fehlgeschlagen: {e:?}");
         }
         self.protocol_line("gezeichnet");
+        // Test: `TVJOE_TEST_STEHBILD=1` täuscht ein stehendes Bild vor (Prüfer im App-Code).
+        if std::env::var_os("TVJOE_TEST_STEHBILD").is_none() {
+            self.renders.set(self.renders.get() + 1);
+        }
         if !self.first_frame.get() && self.mpv.get_property::<i64>("video-params/w").is_ok() {
             self.first_frame.set(true);
             trace("erstes Bild gezeichnet");
@@ -652,6 +659,22 @@ impl Player {
     pub fn toggle_mute(&self) -> Option<bool> {
         self.mpv.command("cycle", &["mute"]).ok()?;
         self.mpv.get_property::<bool>("mute").ok()
+    }
+
+    /// Zahl der bisher dargestellten Bilder des laufenden Streams (Prüfer „Bild bewegt sich“);
+    /// `None` ohne Video.
+    pub fn frames(&self) -> Option<i64> {
+        self.mpv.get_property::<i64>("estimated-frame-number").ok()
+    }
+
+    /// Bisher gezeichnete Bilder (alle Streams).
+    pub fn renders(&self) -> u64 {
+        self.renders.get()
+    }
+
+    /// Hat der laufende Stream ein Videobild (sonst z. B. Radio)?
+    pub fn has_video(&self) -> bool {
+        self.mpv.get_property::<i64>("video-params/w").is_ok()
     }
 
     /// Kurzbericht zur laufenden Wiedergabe (für Messungen).

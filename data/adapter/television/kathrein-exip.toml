@@ -1,10 +1,11 @@
-# Empfangsquelle: Telestar Digibit R1 (SAT>IP, Satellit). Beschreibung nach der SAT>IP-Norm,
+# Empfangsquelle: Kathrein EXIP 414/418 (SAT>IP, Satellit). Beschreibung nach der SAT>IP-Norm,
 # Eigenheiten des Geräts unbekannt; ungetestet.
-id = "digibit"
-name = "Telestar Digibit"
+class = "television"
+id = "kathrein-exip"
+name = "Kathrein EXIP"
 driver = "satip"
 systems = ["dvbs", "dvbs2"]
-tuners = 2
+tuners = 4
 signal_epg = true
 
 [satellite]
