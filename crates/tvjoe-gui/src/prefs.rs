@@ -240,48 +240,11 @@ pub fn open_at(
     // Eigene Seite „Über“ rechts von „Updates“ (Nutzer, 2026-10-27): Version und Lizenzen,
     // Anleitung (README bei GitHub), Fehler melden.
     let p_about = new_page("ueber", tr("Über"), "help-about-symbolic");
-    let about = adw::PreferencesGroup::new();
-    let about_row = adw::ActionRow::builder()
-        .title(tr("Über tvjoe"))
-        .subtitle(tf!("Version {version}, Lizenzen", version = VERSION))
-        .activatable(true)
-        .build();
-    about_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
-    about.add(&about_row);
-    let manual_row = adw::ActionRow::builder()
-        .title(tr("Anleitung"))
-        .subtitle(tr("Öffnet die Anleitung (README) bei GitHub im Browser"))
-        .activatable(true)
-        .build();
-    manual_row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
-    about.add(&manual_row);
-    let manual_parent = dialog.clone();
-    manual_row.connect_activated(move |_| {
-        let parent = manual_parent.root().and_downcast::<gtk::Window>();
-        gtk::UriLauncher::new(manual_url()).launch(
-            parent.as_ref(),
-            gtk::gio::Cancellable::NONE,
-            |_| {},
-        );
-    });
-    // Fehler und Wünsche: öffnet den Issue-Tracker bei GitHub im Browser.
-    let issue_row = adw::ActionRow::builder()
-        .title(tr("Fehler melden / Wunsch"))
-        .subtitle(tr("Öffnet die Issues von tvjoe bei GitHub im Browser (GitHub-Konto nötig)"))
-        .activatable(true)
-        .build();
-    issue_row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
-    about.add(&issue_row);
-    let issue_parent = dialog.clone();
-    issue_row.connect_activated(move |_| {
-        let parent = issue_parent.root().and_downcast::<gtk::Window>();
-        gtk::UriLauncher::new(ISSUES_URL).launch(
-            parent.as_ref(),
-            gtk::gio::Cancellable::NONE,
-            |_| {},
-        );
-    });
-    p_about.add(&about);
+    // Inhalt von „Über tvjoe“ direkt auf der Seite (Nutzer, 2026-10-28: kein Dialog, keine
+    // Unterseite); Anleitung und Fehler melden bei den Verweisen.
+    for g in about_groups(&dialog) {
+        p_about.add(&g);
+    }
     for p in [
         &p_control,
         &p_osd,
@@ -297,9 +260,6 @@ pub fn open_at(
     if let Some(name) = page {
         dialog.set_visible_page_name(name);
     }
-    let about_parent = dialog.clone();
-    // Als Unterseite der Einstellungen (Nutzer, 2026-10-28: nicht als eigener Dialog darüber).
-    about_row.connect_activated(move |_| about_parent.push_subpage(&about_page(&about_parent)));
 
     let weak = Rc::downgrade(app);
     now_button.connect_clicked(move |_| {
@@ -422,11 +382,12 @@ fn manual_url() -> &'static str {
 const ISSUES_URL: &str = "https://github.com/joeMJ/tvjoe/issues";
 const THIRD_PARTY_URL: &str = "https://github.com/joeMJ/tvjoe/blob/main/THIRD_PARTY.md";
 
-/// „Über tvjoe“ als Unterseite: Version, Entwickler, Beschreibung, Verweise (README,
-/// Bibliotheken Dritter) und Rechtshinweise (Herkunft der Mediathek-Daten steht im Adapter) (vollständige Liste in
+/// Seite „Über“: Version, Entwickler, Beschreibung, Verweise (Anleitung, Fehler melden,
+/// Bibliotheken Dritter), Mitwirkende und Rechtshinweise (Herkunft der Mediathek-Daten steht im
+/// Adapter) (vollständige Liste in
 /// THIRD_PARTY.md).
-fn about_page(dialog: &adw::PreferencesDialog) -> adw::NavigationPage {
-    let page = adw::PreferencesPage::new();
+fn about_groups(dialog: &adw::PreferencesDialog) -> Vec<adw::PreferencesGroup> {
+    let mut page: Vec<adw::PreferencesGroup> = Vec::new();
 
     // Kopf: Symbol, Name, Entwickler, Version, Beschreibung.
     let head = gtk::Box::new(gtk::Orientation::Vertical, 6);
@@ -449,15 +410,20 @@ fn about_page(dialog: &adw::PreferencesDialog) -> adw::NavigationPage {
     head.append(&comments);
     let head_group = adw::PreferencesGroup::new();
     head_group.add(&head);
-    page.add(&head_group);
+    page.push(head_group);
 
     // Verweise (im Browser).
     let links = adw::PreferencesGroup::new();
-    for (title, url) in [
-        (tr("README bei GitHub").to_string(), README_URL),
-        (tr("Bibliotheken Dritter (THIRD_PARTY.md)").to_string(), THIRD_PARTY_URL),
+    for (title, subtitle, url) in [
+        (tr("Anleitung"), tr("Öffnet die Anleitung (README) bei GitHub im Browser"), manual_url()),
+        (
+            tr("Fehler melden / Wunsch"),
+            tr("Öffnet die Issues von tvjoe bei GitHub im Browser (GitHub-Konto nötig)"),
+            ISSUES_URL,
+        ),
+        (tr("Bibliotheken Dritter (THIRD_PARTY.md)"), THIRD_PARTY_URL, THIRD_PARTY_URL),
     ] {
-        let row = adw::ActionRow::builder().title(title).subtitle(url).activatable(true).build();
+        let row = adw::ActionRow::builder().title(title).subtitle(subtitle).activatable(true).build();
         row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
         let parent = dialog.clone();
         row.connect_activated(move |_| {
@@ -466,11 +432,11 @@ fn about_page(dialog: &adw::PreferencesDialog) -> adw::NavigationPage {
         });
         links.add(&row);
     }
-    page.add(&links);
+    page.push(links);
 
     let people = adw::PreferencesGroup::builder().title(tr("Mitwirkende")).build();
     people.add(&adw::ActionRow::builder().title("John Lose (joeMJ)").subtitle("© 2026 John Lose · Apache-2.0").build());
-    page.add(&people);
+    page.push(people);
 
     // Rechtshinweise: je Bestandteil eine aufklappbare Zeile.
     let legal = adw::PreferencesGroup::builder().title(tr("Rechtshinweis")).build();
@@ -518,12 +484,8 @@ fn about_page(dialog: &adw::PreferencesDialog) -> adw::NavigationPage {
         row.add_row(&body);
         legal.add(&row);
     }
-    page.add(&legal);
-
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&adw::HeaderBar::new());
-    toolbar.set_content(Some(&page));
-    adw::NavigationPage::builder().title(tr("Über tvjoe")).child(&toolbar).build()
+    page.push(legal);
+    page
 }
 
 fn alert(app: &App, heading: &str, body: &str) -> adw::AlertDialog {

@@ -271,3 +271,11 @@
   background: #e01b24;
   color: #ffffff;
 }
+
+/* Ablage: Beschreibungszeile einer Staffel (Abo, Nachladen) hebt sich von den Folgen ab. */
+.tvjoe-season-row {
+  background-color: alpha(currentColor, 0.05);
+}
+.tvjoe-season-row .title {
+  font-weight: bold;
+}

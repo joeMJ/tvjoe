@@ -543,21 +543,36 @@ const ABLAGE_STEPS: &[Step] = &[
     (
         "82-ablage-gruppe",
         |p| {
-            fn find(w: &gtk::Widget) -> Option<adw::ExpanderRow> {
+            // Erste Gruppe, oder die mit `TVJOE_SELFTEST_ZEILE` im Titel.
+            fn find(w: &gtk::Widget, want: &str) -> Option<adw::ExpanderRow> {
                 if let Some(r) = w.downcast_ref::<adw::ExpanderRow>() {
-                    return Some(r.clone());
+                    if want.is_empty() || r.title().contains(want) {
+                        return Some(r.clone());
+                    }
                 }
                 let mut c = w.first_child();
                 while let Some(child) = c {
-                    if let Some(r) = find(&child) {
+                    if let Some(r) = find(&child, want) {
                         return Some(r);
                     }
                     c = child.next_sibling();
                 }
                 None
             }
-            if let Some(r) = find(p.app.window.upcast_ref()) {
+            let want = std::env::var("TVJOE_SELFTEST_ZEILE").unwrap_or_default();
+            if let Some(r) = find(p.app.window.upcast_ref(), &want) {
                 r.set_expanded(true);
+                // Bis zur Gruppe herunterrollen (sonst liegt sie unter dem Fensterrand).
+                if let Some(sw) = r.ancestor(gtk::ScrolledWindow::static_type()).and_downcast::<gtk::ScrolledWindow>() {
+                    let r2 = r.clone();
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
+                        if let Some(child) = sw.child() {
+                            if let Some(pt) = r2.compute_point(&child, &gtk::graphene::Point::new(0.0, 0.0)) {
+                                sw.vadjustment().set_value(f64::from(pt.y()) - 20.0);
+                            }
+                        }
+                    });
+                }
             }
             main_window(p)
         },
@@ -580,7 +595,6 @@ const ABLAGE_STEPS: &[Step] = &[
         },
         2000,
     ),
-    ("84b-ueber-tvjoe", |p| { activate_row(tvjoe_core::tr("Über tvjoe")); main_window(p) }, 2000),
 ];
 
 /// Ablage verschieben (`TVJOE_SELFTEST_UMZUG=<Zielordner>`, nur diese Schritte; nur mit

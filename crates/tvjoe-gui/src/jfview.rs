@@ -384,6 +384,25 @@ pub fn season_count(library: &str, series_id: &str, season: Option<i64>) -> usiz
     })
 }
 
+/// Sammlungen der Bibliothek je Film: Film-Kennung → (Sammlungs-Kennung, Name, Zahl der Filme).
+pub fn collections_by_item(library: &str) -> std::collections::HashMap<String, (String, String, usize)> {
+    let mut out = std::collections::HashMap::new();
+    if let Some(d) = db(library) {
+        for c in d.collections(&[], true) {
+            let films = d.collection(&c.id);
+            for f in &films {
+                out.entry(f.id.clone()).or_insert_with(|| (c.id.clone(), c.name.clone(), films.len()));
+            }
+        }
+    }
+    out
+}
+
+/// Alle Folgen einer Serie aus dem Zwischenspeicher (sortiert).
+pub fn series_episodes(library: &str, series_id: &str) -> Vec<Item> {
+    db(library).map_or_else(Vec::new, |d| d.episodes(series_id))
+}
+
 /// Folgen einer Staffel aus dem Zwischenspeicher der Bibliothek (sortiert).
 pub fn season_episodes(library: &str, series_id: &str, season: Option<i64>) -> Vec<Item> {
     db(library).map_or_else(Vec::new, |d| {

@@ -435,78 +435,244 @@ fn entry_fraction(e: &Entry) -> f64 {
     }
 }
 
-/// Balken einer Gruppe: Titel, Folgen · Größe (· Stand in Jellyfin), Fortschritt beim
-/// Laden, Nachladen und Abo (Server), Löschen; aufgeklappt die Folgen.
-fn group_row(
+// Feste Spalten jeder Zeile (Nutzer, 2026-10-28), von rechts: Aufklappen (bzw. Platzhalter),
+// Löschen, Hauptknopf (Abspielen, Fortsetzen, Abbrechen, Nachladen), Abo bzw. Fortschritt.
+const COL_EXTRA: i32 = 160;
+const COL_MAIN: i32 = 132;
+const COL_DELETE: i32 = 40;
+/// Breite des Aufklapp-Pfeils einer ExpanderRow (Platzhalter in einfachen Zeilen).
+const COL_ARROW: i32 = 19;
+
+/// Spalten als ein Suffix: `extra` (Abo, Fortschritt), `main` (Hauptknopf), Löschen und – in
+/// Zeilen ohne Aufklappen – der Platzhalter für den Pfeil.
+fn columns(extra: Option<gtk::Widget>, main: Option<gtk::Widget>, delete: &gtk::Button, arrow_gap: bool) -> gtk::Box {
+    let b = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    b.set_valign(gtk::Align::Center);
+    b.set_hexpand(false);
+    b.set_halign(gtk::Align::End);
+    for (w, width) in [(extra, COL_EXTRA), (main, COL_MAIN)] {
+        // Feste Breite: Inhalt genau so breit wie die Spalte, nichts dehnt sich aus.
+        let slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        slot.set_size_request(width, -1);
+        slot.set_hexpand(false);
+        if let Some(w) = w {
+            w.set_hexpand(false);
+            w.set_size_request(width, -1);
+            slot.append(&w);
+        }
+        b.append(&slot);
+    }
+    delete.set_size_request(COL_DELETE, -1);
+    b.append(delete);
+    if arrow_gap {
+        let gap = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        gap.set_size_request(COL_ARROW, -1);
+        b.append(&gap);
+    }
+    b
+}
+
+/// Löschen-Knopf mit Rückfrage; löscht alle `ids`.
+fn delete_button(tooltip: &str, heading: &str, body: String, ids: Vec<i64>) -> gtk::Button {
+    let delete = gtk::Button::builder()
+        .icon_name("user-trash-symbolic")
+        .tooltip_text(tooltip)
+        .valign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .build();
+    let heading = heading.to_string();
+    delete.connect_clicked(move |b| {
+        let dialog = adw::AlertDialog::builder().heading(&heading).body(&body).build();
+        dialog.add_responses(&[("keep", tr("Behalten")), ("delete", tr("Löschen"))]);
+        dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+        dialog.set_default_response(Some("keep"));
+        let ids = ids.clone();
+        dialog.connect_response(None, move |_, r| {
+            if r == "delete" {
+                for id in &ids {
+                    crate::ablage::delete_entry(*id);
+                }
+            }
+        });
+        dialog.present(Some(b));
+    });
+    delete
+}
+
+/// „Abspielen“ für eine Gruppe: nächster ungesehener fertiger Eintrag, sonst der erste fertige.
+fn group_play(app: &Rc<App>, members: &[&Entry]) -> Option<gtk::Widget> {
+    let done: Vec<&&Entry> = members.iter().filter(|e| e.state == State::Done).collect();
+    let next = done
+        .iter()
+        .find(|e| !crate::jfview::item(&e.source, &e.key).is_some_and(|it| it.played))
+        .or(done.first())?;
+    let id = next.id;
+    let play = small_button(tr("Abspielen"));
+    play.set_tooltip_text(Some(&next.title));
+    let app = app.clone();
+    play.connect_clicked(move |_| {
+        crate::ablage::play_entry(&app, id);
+        crate::layer::close_layer(&app);
+    });
+    Some(play.upcast())
+}
+
+/// Fortschritt einer Gruppe beim Laden (sonst `None`).
+fn group_progress(members: &[&Entry]) -> Option<gtk::Widget> {
+    let loading = members.iter().any(|x| {
+        crate::ablage::running_fraction(x.id).is_some() || matches!(x.state, State::Queued | State::Loading)
+    });
+    if !loading {
+        return None;
+    }
+    let fraction = members.iter().map(|x| entry_fraction(x)).sum::<f64>() / members.len() as f64;
+    let ready = members.iter().filter(|x| x.state == State::Done).count();
+    Some(
+        gtk::ProgressBar::builder()
+            .fraction(fraction)
+            .valign(gtk::Align::Center)
+            .show_text(true)
+            .text(tf!(
+                "{done} von {all} · {percent} %",
+                done = ready,
+                all = members.len(),
+                percent = format!("{:.0}", fraction * 100.0)
+            ))
+            .build()
+            .upcast(),
+    )
+}
+
+/// Aufklappbare Zeile (Serie, Sammlung, Sendung); der Zustand bleibt beim Neuaufbau erhalten.
+fn expander(
+    key: String,
+    title: &str,
+    subtitle: &str,
+    expanded: &Rc<std::cell::RefCell<std::collections::HashSet<String>>>,
+) -> adw::ExpanderRow {
+    let exp = adw::ExpanderRow::builder()
+        .expanded(expanded.borrow().contains(&key))
+        .title(glib::markup_escape_text(title))
+        .subtitle(glib::markup_escape_text(subtitle))
+        .build();
+    let set = expanded.clone();
+    exp.connect_expanded_notify(move |x| {
+        if x.is_expanded() {
+            set.borrow_mut().insert(key.clone());
+        } else {
+            set.borrow_mut().remove(&key);
+        }
+    });
+    exp
+}
+
+/// Serie: aufgeklappt je Staffel eine Beschreibungszeile (Abo, Nachladen, Löschen der Staffel),
+/// darunter die Folgen. Zugeklappt: Staffeln · geladene von allen Folgen · Größe, Abspielen,
+/// Löschen der ganzen Serie.
+fn series_row(
     app: &Rc<App>,
-    key: &GroupKey,
+    library: &str,
+    title: &str,
+    series_id: Option<&str>,
     members: &[&Entry],
     size: &dyn Fn(&Entry) -> u64,
     expanded: &Rc<std::cell::RefCell<std::collections::HashSet<String>>>,
 ) -> gtk::Widget {
-    let title = match key.season {
-        Some(0) => tf!("{title} · Extras", title = key.title),
-        Some(n) => tf!("{title} · Staffel {nr}", title = key.title, nr = n),
-        None => key.title.clone(),
+    let mut seasons: Vec<Option<i64>> = Vec::new();
+    for e in members {
+        let s = season_of_entry(e);
+        if !seasons.contains(&s) {
+            seasons.push(s);
+        }
+    }
+    seasons.sort_by_key(|s| s.unwrap_or(i64::MAX));
+    let all_eps = series_id.map(|id| crate::jfview::series_episodes(library, id));
+    let total: u64 = members.iter().map(|x| size(x)).sum();
+    let mut sub = vec![trn("{n} Staffel", "{n} Staffeln", seasons.len() as u64)];
+    match all_eps.as_ref().filter(|a| !a.is_empty()) {
+        Some(all) => sub.push(tf!("{have} von {all} Folgen", have = members.len(), all = all.len())),
+        None => sub.push(trn("{n} Folge", "{n} Folgen", members.len() as u64)),
+    }
+    sub.push(size_text(total));
+    let exp = expander(format!("serie:{library}:{title}"), title, &sub.join(" · "), expanded);
+    let ids: Vec<i64> = members.iter().map(|x| x.id).collect();
+    let delete = delete_button(
+        tr("Ganze Serie löschen"),
+        tr("Ganze Serie löschen?"),
+        tf!(
+            "{folgen} von „{title}“ werden von der Platte gelöscht. Das lässt sich nicht rückgängig machen.",
+            folgen = trn("{n} Folge", "{n} Folgen", ids.len() as u64),
+            title = title
+        ),
+        ids,
+    );
+    exp.add_suffix(&columns(group_progress(members), group_play(app, members), &delete, false));
+    for season in seasons {
+        let in_season: Vec<&Entry> = members.iter().copied().filter(|e| season_of_entry(e) == season).collect();
+        exp.add_row(&season_row(app, library, title, series_id, season, &in_season, size));
+        for e in in_season {
+            let short = e.title.strip_prefix(&format!("{title} ")).unwrap_or(&e.title).to_string();
+            exp.add_row(&entry_row_titled(app, e, size(e), &short));
+        }
+    }
+    exp.upcast()
+}
+
+/// Staffel eines Eintrags (Server: aus der Bibliothek, sonst aus „S01E02“ im Titel).
+fn season_of_entry(e: &Entry) -> Option<i64> {
+    crate::jfview::item(&e.source, &e.key)
+        .filter(|it| it.kind == "Episode")
+        .map(|it| it.season_no)
+        .unwrap_or_else(|| season_of_title(&e.title))
+}
+
+/// Beschreibungszeile einer Staffel: Episoden · geladen · fehlen; Abo, Nachladen, Löschen.
+fn season_row(
+    app: &Rc<App>,
+    library: &str,
+    series_title: &str,
+    series_id: Option<&str>,
+    season: Option<i64>,
+    members: &[&Entry],
+    size: &dyn Fn(&Entry) -> u64,
+) -> gtk::Widget {
+    let title = match season {
+        Some(0) => tr("Extras").to_string(),
+        Some(n) => tf!("Staffel {nr}", nr = n),
+        None => tr("Ohne Staffel").to_string(),
     };
     let total: u64 = members.iter().map(|x| size(x)).sum();
-    let in_library = key
-        .series_id
-        .as_deref()
-        .map(|id| crate::jfview::season_count(&key.library, id, key.season));
-    let mut sub = vec![
-        trn("{n} Folge", "{n} Folgen", members.len() as u64),
-        size_text(total),
-    ];
-    if let Some(n) = in_library.filter(|n| *n > 0) {
-        sub.push(tf!(
-            "{have} von {all} Folgen der Staffel",
-            have = members.len(),
-            all = n
-        ));
+    let in_library = series_id.map(|id| crate::jfview::season_count(library, id, season)).filter(|n| *n > 0);
+    let missing = series_id.map(|id| crate::ablage::missing_episodes(library, id, season).len());
+    let mut sub = Vec::new();
+    if let Some(n) = in_library {
+        sub.push(trn("{n} Episode", "{n} Episoden", n as u64));
     }
-    let exp = adw::ExpanderRow::builder()
-        .expanded(expanded.borrow().contains(&title))
+    sub.push(tf!("{n} geladen", n = members.len()));
+    if let Some(m) = missing.filter(|m| *m > 0) {
+        sub.push(tf!("{n} fehlen", n = m));
+    }
+    sub.push(size_text(total));
+    let row = adw::ActionRow::builder()
         .title(glib::markup_escape_text(&title))
         .subtitle(glib::markup_escape_text(&sub.join(" · ")))
+        .css_classes(["tvjoe-season-row"])
         .build();
     let ids: Vec<i64> = members.iter().map(|x| x.id).collect();
-    // Libadwaita reiht spätere Suffixe links an: Löschen ganz rechts, davor Nachladen, Abo, Fortschritt.
-    let delete = gtk::Button::builder()
-        .icon_name("user-trash-symbolic")
-        .tooltip_text(tr("Alle Folgen löschen"))
-        .valign(gtk::Align::Center)
-        .css_classes(["flat"])
-        .build();
-    {
-        let (title, ids) = (title.clone(), ids.clone());
-        delete.connect_clicked(move |b| {
-            let dialog = adw::AlertDialog::builder()
-                .heading(tr("Alle Folgen löschen?"))
-                .body(tf!(
-                    "{folgen} von „{title}“ werden von der Platte gelöscht. Das lässt sich nicht rückgängig machen.",
-                    folgen = trn("{n} Folge", "{n} Folgen", ids.len() as u64),
-                    title = title
-                ))
-                .build();
-            dialog.add_responses(&[("keep", tr("Behalten")), ("delete", tr("Löschen"))]);
-            dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
-            dialog.set_default_response(Some("keep"));
-            let ids = ids.clone();
-            dialog.connect_response(None, move |_, r| {
-                if r == "delete" {
-                    for id in &ids {
-                        crate::ablage::delete_entry(*id);
-                    }
-                }
-            });
-            dialog.present(Some(b));
-        });
-    }
-    exp.add_suffix(&delete);
-    // Server-Staffel: fehlende Folgen nachladen und Abo (Nutzer, 2026-10-28; je Staffel).
-    if let Some(series_id) = key.series_id.clone() {
-        let missing = crate::ablage::missing_episodes(&key.library, &series_id, key.season).len();
+    let delete = delete_button(
+        tr("Alle Folgen der Staffel löschen"),
+        tr("Alle Folgen der Staffel löschen?"),
+        tf!(
+            "{folgen} von „{title}“ werden von der Platte gelöscht. Das lässt sich nicht rückgängig machen.",
+            folgen = trn("{n} Folge", "{n} Folgen", ids.len() as u64),
+            title = format!("{series_title} · {title}")
+        ),
+        ids,
+    );
+    let (mut extra, mut main): (Option<gtk::Widget>, Option<gtk::Widget>) = (None, None);
+    // Server-Staffel: Abo und Nachladen (Nutzer, 2026-10-28: erst aufgeklappt sichtbar).
+    if let Some(series_id) = series_id.map(str::to_string) {
+        let missing = missing.unwrap_or(0);
         let reload = small_button(&if missing > 0 {
             tf!("Nachladen ({n})", n = missing)
         } else {
@@ -515,7 +681,7 @@ fn group_row(
         reload.set_sensitive(missing > 0);
         reload.set_tooltip_text(Some(tr("Fehlende Folgen der Staffel herunterladen")));
         {
-            let (weak, library, series_id, season) = (Rc::downgrade(app), key.library.clone(), series_id.clone(), key.season);
+            let (weak, library, series_id) = (Rc::downgrade(app), library.to_string(), series_id.clone());
             reload.connect_clicked(move |b| {
                 if let Some(app) = weak.upgrade() {
                     let n = crate::ablage::reload_season(&app, &library, &series_id, season);
@@ -524,19 +690,19 @@ fn group_row(
                 }
             });
         }
-        exp.add_suffix(&reload);
-        let modes = [tr("Abo aus"), tr("Abo manuell"), tr("Abo automatisch")];
+        main = Some(reload.upcast());
+        let modes = [tr("kein Abo"), tr("Abo manuell"), tr("Abo automatisch")];
         let abo = gtk::DropDown::from_strings(&modes);
         abo.set_valign(gtk::Align::Center);
         abo.set_tooltip_text(Some(tr("Neue Folgen dieser Staffel: melden (manuell) oder selbst laden (automatisch)")));
         use tvjoe_core::ablage::Subscription;
-        abo.set_selected(match crate::ablage::subscription(&key.library, &series_id, key.season) {
+        abo.set_selected(match crate::ablage::subscription(library, &series_id, season) {
             None => 0,
             Some(Subscription::Manual) => 1,
             Some(Subscription::Auto) => 2,
         });
         {
-            let (weak, library, season) = (Rc::downgrade(app), key.library.clone(), key.season);
+            let (weak, library) = (Rc::downgrade(app), library.to_string());
             abo.connect_selected_notify(move |d| {
                 let mode = match d.selected() {
                     1 => Some(Subscription::Manual),
@@ -552,48 +718,45 @@ fn group_row(
                 }
             });
         }
-        exp.add_suffix(&abo);
-        if missing > 0 {
-            sub.push(tf!("{n} fehlen", n = missing));
-            exp.set_subtitle(&glib::markup_escape_text(&sub.join(" · ")));
-        }
+        extra = Some(abo.upcast());
     }
-    let loading = members.iter().any(|x| {
-        crate::ablage::running_fraction(x.id).is_some()
-            || matches!(x.state, State::Queued | State::Loading)
-    });
-    if loading {
-        let fraction =
-            members.iter().map(|x| entry_fraction(x)).sum::<f64>() / members.len() as f64;
-        let ready = members.iter().filter(|x| x.state == State::Done).count();
-        let bar = gtk::ProgressBar::builder()
-            .fraction(fraction)
-            .width_request(160)
-            .valign(gtk::Align::Center)
-            .show_text(true)
-            .text(tf!(
-                "{done} von {all} · {percent} %",
-                done = ready,
-                all = members.len(),
-                percent = format!("{:.0}", fraction * 100.0)
-            ))
-            .build();
-        exp.add_suffix(&bar);
+    if let Some(p) = group_progress(members) {
+        extra = Some(p);
     }
-    for x in members {
-        exp.add_row(&entry_row(app, x, size(x)));
-    }
-    let (set, name) = (expanded.clone(), title);
-    exp.connect_expanded_notify(move |x| {
-        if x.is_expanded() {
-            set.borrow_mut().insert(name.clone());
-        } else {
-            set.borrow_mut().remove(&name);
-        }
-    });
-    exp.upcast()
+    row.add_suffix(&columns(extra, main, &delete, true));
+    row.upcast()
 }
 
+/// Sammlung bzw. Sendung (ÖR): Titel, Zahl · Größe, Abspielen, Löschen; aufgeklappt die Einträge.
+#[allow(clippy::too_many_arguments)]
+fn bundle_row(
+    app: &Rc<App>,
+    key: String,
+    title: &str,
+    subtitle: String,
+    delete_label: (&str, &str),
+    members: &[&Entry],
+    size: &dyn Fn(&Entry) -> u64,
+    expanded: &Rc<std::cell::RefCell<std::collections::HashSet<String>>>,
+) -> gtk::Widget {
+    let exp = expander(key, title, &subtitle, expanded);
+    let ids: Vec<i64> = members.iter().map(|x| x.id).collect();
+    let delete = delete_button(
+        delete_label.0,
+        delete_label.1,
+        tf!(
+            "{n} Einträge von „{title}“ werden von der Platte gelöscht. Das lässt sich nicht rückgängig machen.",
+            n = ids.len(),
+            title = title
+        ),
+        ids,
+    );
+    exp.add_suffix(&columns(group_progress(members), group_play(app, members), &delete, false));
+    for e in members {
+        exp.add_row(&entry_row(app, e, size(e)));
+    }
+    exp.upcast()
+}
 
 /// „Alles prüfen“: Befunde mit Nachladen bzw. Löschen je Zeile und „Alle korrigieren“.
 fn check_all(app: &Rc<App>, parent: &gtk::Button) {
@@ -782,32 +945,43 @@ pub fn overview_page(app: &Rc<App>) -> gtk::Widget {
             if list.is_empty() {
                 continue;
             }
-            let g = group(&section_name(&app, key), None);
-            // Folgen einer Staffel (Jellyfin) bzw. einer Sendung (ÖR, ab zwei Beiträgen)
-            // zusammen, je Gruppe mit Fortschritt, Prüfen und Löschen (Nutzer, 2026-10-27).
+            let name = section_name(&app, key);
+            if crate::ablage::is_server_source(key) {
+                server_section(&app, &content, key, &name, &list, &size, &expanded);
+                continue;
+            }
+            let g = group(&name, None);
+            // ÖR: Beiträge einer Sendung zusammen (ab zwei Beiträgen); Aufnahmen und
+            // Zwischenspeicher einzeln.
             let keys: Vec<Option<GroupKey>> = list.iter().map(|e| group_key(e)).collect();
             let mut done: Vec<GroupKey> = Vec::new();
-            for (e, key) in list.iter().zip(&keys) {
-                let Some(key) = key else {
+            for (e, gk) in list.iter().zip(&keys) {
+                let Some(gk) = gk else {
                     g.add(&entry_row(&app, e, size(e)));
                     continue;
                 };
-                if done.contains(key) {
+                if done.contains(gk) {
                     continue;
                 }
-                let mut members: Vec<&Entry> = list
-                    .iter()
-                    .zip(&keys)
-                    .filter(|(_, k)| k.as_ref() == Some(key))
-                    .map(|(x, _)| *x)
-                    .collect();
-                if !crate::ablage::is_server_source(&e.source) && members.len() < 2 {
+                let mut members: Vec<&Entry> =
+                    list.iter().zip(&keys).filter(|(_, k)| k.as_ref() == Some(gk)).map(|(x, _)| *x).collect();
+                if members.len() < 2 {
                     g.add(&entry_row(&app, e, size(e)));
                     continue;
                 }
-                done.push(key.clone());
+                done.push(gk.clone());
                 members.sort_by_cached_key(|x| episode_order(x));
-                g.add(&group_row(&app, key, &members, &size, &expanded));
+                let total: u64 = members.iter().map(|x| size(x)).sum();
+                g.add(&bundle_row(
+                    &app,
+                    format!("sendung:{}:{}", gk.library, gk.title),
+                    &gk.title,
+                    format!("{} · {}", trn("{n} Beitrag", "{n} Beiträge", members.len() as u64), size_text(total)),
+                    (tr("Alle Beiträge löschen"), tr("Alle Beiträge löschen?")),
+                    &members,
+                    &size,
+                    &expanded,
+                ));
             }
             content.append(&g);
         }
@@ -820,8 +994,84 @@ pub fn overview_page(app: &Rc<App>) -> gtk::Widget {
     })
 }
 
+/// Abschnitt einer Server-Bibliothek: Überschrift, darunter Filme, Sammlungen und Serien
+/// (Nutzer, 2026-10-28).
+fn server_section(
+    app: &Rc<App>,
+    content: &gtk::Box,
+    library: &str,
+    name: &str,
+    list: &[&Entry],
+    size: &dyn Fn(&Entry) -> u64,
+    expanded: &Rc<std::cell::RefCell<std::collections::HashSet<String>>>,
+) {
+    let head = label(name, "title-3");
+    head.set_margin_top(12);
+    content.append(&head);
+    let by_collection = crate::jfview::collections_by_item(library);
+    let mut films: Vec<&Entry> = Vec::new();
+    let mut collections: Vec<(String, String, usize, Vec<&Entry>)> = Vec::new();
+    // Serie: (Schlüssel, Titel, Serien-Kennung, Folgen).
+    let mut series: Vec<(String, String, Option<String>, Vec<&Entry>)> = Vec::new();
+    for e in list {
+        if let Some(gk) = group_key(e) {
+            let k = gk.series_id.clone().unwrap_or_else(|| gk.title.clone());
+            match series.iter_mut().find(|s| s.0 == k) {
+                Some(s) => s.3.push(e),
+                None => series.push((k, gk.title.clone(), gk.series_id.clone(), vec![*e])),
+            }
+        } else if let Some((cid, cname, n)) = by_collection.get(&e.key) {
+            match collections.iter_mut().find(|c| &c.0 == cid) {
+                Some(c) => c.3.push(e),
+                None => collections.push((cid.clone(), cname.clone(), *n, vec![*e])),
+            }
+        } else {
+            films.push(e);
+        }
+    }
+    if !films.is_empty() {
+        let g = group(tr("Filme"), None);
+        for e in &films {
+            g.add(&entry_row(app, e, size(e)));
+        }
+        content.append(&g);
+    }
+    if !collections.is_empty() {
+        let g = group(tr("Sammlungen"), None);
+        collections.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+        for (cid, cname, n, members) in &collections {
+            let total: u64 = members.iter().map(|x| size(x)).sum();
+            g.add(&bundle_row(
+                app,
+                format!("sammlung:{library}:{cid}"),
+                cname,
+                format!("{} · {}", tf!("{have} von {all} Filmen", have = members.len(), all = n), size_text(total)),
+                (tr("Alle Filme der Sammlung löschen"), tr("Alle Filme der Sammlung löschen?")),
+                members,
+                size,
+                expanded,
+            ));
+        }
+        content.append(&g);
+    }
+    if !series.is_empty() {
+        let g = group(tr("Serien"), None);
+        series.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+        for (_, title, series_id, members) in &mut series {
+            members.sort_by_cached_key(|x| episode_order(x));
+            g.add(&series_row(app, library, title, series_id.as_deref(), members, size, expanded));
+        }
+        content.append(&g);
+    }
+}
+
 /// Zeile eines Eintrags: Titel, Zustand · Größe · Datum, Fortschritt, Knöpfe.
 fn entry_row(app: &Rc<App>, e: &Entry, size: u64) -> gtk::Widget {
+    entry_row_titled(app, e, size, &e.title)
+}
+
+/// Wie [`entry_row`], mit eigenem Titel (Folge innerhalb einer Serie ohne den Seriennamen).
+fn entry_row_titled(app: &Rc<App>, e: &Entry, size: u64, title: &str) -> gtk::Widget {
     let running = crate::ablage::running_fraction(e.id);
     let recording = crate::ablage::running_recordings()
         .iter()
@@ -844,13 +1094,14 @@ fn entry_row(app: &Rc<App>, e: &Entry, size: u64) -> gtk::Widget {
         sub.insert(0, e.subtitle.clone());
     }
     let row = adw::ActionRow::builder()
-        .title(glib::markup_escape_text(&e.title))
+        .title(glib::markup_escape_text(title))
         .subtitle(glib::markup_escape_text(&sub.join(" · ")))
         .build();
+    let mut extra: Option<gtk::Widget> = None;
+    let mut main: Option<gtk::Widget> = None;
     if let Some(f) = running {
         let bar = gtk::ProgressBar::builder()
             .fraction(f.unwrap_or(0.0))
-            .width_request(160)
             .valign(gtk::Align::Center)
             .show_text(true)
             .text(match f {
@@ -861,7 +1112,7 @@ fn entry_row(app: &Rc<App>, e: &Entry, size: u64) -> gtk::Widget {
         if f.is_none() {
             bar.pulse();
         }
-        row.add_suffix(&bar);
+        extra = Some(bar.upcast());
     }
     let id = e.id;
     if e.state == State::Done && !recording {
@@ -871,45 +1122,29 @@ fn entry_row(app: &Rc<App>, e: &Entry, size: u64) -> gtk::Widget {
             crate::ablage::play_entry(&app, id);
             crate::layer::close_layer(&app);
         });
-        row.add_suffix(&play);
+        main = Some(play.upcast());
     }
     if e.state == State::Partial && running.is_none() && e.art != Art::Recording {
         let resume = small_button(tr("Fortsetzen"));
         let app = app.clone();
         resume.connect_clicked(move |_| crate::ablage::resume_entry(&app, id));
-        row.add_suffix(&resume);
+        main = Some(resume.upcast());
     }
     if running.is_some() {
         let cancel = small_button(tr("Abbrechen"));
         let (s, k) = (e.source.clone(), e.key.clone());
         cancel.connect_clicked(move |_| crate::ablage::cancel(&s, &k));
-        row.add_suffix(&cancel);
+        main = Some(cancel.upcast());
     }
-    let delete = gtk::Button::builder()
-        .icon_name("user-trash-symbolic")
-        .tooltip_text(tr("Löschen"))
-        .valign(gtk::Align::Center)
-        .css_classes(["flat"])
-        .build();
-    let title = e.title.clone();
-    delete.connect_clicked(move |b| {
-        let dialog = adw::AlertDialog::builder()
-            .heading(tr("Wirklich löschen?"))
-            .body(tf!(
-                "„{title}“ wird von der Platte gelöscht. Das lässt sich nicht rückgängig machen.",
-                title = title
-            ))
-            .build();
-        dialog.add_responses(&[("keep", tr("Behalten")), ("delete", tr("Löschen"))]);
-        dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
-        dialog.set_default_response(Some("keep"));
-        dialog.connect_response(None, move |_, r| {
-            if r == "delete" {
-                crate::ablage::delete_entry(id);
-            }
-        });
-        dialog.present(Some(b));
-    });
-    row.add_suffix(&delete);
+    let delete = delete_button(
+        tr("Löschen"),
+        tr("Wirklich löschen?"),
+        tf!(
+            "„{title}“ wird von der Platte gelöscht. Das lässt sich nicht rückgängig machen.",
+            title = e.title
+        ),
+        vec![id],
+    );
+    row.add_suffix(&columns(extra, main, &delete, true));
     row.upcast()
 }
