@@ -298,7 +298,8 @@ pub fn open_at(
         dialog.set_visible_page_name(name);
     }
     let about_parent = dialog.clone();
-    about_row.connect_activated(move |_| about_dialog().present(Some(&about_parent)));
+    // Als Unterseite der Einstellungen (Nutzer, 2026-10-28: nicht als eigener Dialog darüber).
+    about_row.connect_activated(move |_| about_parent.push_subpage(&about_page(&about_parent)));
 
     let weak = Rc::downgrade(app);
     now_button.connect_clicked(move |_| {
@@ -421,77 +422,108 @@ fn manual_url() -> &'static str {
 const ISSUES_URL: &str = "https://github.com/joeMJ/tvjoe/issues";
 const THIRD_PARTY_URL: &str = "https://github.com/joeMJ/tvjoe/blob/main/THIRD_PARTY.md";
 
-/// „Über tvjoe“: Version, Entwickler, Lizenz, Verweis auf das README, Mediathek-Daten von
-/// MediathekView, Bibliotheken mit Lizenzen (vollständige Liste in THIRD_PARTY.md).
-fn about_dialog() -> adw::AboutDialog {
-    let d = adw::AboutDialog::builder()
-        .application_name("tvjoe")
-        .application_icon("io.github.joeMJ.tvjoe")
-        .version(VERSION)
-        .developer_name("John Lose (joeMJ)")
-        .developers(["John Lose (joeMJ)"])
-        .copyright("© 2026 John Lose")
-        .license_type(gtk::License::Apache20)
-        .website(README_URL)
-        .comments(tr(
-            "Streaming-Client für Live-TV und die Mediatheken der öffentlich-rechtlichen Sender.\n\n\
-             Die Filmliste der Mediathek stammt von MediathekView (mediathekview.de); \
-             die Videos kommen direkt von den Sendern.\n\n\
-             Privates Hobbyprojekt – nicht gepflegt.",
-        ))
-        .build();
-    d.add_link(tr("README bei GitHub"), README_URL);
-    d.add_link("MediathekView", "https://mediathekview.de/");
-    d.add_link(tr("Bibliotheken Dritter (THIRD_PARTY.md)"), THIRD_PARTY_URL);
-    d.add_acknowledgement_section(
-        Some(tr("Filmliste der Mediathek")),
-        &["MediathekView https://mediathekview.de/"],
+/// „Über tvjoe“ als Unterseite: Version, Entwickler, Beschreibung, Verweise (README,
+/// Bibliotheken Dritter) und Rechtshinweise (Herkunft der Mediathek-Daten steht im Adapter) (vollständige Liste in
+/// THIRD_PARTY.md).
+fn about_page(dialog: &adw::PreferencesDialog) -> adw::NavigationPage {
+    let page = adw::PreferencesPage::new();
+
+    // Kopf: Symbol, Name, Entwickler, Version, Beschreibung.
+    let head = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    head.set_margin_top(12);
+    head.append(&gtk::Image::builder().icon_name("io.github.joeMJ.tvjoe").pixel_size(96).build());
+    let name = gtk::Label::new(Some("tvjoe"));
+    name.add_css_class("title-1");
+    head.append(&name);
+    head.append(&gtk::Label::new(Some("John Lose (joeMJ)")));
+    let version = gtk::Label::new(Some(VERSION));
+    version.add_css_class("dim-label");
+    head.append(&version);
+    let comments = gtk::Label::new(Some(tr(
+        "Streaming-Client für Live-TV und Medienserver.\n\n\
+         Privates Hobbyprojekt – nicht gepflegt.",
+    )));
+    comments.set_wrap(true);
+    comments.set_justify(gtk::Justification::Center);
+    comments.set_margin_top(12);
+    head.append(&comments);
+    let head_group = adw::PreferencesGroup::new();
+    head_group.add(&head);
+    page.add(&head_group);
+
+    // Verweise (im Browser).
+    let links = adw::PreferencesGroup::new();
+    for (title, url) in [
+        (tr("README bei GitHub").to_string(), README_URL),
+        (tr("Bibliotheken Dritter (THIRD_PARTY.md)").to_string(), THIRD_PARTY_URL),
+    ] {
+        let row = adw::ActionRow::builder().title(title).subtitle(url).activatable(true).build();
+        row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
+        let parent = dialog.clone();
+        row.connect_activated(move |_| {
+            let window = parent.root().and_downcast::<gtk::Window>();
+            gtk::UriLauncher::new(url).launch(window.as_ref(), gtk::gio::Cancellable::NONE, |_| {});
+        });
+        links.add(&row);
+    }
+    page.add(&links);
+
+    let people = adw::PreferencesGroup::builder().title(tr("Mitwirkende")).build();
+    people.add(&adw::ActionRow::builder().title("John Lose (joeMJ)").subtitle("© 2026 John Lose · Apache-2.0").build());
+    page.add(&people);
+
+    // Rechtshinweise: je Bestandteil eine aufklappbare Zeile.
+    let legal = adw::PreferencesGroup::builder().title(tr("Rechtshinweis")).build();
+    let rust_text = tf!(
+        "Rund 150 Pakete, überwiegend MIT bzw. Apache-2.0, dazu ISC, BSD-3-Clause, Zlib, \
+         Unicode-3.0, CDLA-Permissive-2.0 und LGPL-2.1 (libmpv2). Vollständige Liste: {url}",
+        url = THIRD_PARTY_URL
     );
-    d.add_legal_section(
-        tr("Symbole: Font Awesome Free"),
-        Some("Fonticons, Inc. – https://fontawesome.com"),
-        gtk::License::Custom,
-        Some(tr("Auswahl aus Font Awesome Free 6.7.2 für die Symbole der Quellen; Lizenz der Symbole: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).")),
-    );
-    d.add_legal_section(
-        tr("GTK 4 und libadwaita"),
-        Some("The GTK Team, GNOME"),
-        gtk::License::Lgpl21,
-        None,
-    );
-    d.add_legal_section(
-        "mpv / libmpv",
-        Some(tr("mpv-Entwickler")),
-        gtk::License::Custom,
-        Some(tr(
-            "Quelltext GPL-2+ bzw. LGPL-2.1+. Die Ubuntu-Pakete von libmpv stehen laut deren \
-             copyright-Datei unter GPL-3+ (gelinkt gegen libsmbclient); für die tvjoe-Pakete gelten \
-             diese Bedingungen zusätzlich.",
-        )),
-    );
-    d.add_legal_section(
-        tr("SQLite (eingebaut)"),
-        None,
-        gtk::License::Custom,
-        Some(tr("Public Domain, siehe https://sqlite.org/copyright.html")),
-    );
-    d.add_legal_section(
-        tr("xz / liblzma (eingebaut)"),
-        None,
-        gtk::License::Bsd,
-        Some("0BSD"),
-    );
-    d.add_legal_section(
-        tr("Rust-Bibliotheken"),
-        None,
-        gtk::License::Custom,
-        Some(&tf!(
-            "Rund 150 Pakete, überwiegend MIT bzw. Apache-2.0, dazu ISC, BSD-3-Clause, Zlib, \
-             Unicode-3.0, CDLA-Permissive-2.0 und LGPL-2.1 (libmpv2). Vollständige Liste: {url}",
-            url = THIRD_PARTY_URL
-        )),
-    );
-    d
+    let sections: [(String, String, String); 6] = [
+        (
+            tr("Symbole: Font Awesome Free").into(),
+            "Fonticons, Inc. – https://fontawesome.com".into(),
+            tr("Auswahl aus Font Awesome Free 6.7.2 für die Symbole der Quellen; Lizenz der Symbole: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).").into(),
+        ),
+        (tr("GTK 4 und libadwaita").into(), "The GTK Team, GNOME".into(), "LGPL-2.1".into()),
+        (
+            "mpv / libmpv".into(),
+            tr("mpv-Entwickler").into(),
+            tr(
+                "Quelltext GPL-2+ bzw. LGPL-2.1+. Die Ubuntu-Pakete von libmpv stehen laut deren \
+                 copyright-Datei unter GPL-3+ (gelinkt gegen libsmbclient); für die tvjoe-Pakete gelten \
+                 diese Bedingungen zusätzlich.",
+            )
+            .into(),
+        ),
+        (tr("SQLite (eingebaut)").into(), String::new(), tr("Public Domain, siehe https://sqlite.org/copyright.html").into()),
+        (tr("xz / liblzma (eingebaut)").into(), String::new(), "0BSD".into()),
+        (tr("Rust-Bibliotheken").into(), String::new(), rust_text),
+    ];
+    for (title, holder, text) in sections {
+        let row = adw::ExpanderRow::builder().title(glib::markup_escape_text(&title)).build();
+        if !holder.is_empty() {
+            row.set_subtitle(&glib::markup_escape_text(&holder));
+        }
+        let body = gtk::Label::builder()
+            .label(text)
+            .wrap(true)
+            .xalign(0.0)
+            .selectable(true)
+            .margin_top(8)
+            .margin_bottom(8)
+            .margin_start(12)
+            .margin_end(12)
+            .build();
+        row.add_row(&body);
+        legal.add(&row);
+    }
+    page.add(&legal);
+
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&adw::HeaderBar::new());
+    toolbar.set_content(Some(&page));
+    adw::NavigationPage::builder().title(tr("Über tvjoe")).child(&toolbar).build()
 }
 
 fn alert(app: &App, heading: &str, body: &str) -> adw::AlertDialog {

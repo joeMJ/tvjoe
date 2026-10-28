@@ -301,6 +301,14 @@ pub enum Login {
     Password,
 }
 
+/// Verweis einer Bibliothek (`[link]`: `label`, `url`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryLink {
+    pub label: String,
+    pub url: String,
+}
+
 /// Beschreibung einer Bibliothek.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -313,6 +321,15 @@ pub struct LibraryDescription {
     /// Braucht die Adresse eines Servers.
     #[serde(default)]
     pub server: bool,
+    /// Hinweis zur Herkunft der Daten (Seite der Mediathek in den Einstellungen).
+    #[serde(default)]
+    pub note: Option<String>,
+    /// Hinweis auf Englisch.
+    #[serde(default)]
+    pub note_en: Option<String>,
+    /// Verweis zur Herkunft der Daten (Zeile mit Link auf der Seite der Mediathek).
+    #[serde(default)]
+    pub link: Option<LibraryLink>,
     /// Zusätzliche Angaben in der Filminfo (Anfrage und Fundstellen).
     #[serde(default)]
     pub detail: Option<crate::detail::Detail>,

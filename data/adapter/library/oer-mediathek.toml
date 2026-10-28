@@ -6,3 +6,9 @@ name = "ÖR-Mediathek"
 driver = "oer"
 login = "none"
 server = false
+note = "Die Filmliste der Mediathek stammt von MediathekView (mediathekview.de); die Videos kommen direkt von den Sendern."
+note_en = "The film list of the media library comes from MediathekView (mediathekview.de); the videos come straight from the broadcasters."
+
+[link]
+label = "MediathekView"
+url = "https://mediathekview.de/"

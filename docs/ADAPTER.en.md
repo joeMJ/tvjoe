@@ -211,6 +211,8 @@ server = true
 | `driver` | yes | `oer`, `jellyfin`, `plex` or `emby` |
 | `login` | yes | `none` (no login), `quick-connect` (Jellyfin), `pin` (Plex) or `password` (Emby) |
 | `server` | no | `true` if a server address has to be entered; default `false` |
+| `[link]` | no | link to where the data comes from (`label`, `url`), shown as a row on the library page |
+| `note`, `note_en` | no | note on where the data comes from, shown on the library page in the settings (German/English) |
 | `[detail]` | no | additional details on the film page, see below |
 
 Your own descriptions go into the `adapter/library/` folder of the configuration

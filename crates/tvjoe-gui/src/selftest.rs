@@ -523,11 +523,13 @@ const ABLAGE_STEPS: &[Step] = &[
     (
         "84-ueber",
         |p| {
-            crate::prefs::open_at(&p.app, Some("ueber"), &p.app.window);
+            let d = crate::prefs::open_at(&p.app, Some("ueber"), &p.app.window);
+            PREFS.with(|s| *s.borrow_mut() = Some(d));
             main_window(p)
         },
         2000,
     ),
+    ("84b-ueber-tvjoe", |p| { activate_row(tvjoe_core::tr("Über tvjoe")); main_window(p) }, 2000),
 ];
 
 /// Ablage verschieben (`TVJOE_SELFTEST_UMZUG=<Zielordner>`, nur diese Schritte; nur mit

@@ -217,13 +217,34 @@ pub fn split_url(url: &str) -> Option<(String, String)> {
     (!host.is_empty() && !uuid.is_empty()).then(|| (format!("http://{host}"), uuid.to_string()))
 }
 
-/// Abspieladresse für einen Sender `tvheadend://…` (Zugang aus der Datei des Servers).
+/// Abspieladresse für einen Sender `tvheadend://…` (Zugang aus der Datei des Servers). Liest
+/// vorher die ersten Bytes: Tvheadend antwortet auch dann mit HTTP 200, wenn es nicht streamen
+/// kann (Protokoll „No descrambler“ bei Pay-TV ohne Entschlüsselung, kein freier Tuner), und
+/// schickt dann nichts – der Player würde nur warten.
 pub fn resolve(url: &str) -> Result<String, String> {
     let (server, uuid) = split_url(url).ok_or_else(|| tr("keine Tvheadend-Adresse").to_string())?;
     let access = access_path(&server)
         .and_then(|p| Access::load(&p))
         .ok_or_else(|| tf!("Kein Zugang zu Tvheadend {server} gespeichert", server = server))?;
-    access.ticket_url(&uuid)
+    let play = access.ticket_url(&uuid)?;
+    if !delivers(&play) {
+        return Err(tr("Kein Datenstrom von Tvheadend – verschlüsselter Sender ohne Entschlüsselung (Pay-TV) oder kein freier Tuner").into());
+    }
+    Ok(play)
+}
+
+/// Liefert die Adresse innerhalb von 5 s Daten?
+fn delivers(url: &str) -> bool {
+    use std::io::Read;
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(5)))
+        .timeout_recv_response(Some(Duration::from_secs(5)))
+        .timeout_recv_body(Some(Duration::from_secs(5)))
+        .build()
+        .into();
+    let Ok(mut resp) = agent.get(url).call() else { return false };
+    let mut buf = [0u8; 188];
+    resp.body_mut().as_reader().read(&mut buf).is_ok_and(|n| n > 0)
 }
 
 fn md5_hex(s: &str) -> String {
@@ -352,6 +373,15 @@ mod tests {
         let url = a.ticket_url(&uuid).unwrap();
         assert!(url.contains("ticket="));
         eprintln!("Ticket-Adresse erhalten ({} Zeichen)", url.len());
+        // Frei empfangbar liefert Daten, Pay-TV ohne Entschlüsselung nicht.
+        for name in ["ZDF HD (SAT)", "Sky Sport Bundesliga (SAT)"] {
+            if let Some(c) = list.iter().find(|c| c.name == name) {
+                let (_, uuid) = split_url(&c.stream.url).unwrap();
+                let t = std::time::Instant::now();
+                let ok = delivers(&a.ticket_url(&uuid).unwrap());
+                eprintln!("{name}: liefert Daten: {ok} (nach {} ms)", t.elapsed().as_millis());
+            }
+        }
         let epg = a.epg(crate::epg::now()).unwrap();
         let first = list.iter().find_map(|c| c.epg_id.as_ref().and_then(|id| epg.programmes.get(id).map(|p| (&c.name, p))));
         eprintln!("EPG: {} Kanäle mit Programm", epg.programmes.len());

@@ -275,6 +275,29 @@ fn library_page(
         .unwrap_or_default();
     let content = adw::PreferencesPage::new();
     let general = adw::PreferencesGroup::builder().title(tr("Allgemein")).build();
+    // Herkunft der Daten aus dem Adapter (`note`, englisch `note_en`, Verweis `[link]`).
+    let mut link_row: Option<adw::ActionRow> = None;
+    if let Some(d) = descs.iter().find(|d| d.id == l.kind) {
+        let english = tvjoe_core::i18n::lang() != "de";
+        let note = if english { d.note_en.as_ref().or(d.note.as_ref()) } else { d.note.as_ref() };
+        if let Some(n) = note {
+            general.set_description(Some(n));
+        }
+        if let Some(link) = d.link.clone() {
+            let row = adw::ActionRow::builder()
+                .title(gtk::glib::markup_escape_text(&link.label))
+                .subtitle(gtk::glib::markup_escape_text(&link.url))
+                .activatable(true)
+                .build();
+            row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
+            let parent = dialog.clone();
+            row.connect_activated(move |_| {
+                let window = parent.root().and_downcast::<gtk::Window>();
+                gtk::UriLauncher::new(&link.url).launch(window.as_ref(), gtk::gio::Cancellable::NONE, |_| {});
+            });
+            link_row = Some(row);
+        }
+    }
     let name = adw::EntryRow::builder()
         .title(tr("Name in der Kopfleiste"))
         .text(title_of(&l, descs))
@@ -332,6 +355,9 @@ fn library_page(
             dialog.pop_subpage();
         });
         general.add(&remove_row);
+    }
+    if let Some(r) = &link_row {
+        general.add(r);
     }
     content.add(&general);
     match driver_of(&l, descs) {

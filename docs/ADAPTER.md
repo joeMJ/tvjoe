@@ -214,6 +214,8 @@ server = true
 | `driver` | ja | `oer`, `jellyfin`, `plex` oder `emby` |
 | `login` | ja | `none` (keine Anmeldung), `quick-connect` (Jellyfin), `pin` (Plex) oder `password` (Emby) |
 | `server` | nein | `true`, wenn die Adresse eines Servers einzutragen ist; Vorgabe `false` |
+| `[link]` | nein | Verweis zur Herkunft der Daten (`label`, `url`), als Zeile mit Link auf der Seite der Mediathek |
+| `note`, `note_en` | nein | Hinweis zur Herkunft der Daten auf der Seite der Mediathek in den Einstellungen (deutsch/englisch) |
 | `[detail]` | nein | zusätzliche Angaben in der Filminfo, siehe unten |
 
 Eigene Beschreibungen gehören in den Ordner `adapter/library/` der Konfiguration
