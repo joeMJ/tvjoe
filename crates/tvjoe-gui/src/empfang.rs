@@ -421,7 +421,9 @@ fn adapter_page(
     // Programm: aus dem Signal und/oder aus XMLTV, beides freiwillig.
     let guide = adw::PreferencesGroup::builder()
         .title(tr("Programm (EPG)"))
-        .description(if sat {
+        // Signal-Text nur, wenn die Beschreibung Programm aus dem Signal hat (die FRITZ!Box
+        // Cable spricht SAT>IP, liefert aber kein EPG aus dem Signal).
+        .description(if sat && signal_epg {
             tr("Aus dem Signal (je Sender in „Sender verwalten“ → EPG „Aus dem SAT-Empfang“) und/oder aus XMLTV-Quellen")
         } else if tvh {
             tr("Von Tvheadend (je Sender in „Sender verwalten“ → EPG „Von Tvheadend“) und/oder aus XMLTV-Quellen")

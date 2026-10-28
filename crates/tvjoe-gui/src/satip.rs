@@ -15,6 +15,11 @@ use tvjoe_core::{Library, paths, tf, tr, trn};
 
 use crate::app::App;
 
+/// Gerät nur für Kabel bzw. Antenne (keine Satelliten-Empfangsart in der Beschreibung)?
+fn terrestrial_or_cable(desc: Option<&Description>) -> bool {
+    desc.is_some_and(|d| !d.systems.is_empty() && !d.systems.iter().any(|s| s.starts_with("dvbs")))
+}
+
 /// Einrichtung des SAT>IP-Geräts auf der Seite seiner Empfangsquelle: Gruppen „Gerät“
 /// (Adresse, Prüfen), „Ergebnis“ und „Senderliste“ (Suchlauf über den Satelliten der
 /// Beschreibung). Gibt die Gruppen und das Adressfeld zurück.
@@ -30,12 +35,19 @@ pub fn device_groups(
         .title(tr("Gerät"))
         .description(if satellite.is_some() {
             tf!("SAT>IP-Empfänger im Netz; Satellit {satellite}. Eigene Gerätebeschreibungen liegen im Ordner „adapter“ der Konfiguration.", satellite = sat_name)
+        } else if terrestrial_or_cable(desc) {
+            // Kabel bzw. Antenne über das SAT>IP-Protokoll (z. B. FRITZ!Box Cable).
+            tr("Kabel- bzw. Antennen-Empfänger im Netz (SAT>IP-Protokoll). Eigene Gerätebeschreibungen liegen im Ordner „adapter“ der Konfiguration.").to_string()
         } else {
             tr("SAT>IP-Empfänger im Netz. Eigene Gerätebeschreibungen liegen im Ordner „adapter“ der Konfiguration.").to_string()
         })
         .build();
     let host = adw::EntryRow::builder()
-        .title(tr("Adresse des SAT>IP-Geräts (IP-Adresse)"))
+        .title(if terrestrial_or_cable(desc) {
+            tr("Adresse des Geräts (IP-Adresse)")
+        } else {
+            tr("Adresse des SAT>IP-Geräts (IP-Adresse)")
+        })
         .text(adapter.host.as_str())
         .build();
     let check_row = adw::ActionRow::builder()

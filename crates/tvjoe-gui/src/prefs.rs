@@ -392,7 +392,14 @@ fn about_groups(dialog: &adw::PreferencesDialog) -> Vec<adw::PreferencesGroup> {
     // Kopf: Symbol, Name, Entwickler, Version, Beschreibung.
     let head = gtk::Box::new(gtk::Orientation::Vertical, 6);
     head.set_margin_top(12);
-    head.append(&gtk::Image::builder().icon_name("io.github.joeMJ.tvjoe").pixel_size(96).build());
+    // Programmsymbol direkt aus der Datei im eigenen Symbolordner (unter Windows gibt es kein
+    // installiertes Symbolthema); sonst über den Namen.
+    let icon = crate::icons::dir()
+        .map(|d| d.join(format!("{}.svg", crate::icons::APP)))
+        .filter(|p| p.exists())
+        .map_or_else(|| gtk::Image::from_icon_name(crate::icons::APP), |p| gtk::Image::from_file(p));
+    icon.set_pixel_size(96);
+    head.append(&icon);
     let name = gtk::Label::new(Some("tvjoe"));
     name.add_css_class("title-1");
     head.append(&name);

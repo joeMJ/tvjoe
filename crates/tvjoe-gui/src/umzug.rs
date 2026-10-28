@@ -129,6 +129,9 @@ fn check_target(old: &Path, new: &Path) -> Result<(), String> {
     if n.starts_with(&o) {
         return Err(tr("Das Ziel liegt innerhalb der bisherigen Ablage.").into());
     }
+    // Fehlenden Zielordner anlegen (sonst schlägt die Schreibprobe fehl, unter Windows mit
+    // „os error 3“).
+    std::fs::create_dir_all(new).map_err(|e| tf!("Zielordner lässt sich nicht anlegen: {error}", error = e))?;
     let probe = new.join(".tvjoe-schreibprobe");
     std::fs::write(&probe, b"")
         .map_err(|e| tf!("Am Ziel lässt sich nicht schreiben: {error}", error = e))?;
@@ -364,4 +367,22 @@ fn alert(parent: &impl IsA<gtk::Widget>, heading: &str, body: &str) {
     let d = adw::AlertDialog::builder().heading(heading).body(body).build();
     d.add_response("close", tr("OK"));
     d.present(Some(parent));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Fehlender Zielordner wird angelegt (früher „os error 3“ unter Windows).
+    #[test]
+    fn zielordner_wird_angelegt() {
+        let base = std::env::temp_dir().join(format!("tvjoe-umzug-{}", std::process::id()));
+        let old = base.join("alt");
+        let new = base.join("neu").join("tiefer");
+        std::fs::create_dir_all(&old).unwrap();
+        assert!(check_target(&old, &new).is_ok());
+        assert!(new.is_dir());
+        assert!(check_target(&old, &old.join("innen")).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

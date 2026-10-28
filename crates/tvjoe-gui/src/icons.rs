@@ -74,6 +74,10 @@ pub fn fa_name(key: &str) -> String {
 }
 
 /// Eigene Symbole ablegen (beim Start).
+/// Programmsymbol (wie in der Desktop-Datei unter Linux).
+pub const APP: &str = "io.github.joeMJ.tvjoe";
+const APP_SVG: &str = include_str!("../../../data/io.github.joeMJ.tvjoe.svg");
+
 pub fn install() {
     let Some(dir) = dir() else { return };
     // Font Awesome: Füllfarbe setzen, damit GTK die Form in der Textfarbe einfärbt.
@@ -92,6 +96,8 @@ pub fn install() {
         (SERIES, SERIES_SVG),
         (COLLECTION, COLLECTION_SVG),
         (DOWNLOADED, DOWNLOADED_SVG),
+        // Programmsymbol (Seite „Über“): unter Windows bringt das MSI kein Symbolthema mit.
+        (APP, APP_SVG),
     ] {
         let path = dir.join(format!("{name}.svg"));
         if std::fs::read_to_string(&path).ok().as_deref() != Some(svg) {
