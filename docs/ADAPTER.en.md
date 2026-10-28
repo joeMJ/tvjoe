@@ -8,7 +8,7 @@ tvjoe describes every source with an **adapter** – a small TOML file. There ar
 
 | Class (`class`) | Purpose | Examples | Folder |
 |---|---|---|---|
-| `television` | live TV with channel list and guide | Internet TV (M3U), SAT>IP receivers, DVB card, HDHomeRun | `television/` |
+| `television` | live TV with channel list and guide | Internet TV (M3U), SAT>IP receivers, DVB card, HDHomeRun, Tvheadend | `television/` |
 | `library` | media libraries and media servers with films, series, episodes | Mediathek of the public broadcasters, Jellyfin, Plex | `library/` |
 
 The included adapters live in the repository under
@@ -50,6 +50,7 @@ Set them up under **Settings → Reception**; “+” adds a source.
 | `satip` | SAT>IP: RTSP for control, RTP over UDP for the stream | Linux, Windows | tested with Netstream 4Sat |
 | `linux-dvb` | DVB card (USB, PCI) via `/dev/dvb` | Linux only | experimental, tested with `dvb_vidtv` |
 | `hdhomerun` | HDHomeRun network tuner: channel list and streams over HTTP | Linux, Windows | untested |
+| `tvheadend` | Tvheadend server: channels via the HTTP interface, playback with tickets, digest sign-in | Linux, Windows | experimental, tested with Tvheadend 4.3 and IPTV |
 
 DVB cards are not yet available on Windows (planned via BDA); there is no Mac version yet.
 
@@ -68,6 +69,7 @@ The names are shown as below (German) in the program.
 | Kathrein EXIP | `satip` | DVB-S/S2 | scan Astra 19.2° East | signal and/or XMLTV |
 | FRITZ!Box Cable | `satip` | DVB-C | from the box (M3U) | XMLTV |
 | HDHomeRun | `hdhomerun` | DVB-T/T2, DVB-C | from the device | XMLTV |
+| Tvheadend | `tvheadend` | whatever Tvheadend receives | from the server | XMLTV |
 | DVB-Karte (Linux) – DVB card | `linux-dvb` | whatever the card reports | scan (frequency plan or satellite) | signal and/or XMLTV |
 
 A satellite scan starts on a seed transponder and reads the network table with all transponders

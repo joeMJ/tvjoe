@@ -8,6 +8,7 @@
 //! - `TVJOE_SELFTEST_MEDIATHEKEN=1` (nur diese Schritte): Reiter „Mediatheken“, Seite Jellyfin.
 //! - `TVJOE_SELFTEST_WECHSEL=1` (nur diese Schritte): Quellenwechsel SAT ↔ Internet-TV, Bildzähler.
 //! - `TVJOE_SELFTEST_UMZUG=/ziel` (nur diese Schritte, nur mit Testordnern): Ablage verschieben.
+//! - `TVJOE_SELFTEST_TVH=1` (nur diese Schritte): Tvheadend-Quelle, Kanäle holen, umschalten.
 //! - `TVJOE_SELFTEST_UPDATE=1` (nur diese Schritte): Update-Dialog, Aufzeichnung der Bedienung.
 //! - `TVJOE_SELFTEST_ABLAGE=1` (nur diese Schritte): Reiter „Ablage“, Gruppe, Prüfen, Seite „Über“.
 //! - `TVJOE_SELFTEST_EMPFANG=1` (nur diese Schritte): Reiter „Empfang“ und Seiten der Quellen.
@@ -404,6 +405,55 @@ fn click_in(w: &gtk::Widget, label: &str) {
         None => eprintln!("tvjoe: Selbstprobe: Knopf „{label}“ nicht gefunden"),
     }
 }
+
+/// Tvheadend (`TVJOE_SELFTEST_TVH=1`, nur diese Schritte): Seite der Quelle, „Kanäle holen“,
+/// dann auf die Quelle umschalten und den Bildzähler prüfen.
+fn tvh_source(p: &Probe) -> Option<u32> {
+    p.app.settings().adapters.iter().find(|a| a.kind == "tvheadend").map(|a| a.num)
+}
+
+const TVH_STEPS: &[Step] = &[
+    ("95-start", main_window, 4000),
+    (
+        "96-empfang",
+        |p| {
+            let d = crate::prefs::open_at(&p.app, Some("empfang"), &p.app.window);
+            PREFS.with(|s| *s.borrow_mut() = Some(d));
+            main_window(p)
+        },
+        2000,
+    ),
+    ("97-tvh-seite", |p| { activate_row("Tvheadend"); main_window(p) }, 2000),
+    (
+        "98-kanaele-holen",
+        |p| {
+            PREFS.with(|d| {
+                if let Some(d) = d.borrow().as_ref() {
+                    click_in(d.upcast_ref(), tvjoe_core::tr("Kanäle holen"));
+                }
+            });
+            main_window(p)
+        },
+        6000,
+    ),
+    (
+        "99-umschalten",
+        |p| {
+            PREFS.with(|d| {
+                if let Some(d) = d.borrow_mut().take() {
+                    d.close();
+                }
+            });
+            if let Some(num) = tvh_source(p) {
+                p.app.switch_live(num);
+            }
+            main_window(p)
+        },
+        12000,
+    ),
+    ("99a-zaehler", |p| { frames_trace(p, "Tvheadend a"); main_window(p) }, 3000),
+    ("99b-zaehler", |p| { frames_trace(p, "Tvheadend b"); main_window(p) }, 500),
+];
 
 /// Update-Dialog und Aufzeichnung der Bedienung (`TVJOE_SELFTEST_UPDATE=1`, nur diese
 /// Schritte; mit `TVJOE_DIAGNOSE=1`): Angebot mit Notizen aus `TVJOE_SELFTEST_NOTES`, danach
@@ -1057,6 +1107,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         WECHSEL_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_UMZUG").is_some() {
         UMZUG_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_TVH").is_some() {
+        TVH_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_UPDATE").is_some() {
         UPDATE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_ABLAGE").is_some() {

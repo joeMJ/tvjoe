@@ -1905,6 +1905,30 @@ impl App {
             }
             return;
         }
+        // Tvheadend: Abspieladresse mit Ticket im Hintergrund holen, dann laden (sofern der
+        // Sender inzwischen nicht gewechselt wurde).
+        if tvjoe_core::tvheadend::split_url(url).is_some() {
+            let (tx, rx) = async_channel::bounded(1);
+            let u = url.to_string();
+            std::thread::spawn(move || {
+                let _ = tx.send_blocking(tvjoe_core::tvheadend::resolve(&u));
+            });
+            let (weak, url) = (Rc::downgrade(self), url.to_string());
+            glib::spawn_future_local(async move {
+                let Ok(r) = rx.recv().await else { return };
+                let Some(app) = weak.upgrade() else { return };
+                let same = app.current_stream.borrow().as_ref().map(|(u, _)| u.as_str()) == Some(url.as_str());
+                if !same {
+                    return;
+                }
+                let Some(player) = app.player.as_ref() else { return };
+                match r {
+                    Ok(play) => player.load(&play, bitrate),
+                    Err(e) => app.msg.show(&tf!("Tvheadend: {error}", error = e), app.overlay_secs() * 2),
+                }
+            });
+            return;
+        }
         if tvjoe_core::satip::split_url(url).is_none() {
             player.load(url, bitrate);
             return;
@@ -2986,5 +3010,6 @@ pub fn default_source_icon(driver: Driver) -> &'static str {
         Driver::Iptv => "video-display-symbolic",
         Driver::Satip => crate::icons::SATELLITE,
         Driver::LinuxDvb | Driver::Hdhomerun => crate::icons::ANTENNA,
+        Driver::Tvheadend => "network-server-symbolic",
     }
 }

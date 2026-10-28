@@ -13,6 +13,7 @@ pub mod detail;
 pub mod diag;
 pub mod epg;
 pub mod hdhomerun;
+pub mod tvheadend;
 pub mod i18n;
 pub mod ids;
 pub mod jellyfin;

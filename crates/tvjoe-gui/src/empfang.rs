@@ -155,6 +155,7 @@ fn add_page(
                 Driver::Satip => "SAT>IP",
                 Driver::LinuxDvb => tr("DVB-Karte"),
                 Driver::Hdhomerun => "HDHomeRun",
+                Driver::Tvheadend => tr("Tvheadend-Server (experimentell)"),
                 Driver::Iptv => tr("M3U-Listen"),
             })
             .activatable(true)
@@ -176,6 +177,7 @@ fn add_page(
                     Driver::LinuxDvb => "dvb",
                     Driver::Satip => "sat",
                     Driver::Hdhomerun => "hdhr",
+                    Driver::Tvheadend => "tvh",
                     Driver::Iptv => "iptv",
                 };
                 e.adapters.push(Adapter {
@@ -276,6 +278,12 @@ fn source_summary(app: &App, a: &Adapter, descs: &[Description]) -> String {
         }
         Driver::Hdhomerun => {
             tf!("HDHomeRun · {host} · {channels}", host = a.host.trim(), channels = channels)
+        }
+        Driver::Tvheadend if a.host.trim().is_empty() => {
+            tf!("Tvheadend · noch keine Adresse · {channels}", channels = channels)
+        }
+        Driver::Tvheadend => {
+            tf!("Tvheadend · {host} · {channels}", host = a.host.trim(), channels = channels)
         }
         Driver::Iptv => tf!("M3U-Listen · {channels}", channels = channels),
     }
@@ -394,6 +402,15 @@ fn adapter_page(
                 e(&|a| a.host = h.clone());
             });
             for g in hdhomerun_groups(app, &a, set_host) {
+                content.add(&g);
+            }
+        }
+        Driver::Tvheadend => {
+            let e = edit.clone();
+            let set_host: Rc<dyn Fn(String)> = Rc::new(move |h: String| {
+                e(&|a| a.host = h.clone());
+            });
+            for g in tvheadend_groups(app, &a, set_host) {
                 content.add(&g);
             }
         }
@@ -815,6 +832,124 @@ fn edit_xmltv(
         fill_xmltv(&state, &group, &rows);
     });
     d.present(Some(parent));
+}
+
+/// Tvheadend: Adresse und Zugang (Datei nur für den Nutzer lesbar), Prüfen, Kanäle holen.
+fn tvheadend_groups(app: &Rc<App>, a: &Adapter, set_host: Rc<dyn Fn(String)>) -> Vec<adw::PreferencesGroup> {
+    use tvjoe_core::tvheadend::{self as tvh, Access};
+    let stored = (!a.host.trim().is_empty())
+        .then(|| tvh::access_path(&tvh::normalize(&a.host)).and_then(|p| Access::load(&p)))
+        .flatten()
+        .unwrap_or_default();
+    let server = adw::PreferencesGroup::builder()
+        .title(tr("Server"))
+        .description(tr("Eigener Tvheadend-Server im Netz (experimentell). Benutzer mit Streaming-Recht in Tvheadend anlegen; das Passwort liegt nur für dich lesbar in den Einstellungen, in Stream-Adressen steht nur ein zeitlich begrenztes Ticket."))
+        .build();
+    let host = adw::EntryRow::builder()
+        .title(tr("Adresse (z. B. http://tvheadend.example.org:9981)"))
+        .text(a.host.as_str())
+        .build();
+    let user = adw::EntryRow::builder().title(tr("Benutzer")).text(stored.user.as_str()).build();
+    let password = adw::PasswordEntryRow::builder().title(tr("Passwort")).text(stored.password.as_str()).build();
+    let check_row = adw::ActionRow::builder()
+        .title(tr("Prüfen"))
+        .subtitle(tr("Meldet sich an und fragt die Fassung ab"))
+        .build();
+    let check = gtk::Button::builder().label(tr("Prüfen")).valign(gtk::Align::Center).build();
+    check_row.add_suffix(&check);
+    server.add(&host);
+    server.add(&user);
+    server.add(&password);
+    server.add(&check_row);
+    host.connect_changed(move |h| set_host(h.text().trim().to_string()));
+
+    let list = adw::PreferencesGroup::builder()
+        .title(tr("Senderliste"))
+        .description(tr("Die Kanäle kommen von Tvheadend (dort vorher Suchlauf und Kanalzuordnung); ein erneutes Holen behält Nummern und eigene Namen. Programm über XMLTV (unten)."))
+        .build();
+    let list_row = adw::ActionRow::builder().title(tr("Senderliste")).subtitle(list_summary(&a.id)).build();
+    let fetch = gtk::Button::builder().label(tr("Kanäle holen")).valign(gtk::Align::Center).build();
+    list_row.add_suffix(&fetch);
+    list.add(&list_row);
+
+    // Zugang aus den Feldern; gespeichert bei Prüfen und Holen.
+    let access = {
+        let (host, user, password) = (host.clone(), user.clone(), password.clone());
+        move || -> Option<Access> {
+            let h = host.text().trim().to_string();
+            (!h.is_empty()).then(|| Access {
+                server: tvh::normalize(&h),
+                user: user.text().trim().to_string(),
+                password: password.text().to_string(),
+            })
+        }
+    };
+    let save = |a: &Access| -> Result<(), String> {
+        let path = tvh::access_path(&a.server).ok_or_else(|| tr("Kein Konfigurationsordner gefunden").to_string())?;
+        a.save(&path)
+    };
+    {
+        let (row, access) = (check_row.clone(), access.clone());
+        check.connect_clicked(move |b| {
+            let Some(a) = access() else {
+                row.set_subtitle(tr("Bitte zuerst die Adresse eintragen"));
+                return;
+            };
+            if let Err(e) = save(&a) {
+                row.set_subtitle(&e);
+                return;
+            }
+            b.set_sensitive(false);
+            let (tx, rx) = async_channel::bounded(1);
+            std::thread::spawn(move || {
+                let _ = tx.send_blocking(a.server_info());
+            });
+            let (b, row) = (b.clone(), row.clone());
+            glib::spawn_future_local(async move {
+                let Ok(r) = rx.recv().await else { return };
+                b.set_sensitive(true);
+                row.set_subtitle(&match r {
+                    Ok(info) => tf!("Verbunden: {info}", info = info),
+                    Err(e) => tf!("Nicht verbunden: {error}", error = e),
+                });
+            });
+        });
+    }
+    {
+        let (row, app, id, num) = (list_row.clone(), Rc::downgrade(app), a.id.clone(), a.num);
+        fetch.connect_clicked(move |b| {
+            let Some(a) = access() else {
+                row.set_subtitle(tr("Bitte zuerst die Adresse eintragen"));
+                return;
+            };
+            if let Err(e) = save(&a) {
+                row.set_subtitle(&e);
+                return;
+            }
+            b.set_sensitive(false);
+            let location = format!("tvheadend://{}", a.server.split_once("://").map_or(a.server.as_str(), |(_, r)| r));
+            let (tx, rx) = async_channel::bounded(1);
+            std::thread::spawn(move || {
+                let _ = tx.send_blocking(a.channels());
+            });
+            let (b, row, app, id) = (b.clone(), row.clone(), app.clone(), id.clone());
+            glib::spawn_future_local(async move {
+                let Ok(r) = rx.recv().await else { return };
+                b.set_sensitive(true);
+                row.set_subtitle(&match r {
+                    Ok(items) => {
+                        let text = save_list(&id, "Tvheadend", &location, &items);
+                        if let Some(app) = app.upgrade() {
+                            app.reload_list(num);
+                        }
+                        text
+                    }
+                    Err(e) => tf!("Senderliste nicht geholt: {error}", error = e),
+                });
+            });
+        });
+    }
+    vec![server, list]
 }
 
 /// HDHomeRun: Adresse, Prüfen, Senderliste vom Gerät (`lineup.json`).

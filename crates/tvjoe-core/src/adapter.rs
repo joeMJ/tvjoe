@@ -29,6 +29,7 @@ const BUILTIN: &[(&str, &str)] = &[
     ("kathrein-exip.toml", include_str!("../../../data/adapter/television/kathrein-exip.toml")),
     ("fritzbox-cable.toml", include_str!("../../../data/adapter/television/fritzbox-cable.toml")),
     ("hdhomerun.toml", include_str!("../../../data/adapter/television/hdhomerun.toml")),
+    ("tvheadend.toml", include_str!("../../../data/adapter/television/tvheadend.toml")),
     ("multicast-iptv.toml", include_str!("../../../data/adapter/television/multicast-iptv.toml")),
 ];
 
@@ -45,6 +46,8 @@ pub enum Driver {
     LinuxDvb,
     /// HDHomeRun-Netzwerktuner (Senderliste und Streams über HTTP).
     Hdhomerun,
+    /// Tvheadend-Server (Senderliste über die HTTP-Schnittstelle, Wiedergabe mit Tickets).
+    Tvheadend,
 }
 
 /// Satellit einer SAT>IP-Beschreibung.

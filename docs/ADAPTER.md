@@ -9,7 +9,7 @@ Klassen:
 
 | Klasse (`class`) | Wofür | Beispiele | Ordner |
 |---|---|---|---|
-| `television` – Fernsehen | lineares Fernsehen mit Senderliste und Programm | Internet-TV (M3U), SAT>IP-Empfänger, DVB-Karte, HDHomeRun | `television/` |
+| `television` – Fernsehen | lineares Fernsehen mit Senderliste und Programm | Internet-TV (M3U), SAT>IP-Empfänger, DVB-Karte, HDHomeRun, Tvheadend | `television/` |
 | `library` – Bibliothek | Mediatheken und Medienserver mit Filmen, Serien, Folgen | ÖR-Mediathek, Jellyfin, Plex | `library/` |
 
 Die mitgelieferten Adapter liegen im Repository unter
@@ -53,6 +53,7 @@ Eingerichtet wird unter **Einstellungen → Empfang**; „+“ fügt eine Quelle
 | `satip` | SAT>IP: RTSP zur Steuerung, RTP über UDP für den Datenstrom | Linux, Windows | getestet mit Netstream 4Sat |
 | `linux-dvb` | DVB-Karte (USB, PCI) über `/dev/dvb` | nur Linux | experimentell, geprüft mit `dvb_vidtv` |
 | `hdhomerun` | HDHomeRun-Netzwerktuner: Senderliste und Streams über HTTP | Linux, Windows | ungetestet |
+| `tvheadend` | Tvheadend-Server: Kanäle über die HTTP-Schnittstelle, Wiedergabe mit Tickets, Anmeldung per Digest | Linux, Windows | experimentell, getestet mit Tvheadend 4.3 und IPTV |
 
 Unter Windows gibt es noch keine DVB-Karten (geplant über BDA); eine Fassung für den Mac gibt es
 noch nicht.
@@ -70,6 +71,7 @@ noch nicht.
 | Kathrein EXIP | `satip` | DVB-S/S2 | Suchlauf Astra 19,2° Ost | Signal und/oder XMLTV |
 | FRITZ!Box Cable | `satip` | DVB-C | von der Box (M3U) | XMLTV |
 | HDHomeRun | `hdhomerun` | DVB-T/T2, DVB-C | vom Gerät | XMLTV |
+| Tvheadend | `tvheadend` | was Tvheadend empfängt | vom Server | XMLTV |
 | DVB-Karte (Linux) | `linux-dvb` | was die Karte meldet | Suchlauf (Frequenzplan oder Satellit) | Signal und/oder XMLTV |
 
 Der Suchlauf über Satellit beginnt auf einem Starttransponder und liest von dort die
