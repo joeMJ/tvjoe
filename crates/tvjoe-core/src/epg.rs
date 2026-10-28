@@ -471,9 +471,12 @@ pub fn signal_cache_path(cache_dir: &Path, adapter_id: &str) -> PathBuf {
     }
 }
 
-/// Kanal-ID aus dem Signal (SAT>IP oder DVB-Karte)?
+/// Präfix der Kanal-IDs mit Programm von Tvheadend („tvh:<kanal-uuid>“, gleich dem Senderschlüssel).
+pub const TVH_PREFIX: &str = "tvh:";
+
+/// Kanal-ID aus dem Signal (SAT>IP, DVB-Karte) oder von Tvheadend?
 pub fn is_signal_id(id: &str) -> bool {
-    id.starts_with(SAT_PREFIX) || id.starts_with("dvb:")
+    id.starts_with(SAT_PREFIX) || id.starts_with("dvb:") || id.starts_with(TVH_PREFIX)
 }
 
 /// Gesammelte SAT-Programmdaten je Kanal-ID.
@@ -554,6 +557,8 @@ impl SatEpg {
         for (id, list) in &self.programmes {
             let name = if id.starts_with(SAT_PREFIX) {
                 crate::tr("SAT-Empfang")
+            } else if id.starts_with(TVH_PREFIX) {
+                "Tvheadend"
             } else {
                 crate::tr("Aus dem Signal")
             };

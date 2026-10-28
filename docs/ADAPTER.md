@@ -71,7 +71,7 @@ noch nicht.
 | Kathrein EXIP | `satip` | DVB-S/S2 | Suchlauf Astra 19,2° Ost | Signal und/oder XMLTV |
 | FRITZ!Box Cable | `satip` | DVB-C | von der Box (M3U) | XMLTV |
 | HDHomeRun | `hdhomerun` | DVB-T/T2, DVB-C | vom Gerät | XMLTV |
-| Tvheadend | `tvheadend` | was Tvheadend empfängt | vom Server | XMLTV |
+| Tvheadend | `tvheadend` | was Tvheadend empfängt | vom Server | von Tvheadend oder XMLTV (je Sender) |
 | DVB-Karte (Linux) | `linux-dvb` | was die Karte meldet | Suchlauf (Frequenzplan oder Satellit) | Signal und/oder XMLTV |
 
 Der Suchlauf über Satellit beginnt auf einem Starttransponder und liest von dort die

@@ -69,7 +69,7 @@ The names are shown as below (German) in the program.
 | Kathrein EXIP | `satip` | DVB-S/S2 | scan Astra 19.2° East | signal and/or XMLTV |
 | FRITZ!Box Cable | `satip` | DVB-C | from the box (M3U) | XMLTV |
 | HDHomeRun | `hdhomerun` | DVB-T/T2, DVB-C | from the device | XMLTV |
-| Tvheadend | `tvheadend` | whatever Tvheadend receives | from the server | XMLTV |
+| Tvheadend | `tvheadend` | whatever Tvheadend receives | from the server | from Tvheadend or XMLTV (per channel) |
 | DVB-Karte (Linux) – DVB card | `linux-dvb` | whatever the card reports | scan (frequency plan or satellite) | signal and/or XMLTV |
 
 A satellite scan starts on a seed transponder and reads the network table with all transponders

@@ -331,10 +331,18 @@ impl Manager {
             .epg_id
             .as_deref()
             .is_some_and(|e| e.starts_with(tvjoe_core::epg::SAT_PREFIX));
+        let tvh_epg = ch
+            .epg_id
+            .as_deref()
+            .is_some_and(|e| e.starts_with(tvjoe_core::epg::TVH_PREFIX));
         let epg_text = match self.app.guide() {
             _ if sat_epg => match self.app.guide().filter(|g| g.has_channel(&ch.key)) {
                 Some(_) => tr("SAT-Empfang").to_string(),
                 None => tr("SAT-Empfang (wird gesammelt)").to_string(),
+            },
+            _ if tvh_epg => match self.app.guide().filter(|g| g.has_channel(&ch.key)) {
+                Some(_) => "Tvheadend".to_string(),
+                None => tr("Tvheadend (ohne Programm)").to_string(),
             },
             Some(g) => match g.match_channel(ch) {
                 Some((id, kind)) => {
@@ -709,15 +717,21 @@ impl Manager {
         };
         // SAT-Sender: Programmdaten auch aus dem Empfang (EIT); die ID ist der Senderschlüssel.
         let sat = ch.key.starts_with(tvjoe_core::epg::SAT_PREFIX);
+        let tvh = ch.key.starts_with(tvjoe_core::epg::TVH_PREFIX);
         let guide = self.app.guide();
-        if guide.is_none() && !sat {
+        if guide.is_none() && !sat && !tvh {
             self.toast(tr("Kein EPG geladen – zuerst eine EPG-Quelle eintragen."));
             return;
         }
         let mut suggestions = guide.map(|g| g.suggestions(&ch)).unwrap_or_default();
-        suggestions.retain(|(sid, _)| !sid.starts_with(tvjoe_core::epg::SAT_PREFIX));
+        suggestions.retain(|(sid, _)| {
+            !sid.starts_with(tvjoe_core::epg::SAT_PREFIX) && !sid.starts_with(tvjoe_core::epg::TVH_PREFIX)
+        });
         if sat {
             suggestions.insert(0, (ch.key.clone(), tr("Aus dem SAT-Empfang").to_string()));
+        }
+        if tvh {
+            suggestions.insert(0, (ch.key.clone(), tr("Von Tvheadend").to_string()));
         }
         let mut labels: Vec<String> = vec![tr("Automatisch zuordnen").into()];
         labels.extend(
@@ -758,6 +772,9 @@ impl Manager {
             let to_sat = epg_id
                 .as_deref()
                 .is_some_and(|e| e.starts_with(tvjoe_core::epg::SAT_PREFIX));
+            if epg_id.as_deref().is_some_and(|e| e.starts_with(tvjoe_core::epg::TVH_PREFIX)) {
+                crate::satepg::run(&m.app);
+            }
             m.set_flag(&[id], |c| c.epg_id = epg_id.clone());
             m.refill();
             if to_sat {

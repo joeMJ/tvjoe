@@ -150,7 +150,8 @@ impl Access {
                                 max_bitrate: None,
                             },
                             radio: false,
-                            epg_id: None,
+                            // Programm von Tvheadend (je Sender auf XMLTV umstellbar).
+                            epg_id: Some(format!("{}{uuid}", crate::epg::TVH_PREFIX)),
                         },
                     )
                 })
@@ -162,6 +163,40 @@ impl Access {
         // Ohne Nummer (0) hinter die nummerierten.
         list.sort_by(|a, b| (a.0 == 0, a.0, &a.1.name).cmp(&(b.0 == 0, b.0, &b.1.name)));
         Ok(list.into_iter().map(|(_, c)| c).collect())
+    }
+
+    /// Programm aller Kanäle (`/api/epg/events/grid`), Kanal-IDs `tvh:<kanal-uuid>`; Vergangenes
+    /// älter als sechs Stunden fällt weg.
+    pub fn epg(&self, now: i64) -> Result<crate::epg::SatEpg, String> {
+        let v: serde_json::Value =
+            serde_json::from_slice(&self.get("/api/epg/events/grid?limit=100000")?).map_err(|e| e.to_string())?;
+        let mut out = crate::epg::SatEpg::default();
+        let text = |e: &serde_json::Value, k: &str| e[k].as_str().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
+        for e in v["entries"].as_array().into_iter().flatten() {
+            let (Some(ch), Some(start), Some(stop), Some(title)) =
+                (e["channelUuid"].as_str(), e["start"].as_i64(), e["stop"].as_i64(), text(e, "title"))
+            else {
+                continue;
+            };
+            if stop <= now - 6 * 3600 {
+                continue;
+            }
+            out.programmes
+                .entry(format!("{}{ch}", crate::epg::TVH_PREFIX))
+                .or_default()
+                .push(crate::epg::Programme {
+                    start,
+                    stop,
+                    title,
+                    subtitle: text(e, "subtitle"),
+                    desc: text(e, "description").or_else(|| text(e, "summary")),
+                });
+        }
+        for list in out.programmes.values_mut() {
+            list.sort_by_key(|p| p.start);
+            list.dedup_by_key(|p| p.start);
+        }
+        Ok(out)
     }
 
     /// Abspieladresse eines Kanals mit frischem Ticket.
@@ -317,5 +352,11 @@ mod tests {
         let url = a.ticket_url(&uuid).unwrap();
         assert!(url.contains("ticket="));
         eprintln!("Ticket-Adresse erhalten ({} Zeichen)", url.len());
+        let epg = a.epg(crate::epg::now()).unwrap();
+        let first = list.iter().find_map(|c| c.epg_id.as_ref().and_then(|id| epg.programmes.get(id).map(|p| (&c.name, p))));
+        eprintln!("EPG: {} Kanäle mit Programm", epg.programmes.len());
+        if let Some((name, p)) = first {
+            eprintln!("  {name}: {} Sendungen, z. B. {:?}", p.len(), p.first().map(|x| &x.title));
+        }
     }
 }

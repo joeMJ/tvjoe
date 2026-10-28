@@ -453,6 +453,8 @@ const TVH_STEPS: &[Step] = &[
     ),
     ("99a-zaehler", |p| { frames_trace(p, "Tvheadend a"); main_window(p) }, 3000),
     ("99b-zaehler", |p| { frames_trace(p, "Tvheadend b"); main_window(p) }, 500),
+    ("99c-epg-holen", |p| { crate::satepg::run(&p.app); main_window(p) }, 10000),
+    ("99d-info", |p| { p.app.toggle_info(); main_window(p) }, 2000),
 ];
 
 /// Update-Dialog und Aufzeichnung der Bedienung (`TVJOE_SELFTEST_UPDATE=1`, nur diese

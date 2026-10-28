@@ -52,7 +52,7 @@ fn signal_sources(app: &App) -> Vec<(u32, String, u64)> {
             .collect()
     };
     list.into_iter()
-        .filter(|(n, _, _)| matches!(app.driver_of(*n), Driver::Satip | Driver::LinuxDvb))
+        .filter(|(n, _, _)| matches!(app.driver_of(*n), Driver::Satip | Driver::LinuxDvb | Driver::Tvheadend))
         .collect()
 }
 
@@ -83,6 +83,11 @@ fn run_source(app: &Rc<App>, src: u32, id: &str) {
         return;
     }
     let driver = app.driver_of(src);
+    // Tvheadend: Programm über die Schnittstelle des Servers (kein Tuner nötig).
+    if driver == Driver::Tvheadend {
+        run_tvheadend(app, src, id);
+        return;
+    }
     // Transponder der Sender mit Programm aus dem Signal, je Transponder einmal.
     let mut tuning: Vec<(String, String)> = Vec::new();
     let channels = app.with_list(src, |l| l.channels.clone());
@@ -146,6 +151,45 @@ fn run_source(app: &Rc<App>, src: u32, id: &str) {
         for n in &notes {
             trace(&format!("Signal-EPG {n}"));
         }
+        if let Some(app) = weak.upgrade() {
+            app.load_epg(false);
+        }
+    });
+}
+
+/// Tvheadend: Programm aller Kanäle vom Server holen, im Zwischenspeicher der Quelle ablegen.
+fn run_tvheadend(app: &Rc<App>, src: u32, id: &str) {
+    let host = app.settings().source(src).map(|a| a.host.clone()).unwrap_or_default();
+    let Some(dir) = paths::cache_dir() else { return };
+    if host.trim().is_empty() {
+        return;
+    }
+    RUNNING.with(|r| r.borrow_mut().insert(src));
+    let path = epg::signal_cache_path(&dir, id);
+    let server = tvjoe_core::tvheadend::normalize(&host);
+    let (tx, rx) = async_channel::bounded::<String>(1);
+    std::thread::spawn(move || {
+        let note = match tvjoe_core::tvheadend::access_path(&server)
+            .and_then(|p| tvjoe_core::tvheadend::Access::load(&p))
+            .ok_or_else(|| format!("kein Zugang zu {server} gespeichert"))
+            .and_then(|a| a.epg(epg::now()))
+        {
+            Ok(guide) => {
+                let n: usize = guide.programmes.values().map(Vec::len).sum();
+                match guide.save_to(&path) {
+                    Ok(()) => format!("Tvheadend: {n} Sendungen auf {} Kanälen", guide.programmes.len()),
+                    Err(e) => format!("Tvheadend: Speichern: {e}"),
+                }
+            }
+            Err(e) => format!("Tvheadend: {e}"),
+        };
+        let _ = tx.send_blocking(note);
+    });
+    let weak = Rc::downgrade(app);
+    glib::spawn_future_local(async move {
+        let note = rx.recv().await.unwrap_or_default();
+        RUNNING.with(|r| r.borrow_mut().remove(&src));
+        trace(&format!("Signal-EPG {note}"));
         if let Some(app) = weak.upgrade() {
             app.load_epg(false);
         }

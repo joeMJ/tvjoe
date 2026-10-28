@@ -1,10 +1,10 @@
 # Empfangsquelle: Tvheadend-Server im eigenen Netz. Senderliste über die HTTP-Schnittstelle
 # (/api/channel/grid), Wiedergabe mit zeitlich begrenzten Tickets; Anmeldung per HTTP-Digest.
-# Programm über XMLTV in tvjoe. Experimentell.
+# Programm von Tvheadend (je Sender auf XMLTV umstellbar). Experimentell.
 class = "television"
 id = "tvheadend"
 name = "Tvheadend"
 driver = "tvheadend"
 systems = []
 tuners = 0
-signal_epg = false
+signal_epg = true

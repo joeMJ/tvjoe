@@ -311,6 +311,7 @@ fn adapter_page(
     let driver = driver_of(&a, descs);
     let sat = driver == Driver::Satip;
     let signal_epg = description_of(&a, descs).is_some_and(|d| d.signal_epg);
+    let tvh = description_of(&a, descs).is_some_and(|d| d.driver == Driver::Tvheadend);
     let content = adw::PreferencesPage::new();
     // Änderung an der Empfangsquelle in den bearbeiteten Stand schreiben.
     let edit = {
@@ -422,6 +423,8 @@ fn adapter_page(
         .title(tr("Programm (EPG)"))
         .description(if sat {
             tr("Aus dem Signal (je Sender in „Sender verwalten“ → EPG „Aus dem SAT-Empfang“) und/oder aus XMLTV-Quellen")
+        } else if tvh {
+            tr("Von Tvheadend (je Sender in „Sender verwalten“ → EPG „Von Tvheadend“) und/oder aus XMLTV-Quellen")
         } else if signal_epg {
             tr("Aus dem Signal (neue Sender nach dem Suchlauf) und/oder aus XMLTV-Quellen")
         } else {
@@ -430,8 +433,13 @@ fn adapter_page(
         .build();
     if signal_epg {
         let signal = adw::SpinRow::with_range(1.0, 24.0, 1.0);
-        signal.set_title(tr("Aus dem Signal sammeln alle"));
-        signal.set_subtitle(tr("Stunden; belegt je Transponder etwa 40 Sekunden einen Tuner"));
+        if tvh {
+            signal.set_title(tr("Von Tvheadend holen alle"));
+            signal.set_subtitle(tr("Stunden; eine Anfrage an den Server, kein Tuner nötig"));
+        } else {
+            signal.set_title(tr("Aus dem Signal sammeln alle"));
+            signal.set_subtitle(tr("Stunden; belegt je Transponder etwa 40 Sekunden einen Tuner"));
+        }
         signal.set_value(f64::from(a.signal_epg_hours.max(1)));
         let e = edit.clone();
         signal.connect_value_notify(move |r| {
@@ -865,7 +873,7 @@ fn tvheadend_groups(app: &Rc<App>, a: &Adapter, set_host: Rc<dyn Fn(String)>) ->
 
     let list = adw::PreferencesGroup::builder()
         .title(tr("Senderliste"))
-        .description(tr("Die Kanäle kommen von Tvheadend (dort vorher Suchlauf und Kanalzuordnung); ein erneutes Holen behält Nummern und eigene Namen. Programm über XMLTV (unten)."))
+        .description(tr("Die Kanäle kommen von Tvheadend (dort vorher Suchlauf und Kanalzuordnung); ein erneutes Holen behält Nummern und eigene Namen. Programm von Tvheadend; je Sender in „Sender verwalten“ auf XMLTV umstellbar."))
         .build();
     let list_row = adw::ActionRow::builder().title(tr("Senderliste")).subtitle(list_summary(&a.id)).build();
     let fetch = gtk::Button::builder().label(tr("Kanäle holen")).valign(gtk::Align::Center).build();
