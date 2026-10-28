@@ -340,7 +340,7 @@ fn adapter_page(
         general.add(&crate::icons::chooser_row(
             dialog,
             &a.icon,
-            crate::app::default_source_icon(driver),
+            &crate::app::default_source_icon(driver),
             Rc::new(move |name: String| edit(&|a: &mut Adapter| a.icon = name.clone())),
         ));
     }

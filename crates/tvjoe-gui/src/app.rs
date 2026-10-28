@@ -833,8 +833,13 @@ impl App {
         for l in libraries {
             let jelly = crate::jellyfin::is_server_kind(&l.kind);
             // Server: Logo des Servers (einfarbig), bis es geladen ist ein Server-Symbol.
+            // Plex und Emby: Filmklappe (deren Logos nicht verändert werden dürfen); Jellyfin: bis
+            // das Logo des Servers geladen ist ein Server-Symbol.
+            let clapper = crate::icons::fa_name("solid/clapperboard");
             let icon = if !l.icon.is_empty() {
                 l.icon.as_str()
+            } else if matches!(l.kind.as_str(), "plex" | "emby") {
+                clapper.as_str()
             } else if jelly {
                 "network-server-symbolic"
             } else {
@@ -843,12 +848,8 @@ impl App {
             let image = gtk::Image::builder().icon_name(icon).pixel_size(18).build();
             let title = if !l.title.is_empty() {
                 l.title.clone()
-            } else if l.kind == "plex" {
-                "Plex".to_string()
-            } else if l.kind == "emby" {
-                "Emby".to_string()
             } else if jelly {
-                "Jellyfin".to_string()
+                crate::jellyfin::kind_name(&l.kind).to_string()
             } else {
                 tr("ÖR-Mediathek").to_string()
             };
@@ -891,7 +892,7 @@ impl App {
                 s.source(*n)
                     .map(|a| a.icon.clone())
                     .filter(|i| !i.is_empty())
-                    .unwrap_or_else(|| default_source_icon(*driver).to_string())
+                    .unwrap_or_else(|| default_source_icon(*driver))
             })
             .collect();
         // Gleiche Quellen, gleiche Symbole: nur Titel nachziehen.
@@ -2095,8 +2096,10 @@ impl App {
     /// Start melden. Der Anmeldekopf geht nur mit diesem Stream an den Jellyfin-Server.
     fn load_jellyfin(self: &Rc<Self>, j: &JellyVod, start: Option<f64>) {
         let Some(acc) = crate::jellyfin::account(&j.library) else {
-            self.msg
-                .show(tr("Jellyfin: nicht angemeldet"), self.overlay_secs());
+            self.msg.show(
+                &tf!("{server}: nicht angemeldet", server = crate::jellyfin::server_name(&j.library)),
+                self.overlay_secs(),
+            );
             return;
         };
         let max_kbps = self
@@ -2112,6 +2115,7 @@ impl App {
         });
         let weak = Rc::downgrade(self);
         let session = j.session.clone();
+        let library = j.library.clone();
         glib::spawn_future_local(async move {
             let Ok(result) = rx.recv().await else { return };
             let Some(app) = weak.upgrade() else { return };
@@ -2124,7 +2128,7 @@ impl App {
             match result {
                 Ok(pb) => {
                     trace(&format!(
-                        "lade Jellyfin {item_id} ({}, {:.1} Mbit/s)",
+                        "lade {library} {item_id} ({}, {:.1} Mbit/s)",
                         if pb.transcoded {
                             "umgerechnet"
                         } else {
@@ -2154,7 +2158,7 @@ impl App {
                 }
                 Err(e) => app
                     .msg
-                    .show(&tf!("Jellyfin: nicht abspielbar ({error})", error = e), 0),
+                    .show(&tf!("{server}: nicht abspielbar ({error})", server = crate::jellyfin::server_name(&library), error = e), 0),
             }
         });
     }
@@ -3004,12 +3008,13 @@ pub fn status_page(title: &str, text: &str) -> adw::StatusPage {
         .build()
 }
 
-/// Vorgabe-Symbol einer Empfangsquelle nach Treiber (Kopfleiste, Symbolwahl).
-pub fn default_source_icon(driver: Driver) -> &'static str {
+/// Vorgabe-Symbol einer Empfangsquelle nach Treiber (Kopfleiste, Symbolwahl); Internet-TV und
+/// SAT aus Font Awesome Free (Nutzer, 2026-10-28: „network-wired“ und „satellite-dish“).
+pub fn default_source_icon(driver: Driver) -> String {
     match driver {
-        Driver::Iptv => "video-display-symbolic",
-        Driver::Satip => crate::icons::SATELLITE,
-        Driver::LinuxDvb | Driver::Hdhomerun => crate::icons::ANTENNA,
-        Driver::Tvheadend => "network-server-symbolic",
+        Driver::Iptv => crate::icons::fa_name("solid/network-wired"),
+        Driver::Satip => crate::icons::fa_name("solid/satellite-dish"),
+        Driver::LinuxDvb | Driver::Hdhomerun => crate::icons::ANTENNA.to_string(),
+        Driver::Tvheadend => crate::icons::fa_name("solid/wand-magic-sparkles"),
     }
 }

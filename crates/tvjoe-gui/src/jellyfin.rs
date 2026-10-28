@@ -41,6 +41,25 @@ pub fn account(library: &str) -> Option<Account> {
 
 /// Art einer Bibliothek mit eigenem Server (Jellyfin, Plex) – teilen sich Zwischenspeicher,
 /// Ansicht, Abgleich und Abspielen.
+/// Name des Servertyps (`plex` → „Plex“, `emby` → „Emby“, sonst „Jellyfin“).
+pub fn kind_name(kind: &str) -> &'static str {
+    match kind {
+        "plex" => "Plex",
+        "emby" => "Emby",
+        _ => "Jellyfin",
+    }
+}
+
+/// Name einer Server-Mediathek für Meldungen: wie in der Kopfleiste, sonst der Servertyp.
+pub fn server_name(library: &str) -> String {
+    let l = crate::ablage::app().and_then(|a| a.settings().library(library).cloned());
+    match l {
+        Some(l) if !l.title.is_empty() => l.title,
+        Some(l) => kind_name(&l.kind).to_string(),
+        None => "Jellyfin".to_string(),
+    }
+}
+
 pub fn is_server_kind(kind: &str) -> bool {
     matches!(kind, "jellyfin" | "plex" | "emby")
 }
@@ -120,7 +139,7 @@ pub fn sync(app: &Rc<App>, library: &str) {
         SYNCING.with(|s| s.borrow_mut().remove(&library));
         match result {
             Ok(text) => {
-                trace(&format!("Jellyfin-Abgleich {library}: {text}"));
+                trace(&format!("Abgleich {library}: {text}"));
                 crate::jfview::refresh(&library);
                 // Abos der Staffeln: neue Folgen laden oder melden.
                 if let Some(app) = weak.upgrade() {
@@ -184,6 +203,11 @@ fn cache_name(library: &str, suffix: &str) -> Option<PathBuf> {
 
 /// Weiße Fassung des Logos (Bauchbinde, Info).
 pub fn white_logo_path(library: &str) -> Option<PathBuf> {
+    // Plex und Emby: kein eingefärbtes Logo (auch kein älteres aus dem Zwischenspeicher).
+    let kind = crate::ablage::app().and_then(|a| a.settings().library(library).map(|l| l.kind.clone()));
+    if matches!(kind.as_deref(), Some("plex" | "emby")) {
+        return None;
+    }
     cache_name(library, "logo-weiss.png")
 }
 
@@ -232,6 +256,11 @@ fn logo_path(library: &str) -> Option<PathBuf> {
 
 /// Logo des Servers für den Knopf: aus dem Cache, sonst im Hintergrund laden.
 pub fn load_logo(app: &Rc<App>, library: &str) {
+    // Nur Jellyfin: Plex und Emby erlauben keine veränderten (eingefärbten) Logos; dort gilt die
+    // Filmklappe aus Font Awesome.
+    if app.settings().library(library).is_some_and(|l| matches!(l.kind.as_str(), "plex" | "emby")) {
+        return;
+    }
     let Some(path) = logo_path(library) else { return };
     if path.exists() {
         app.set_library_logo(library, &path);
@@ -269,7 +298,7 @@ pub fn load_logo(app: &Rc<App>, library: &str) {
                 }
                 make_white(&library, &path);
             }
-            Ok(Err(e)) => trace(&format!("Jellyfin-Logo: {e}")),
+            Ok(Err(e)) => trace(&format!("Server-Logo: {e}")),
             Err(_) => {}
         }
     });
@@ -278,7 +307,7 @@ pub fn load_logo(app: &Rc<App>, library: &str) {
 fn make_white(library: &str, path: &std::path::Path) {
     if let Some(dst) = white_logo_path(library).filter(|p| !p.exists()) {
         if let Err(e) = crate::logos::save_white_from_dark(path, &dst) {
-            trace(&format!("Jellyfin-Logo weiß: {e}"));
+            trace(&format!("Server-Logo weiß: {e}"));
         }
     }
 }

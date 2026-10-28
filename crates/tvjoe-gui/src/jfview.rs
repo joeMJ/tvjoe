@@ -79,7 +79,7 @@ impl Images {
                             std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
                         });
                         if let Err(e) = saved {
-                            trace(&format!("Jellyfin-Plakat {id}: {e}"));
+                            trace(&format!("Plakat {id}: {e}"));
                             continue;
                         }
                     }
@@ -450,7 +450,7 @@ impl crate::layer::View for JfView {
             .upgrade()
             .and_then(|a| a.settings().library(&self.source).map(|l| l.title.clone()))
             .filter(|t| !t.is_empty())
-            .unwrap_or_else(|| "Jellyfin".to_string())
+            .unwrap_or_else(|| crate::jellyfin::server_name(&self.source))
     }
     fn min_size(&self) -> (i32, i32) {
         MIN_SIZE
@@ -527,7 +527,7 @@ impl JfView {
         stored_only.set_active(lib.stored_only);
         let prefs_button = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
-            .tooltip_text(tr("Einstellungen von Jellyfin"))
+            .tooltip_text(tf!("Einstellungen von {server}", server = crate::jellyfin::server_name(library)))
             .build();
         let header_end = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         header_end.append(&stored_only);
@@ -815,7 +815,7 @@ impl JfView {
             self.items.borrow_mut().clear();
             self.show_empty(
                 tr("Bibliothek wird abgeglichen"),
-                tr("Der erste Abgleich mit dem Jellyfin-Server dauert etwa eine halbe Minute."),
+                &tf!("Der erste Abgleich mit {server} dauert etwa eine halbe Minute.", server = crate::jellyfin::server_name(&self.source)),
             );
             return;
         };

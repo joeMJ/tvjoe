@@ -315,8 +315,10 @@ fn library_page(
     general.add(&name);
     {
         let (state, id) = (state.clone(), id.to_string());
+        let clapper = crate::icons::fa_name("solid/clapperboard");
         let default = match driver_of(&l, descs) {
             Some(LibraryDriver::Oer) | None => "folder-videos-symbolic",
+            Some(LibraryDriver::Plex | LibraryDriver::Emby) => clapper.as_str(),
             Some(_) => "network-server-symbolic",
         };
         general.add(&crate::icons::chooser_row(

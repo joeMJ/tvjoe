@@ -60,7 +60,7 @@ pub fn open_at(
     control.add(&sidebar);
     let stop_live = adw::SwitchRow::builder()
         .title(tr("Lineares Fernsehen stoppen, wenn Mediathek geöffnet"))
-        .subtitle(tr("Gilt für Mediathek und Jellyfin; beim Schließen läuft der Sender wieder an. Aufnahmen laufen weiter."))
+        .subtitle(tr("Gilt für Mediatheken und Medienserver; beim Schließen läuft der Sender wieder an. Aufnahmen laufen weiter."))
         .active(s.stop_live_for_media)
         .build();
     control.add(&stop_live);

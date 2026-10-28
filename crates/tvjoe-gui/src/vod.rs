@@ -88,7 +88,7 @@ impl Vod {
                 .item
                 .series_name
                 .clone()
-                .unwrap_or_else(|| "Jellyfin".to_string()),
+                .unwrap_or_else(|| crate::jellyfin::server_name(&j.library)),
             Vod::File(f) => f.name.clone(),
         }
     }
@@ -101,7 +101,7 @@ impl Vod {
                 zeit = crate::mediathek::day_time(f.timestamp)
             ),
             Vod::Jelly(j) => {
-                let mut parts = vec!["Jellyfin".to_string()];
+                let mut parts = vec![crate::jellyfin::server_name(&j.library)];
                 if let Some(y) = j.item.year {
                     parts.push(y.to_string());
                 }

@@ -18,7 +18,7 @@ pub fn prefs_group(
 ) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
         .title(tr("Sichern"))
-        .description(tr("Alle Einstellungen, TV- und SAT-Senderliste in einer Datei. Nicht enthalten: Jellyfin-Anmeldung, Zwischenspeicher (Logos, Programm, Filmliste) und Weiterseh-Positionen."))
+        .description(tr("Alle Einstellungen, TV- und SAT-Senderliste in einer Datei. Nicht enthalten: Anmeldungen bei Medienservern, Zwischenspeicher (Logos, Programm, Filmliste) und Weiterseh-Positionen."))
         .build();
     let export_row = adw::ActionRow::builder()
         .title(tr("Exportieren"))

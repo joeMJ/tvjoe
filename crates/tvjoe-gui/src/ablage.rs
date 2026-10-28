@@ -336,7 +336,7 @@ pub fn fetch_film(app: &Rc<App>, film: &Film, art: Art) {
 pub fn fetch_item(app: &Rc<App>, library: &str, item: &Item, art: Art) {
     let Some(a) = get() else { return };
     let Some(account) = crate::jellyfin::account(library) else {
-        app.message(tr("Jellyfin: nicht angemeldet"));
+        app.message(&tf!("{server}: nicht angemeldet", server = crate::jellyfin::server_name(library)));
         return;
     };
     let (original, kbps) = {
@@ -359,7 +359,7 @@ pub fn fetch_item(app: &Rc<App>, library: &str, item: &Item, art: Art) {
         library,
         &item.id,
         &title,
-        "Jellyfin",
+        &crate::jellyfin::server_name(library),
         &name,
         Fetch::Jelly {
             account,
@@ -1566,12 +1566,12 @@ pub fn prefs_page(
         )
         .build();
     let jf_original = adw::SwitchRow::builder()
-        .title(tr("Jellyfin: Originaldatei"))
+        .title(tr("Medienserver: Originaldatei"))
         .subtitle(tr("Aus: vom Server umgerechnet mit der Bitrate darunter (kleinere Datei)"))
         .active(s.jellyfin_download_original)
         .build();
     let jf_kbps = adw::SpinRow::with_range(500.0, 40000.0, 500.0);
-    jf_kbps.set_title(tr("Jellyfin: Bitrate beim Umrechnen"));
+    jf_kbps.set_title(tr("Medienserver: Bitrate beim Umrechnen"));
     jf_kbps.set_subtitle(tr("kbit/s"));
     jf_kbps.set_value(f64::from(s.jellyfin_download_kbps));
     download.add(&oer_quality);
@@ -1933,7 +1933,10 @@ pub fn resume_entry(app: &Rc<App>, id: i64) {
         "oer" => fetch_film(app, &film_of(&e), e.art),
         s if is_server_source(s) => match crate::jfview::item(s, &e.key) {
             Some(it) => fetch_item(app, s, &it, e.art),
-            None => app.message(tr("Jellyfin: Eintrag nicht mehr in der Bibliothek")),
+            None => app.message(&tf!(
+                "{server}: Eintrag nicht mehr in der Bibliothek",
+                server = crate::jellyfin::server_name(s)
+            )),
         },
         _ => {}
     }
@@ -1948,7 +1951,7 @@ pub fn play_entry(app: &Rc<App>, id: i64) {
         "oer" => app.play_film(&film_of(&e), None),
         s if is_server_source(s) => match crate::jfview::item(s, &e.key) {
             Some(it) => app.play_jellyfin(s, &it, None, Vec::new()),
-            None => app.play_file(&e.title, "Jellyfin", &e.path),
+            None => app.play_file(&e.title, &crate::jellyfin::server_name(s), &e.path),
         },
         _ => app.play_file(&e.title, &e.subtitle, &e.path),
     }

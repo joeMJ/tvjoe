@@ -96,7 +96,7 @@ const COLUMNS: &str = "id, kind, name, sort_name, series_id, series_name, season
     position_secs, last_played";
 
 fn db_err(e: rusqlite::Error) -> String {
-    tf!("Jellyfin-Zwischenspeicher: {error}", error = e)
+    tf!("Zwischenspeicher der Bibliothek: {error}", error = e)
 }
 
 fn row_to_item(r: &rusqlite::Row) -> rusqlite::Result<Item> {
