@@ -976,13 +976,15 @@ impl App {
         if let Some(p) = &self.player {
             p.set_drawing(!on);
         }
+        // Bauchbinde bei offener Ebene gesperrt (sie läge sonst unter der Meldung unten links).
+        self.osd.set_blocked(on);
         if on {
-            self.osd.hide();
             self.info.hide();
             self.split.set_show_sidebar(false);
         }
-        // Meldungen bei offener Ebene klein links oben, etwa ein Viertel der Breite
-        // (Nutzer, 2026-10-27: der Balken lag über Reitern und Knöpfen).
+        // Meldungen bei offener Ebene klein unten links, etwa ein Viertel der Breite
+        // (Nutzer, 2026-10-27: der Balken lag über Reitern und Knöpfen; 2026-10-28: oben links
+        // verdeckte er die Ablage).
         let width = (self.video.width() / 4).max(280);
         self.msg.set_compact(on.then_some(width));
     }

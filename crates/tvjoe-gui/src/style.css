@@ -45,6 +45,12 @@
   padding: 14px 22px;
 }
 
+/* Kleine Meldung bei offener Ebene: deckend und mit Rand, damit sie sich vom Inhalt abhebt. */
+.tvjoe-msg-compact {
+  background-color: rgba(30, 30, 30, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
 .tvjoe-osd-number {
   font-size: 38pt;
   font-weight: 800;

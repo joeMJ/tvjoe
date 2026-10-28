@@ -218,11 +218,12 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
             let me = me_slot.clone();
             button.connect_clicked(move |_| {
                 if let Some(app) = weak.upgrade() {
-                    app.play_channel(id);
+                    // Erst schließen, dann umschalten: bei offener Ebene ist die Bauchbinde gesperrt.
                     if let Some(view) = me.get().and_then(Weak::upgrade) {
                         let view: Rc<dyn crate::layer::View> = view;
                         crate::layer::close_if_layer(&app, &view);
                     }
+                    app.play_channel(id);
                 }
             });
             line.append(&fixed(&button, width));

@@ -116,6 +116,8 @@ pub struct Osd {
     rec: gtk::Button,
     on_action: RefCell<Option<ActionHandler>>,
     timer: RefCell<Option<glib::SourceId>>,
+    /// Ebene offen: die Bauchbinde erscheint nicht (Meldungen stehen dann unten links).
+    blocked: Cell<bool>,
 }
 
 fn osd_button(icon: &str, tip: &str) -> gtk::Button {
@@ -293,6 +295,7 @@ impl Osd {
         root.append(&rec);
 
         let osd = Rc::new(Self {
+            blocked: Cell::new(false),
             root,
             number,
             origin,
@@ -426,7 +429,18 @@ impl Osd {
     }
 
     /// Senderanzeige für `secs` Sekunden (0 = bis zur nächsten Anzeige).
+    /// Bauchbinde sperren (Ebene offen) bzw. wieder zulassen.
+    pub fn set_blocked(&self, on: bool) {
+        self.blocked.set(on);
+        if on {
+            self.hide();
+        }
+    }
+
     pub fn show_channel(self: &Rc<Self>, info: &ChannelInfo, secs: u32) {
+        if self.blocked.get() {
+            return;
+        }
         let has_number = !info.number.is_empty();
         self.number.set_label(&info.number);
         self.number.set_visible(has_number);
@@ -558,8 +572,8 @@ impl Osd {
 
 /// Meldungsstreifen oben im Bild: eine Zeile über die Bildbreite, gleiches Aussehen wie die
 /// Meldungszeile bisher unten (Lautstärke, Ton, Qualität, Störungen, Ziffernwahl ohne Sender).
-/// Abstand des kleinen Meldungskastens von oben: Kopfzeile der Ansicht (etwa 55 px) und
-/// Filter- bzw. Senderleiste (etwa 55 px) frei lassen.
+/// Mindestabstand des kleinen Meldungskastens (unten links) von oben: Kopfzeile der Ansicht
+/// (etwa 55 px) und Filter- bzw. Senderleiste (etwa 55 px), falls das Fenster sehr niedrig ist.
 const COMPACT_TOP: i32 = 124;
 
 pub struct MessageBar {
@@ -608,9 +622,13 @@ impl MessageBar {
             Some(w) => {
                 self.root.set_halign(gtk::Align::Start);
                 self.root.set_size_request(w, -1);
-                // Unter Kopfzeile und Filterzeile der Ansicht (Reiter, Senderleiste), damit
-                // nichts Bedienbares verdeckt wird.
+                // Unten links (Nutzer, 2026-10-28): oben liegen Kopf- und Filterzeilen, in der
+                // Ablage Überschrift und Belegungsbalken; die Bauchbinde ist bei offener Ebene
+                // gesperrt und kann dort nicht erscheinen.
+                self.root.set_valign(gtk::Align::End);
                 self.root.set_margin_top(COMPACT_TOP);
+                self.root.set_margin_bottom(24);
+                self.root.add_css_class("tvjoe-msg-compact");
                 // Breite vorgeben: der Text nutzt die Kastenbreite (abzüglich des Innenabstands
                 // von 2 × 22 px) und bricht dort um, statt den Kasten zu verbreitern.
                 self.text.set_max_width_chars(1);
@@ -618,8 +636,11 @@ impl MessageBar {
             }
             None => {
                 self.root.set_halign(gtk::Align::Fill);
+                self.root.set_valign(gtk::Align::Start);
                 self.root.set_size_request(-1, -1);
                 self.root.set_margin_top(16);
+                self.root.set_margin_bottom(0);
+                self.root.remove_css_class("tvjoe-msg-compact");
                 self.text.set_max_width_chars(-1);
                 self.text.set_size_request(-1, -1);
             }
