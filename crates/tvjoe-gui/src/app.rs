@@ -349,11 +349,13 @@ impl App {
             .tooltip_text(tr("Programm (G)"))
             .build();
         header.pack_end(&grid_button);
-        let info_button = gtk::Button::builder()
-            .icon_name("dialog-information-symbolic")
-            .tooltip_text(tr("Info (I)"))
+        // Ablage (Nutzer, 2026-10-28): Festplatte an der Stelle von „Info“; Info bleibt über I
+        // und die Bauchbinde.
+        let ablage_button = gtk::Button::builder()
+            .icon_name(crate::icons::fa_name("solid/hard-drive"))
+            .tooltip_text(tr("Ablage (D)"))
             .build();
-        header.pack_end(&info_button);
+        header.pack_end(&ablage_button);
         let sources = gtk::Box::builder()
             .css_classes(["linked"])
             .margin_end(18)
@@ -518,9 +520,9 @@ impl App {
         app.window.connect_default_height_notify(move |_| c());
         app.window.connect_maximized_notify(move |_| check());
         let weak = Rc::downgrade(&app);
-        info_button.connect_clicked(move |_| {
+        ablage_button.connect_clicked(move |_| {
             if let Some(app) = weak.upgrade() {
-                app.toggle_info();
+                crate::ablageview::open(&app);
             }
         });
         app.update_media_buttons();
@@ -2961,6 +2963,7 @@ impl App {
             Key::l => self.toggle_sidebar(),
             Key::i => self.toggle_info(),
             Key::g => crate::grid::open(self),
+            Key::d => crate::ablageview::open(self),
             _ => return glib::Propagation::Proceed,
         }
         glib::Propagation::Stop

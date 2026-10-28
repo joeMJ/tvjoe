@@ -148,6 +148,7 @@ SAT>IP-Empfänger.
 | Ende | zurück auf live |
 | R | laufende Sendung aufnehmen / Aufnahme beenden |
 | G | Programmraster |
+| D | Ablage (Heruntergeladenes und Aufnahmen) |
 | Strg+E | Sender verwalten |
 | Strg+, | Einstellungen |
 | Strg+Q | Beenden |

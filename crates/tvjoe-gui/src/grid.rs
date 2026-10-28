@@ -19,7 +19,7 @@ const MIN_SIZE: (i32, i32) = (850, 500);
 struct Grid {
     title: String,
     body: gtk::Stack,
-    /// Reiter Programm · Geplant · Ablage (Nutzer, 2026-10-26: kein weiterer Menüknopf).
+    /// Reiter Programm · Geplant (die Ablage ist seit 2026-10-28 eine eigene Ebene).
     tabs: gtk::Box,
 }
 
@@ -60,7 +60,7 @@ pub fn open(app: &Rc<App>) {
 /// Öffnet das Raster (jedes Mal neu, zur aktuellen Uhrzeit) und gibt das Fenster zurück, in
 /// dem es erscheint (Selbstprobe).
 pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
-    // Ohne Programmdaten öffnet die Ansicht trotzdem: „Geplant“ und „Ablage“ brauchen keins.
+    // Ohne Programmdaten öffnet die Ansicht trotzdem: „Geplant“ braucht keins.
     let guide = app.guide();
 
     // Schwacher Verweis auf die Ansicht, gesetzt nach ihrem Aufbau.
@@ -257,13 +257,11 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
         .build();
     stack.add_named(&scroller, Some("programm"));
     stack.add_named(&crate::ablageview::planned_page(app), Some("geplant"));
-    stack.add_named(&crate::ablageview::overview_page(app), Some("ablage"));
     let tabs = gtk::Box::builder().css_classes(["linked"]).build();
     let mut first: Option<gtk::ToggleButton> = None;
     for (name, text) in [
         ("programm", tr("Programm")),
         ("geplant", tr("Geplant")),
-        ("ablage", tr("Ablage")),
     ] {
         let b = gtk::ToggleButton::builder()
             .label(text)

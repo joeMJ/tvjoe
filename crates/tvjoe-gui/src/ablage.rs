@@ -23,6 +23,7 @@ use tvjoe_core::{tf, tr, trn};
 
 use crate::app::App;
 use crate::capture;
+use crate::trace;
 
 /// Gleichzeitige Downloads.
 const PARALLEL: usize = 2;
@@ -1745,6 +1746,182 @@ fn film_of(e: &ablage::Entry) -> Film {
             kind: tvjoe_core::mediathek::Kind::Other,
         }
     })
+}
+
+/// Staffel als Zahl für das Abo (`-1`: ohne Staffel).
+fn season_key(season: Option<i64>) -> i64 {
+    season.unwrap_or(-1)
+}
+
+/// Folgen einer Staffel auf dem Server, die nicht (vollständig oder gerade) in der Ablage sind.
+pub fn missing_episodes(library: &str, series_id: &str, season: Option<i64>) -> Vec<Item> {
+    let Some(a) = get() else { return Vec::new() };
+    let entries = a.index.all();
+    crate::jfview::season_episodes(library, series_id, season)
+        .into_iter()
+        .filter(|it| {
+            !entries.iter().any(|e| {
+                e.source == library
+                    && e.key == it.id
+                    && e.art == Art::Download
+                    && match e.state {
+                        State::Done => e.path.exists(),
+                        State::Queued | State::Loading => true,
+                        _ => running_fraction(e.id).is_some(),
+                    }
+            })
+        })
+        .collect()
+}
+
+/// Fehlende Folgen einer Staffel laden.
+pub fn reload_season(app: &Rc<App>, library: &str, series_id: &str, season: Option<i64>) -> usize {
+    let missing = missing_episodes(library, series_id, season);
+    for it in &missing {
+        fetch_item(app, library, it, Art::Download);
+    }
+    missing.len()
+}
+
+pub fn subscription(library: &str, series_id: &str, season: Option<i64>) -> Option<ablage::Subscription> {
+    get().and_then(|a| a.index.subscription(library, series_id, season_key(season)))
+}
+
+pub fn set_subscription(library: &str, series_id: &str, season: Option<i64>, mode: Option<ablage::Subscription>) {
+    if let Some(a) = get() {
+        a.index.set_subscription(library, series_id, season_key(season), mode);
+    }
+}
+
+thread_local! {
+    /// Zuletzt gemeldete Zahl neuer Folgen je Abo (manuell): nur bei Änderung erneut melden.
+    static REPORTED: RefCell<std::collections::HashMap<(String, String, i64), usize>> = RefCell::default();
+}
+
+/// Nach dem Abgleich einer Bibliothek: Abos ausführen – automatisch laden oder neue Folgen
+/// melden (Knopf „Nachladen“ in der Ablage).
+pub fn after_sync(app: &Rc<App>, library: &str) {
+    let Some(a) = get() else { return };
+    for (series_id, season, mode) in a.index.subscriptions(library) {
+        let season_opt = (season >= 0).then_some(season);
+        let missing = missing_episodes(library, &series_id, season_opt);
+        match mode {
+            ablage::Subscription::Auto => {
+                for it in &missing {
+                    fetch_item(app, library, it, Art::Download);
+                }
+                if !missing.is_empty() {
+                    trace(&format!("Abo: {} neue Folgen geladen ({library}, {series_id}, Staffel {season})", missing.len()));
+                }
+            }
+            ablage::Subscription::Manual => {
+                let key = (library.to_string(), series_id.clone(), season);
+                let before = REPORTED.with(|r| r.borrow().get(&key).copied().unwrap_or(0));
+                if missing.len() > before {
+                    let name = missing
+                        .first()
+                        .and_then(|it| it.series_name.clone())
+                        .unwrap_or_default();
+                    app.message(&tf!(
+                        "{name}: {n} neue Folgen – Nachladen in der Ablage (Taste D)",
+                        name = name,
+                        n = missing.len()
+                    ));
+                }
+                REPORTED.with(|r| r.borrow_mut().insert(key, missing.len()));
+            }
+        }
+    }
+}
+
+/// Befund von „Alles prüfen“ (Nutzer, 2026-10-28).
+#[derive(Debug, Clone)]
+pub struct Finding {
+    /// Eintrag im Verzeichnis (`None`: Datei ohne Eintrag).
+    pub id: Option<i64>,
+    pub title: String,
+    pub path: PathBuf,
+    pub problem: String,
+    /// Nachladen möglich (Download aus Mediathek oder Server, keine Aufnahme).
+    pub reload: bool,
+}
+
+/// Konsistenz aller lokalen Videodaten: Einträge ohne Datei, unvollständige Dateien,
+/// abgebrochene Downloads (nicht laufend) und Dateien in den Ordnern der Ablage ohne Eintrag.
+/// Gibt die Befunde und die Zahl geprüfter Einträge und Dateien zurück.
+pub fn check_all(app: &App) -> (Vec<Finding>, usize, usize) {
+    let Some(a) = get() else { return (Vec::new(), 0, 0) };
+    let entries = a.index.all();
+    let mut found = Vec::new();
+    let mut known = std::collections::HashSet::new();
+    for e in &entries {
+        known.insert(e.path.clone());
+        known.insert(ablage::part_path(&e.path));
+        known.insert(capture::part_path(&e.path));
+        if running_fraction(e.id).is_some() || a.queue.borrow().iter().any(|p| p.id == e.id) {
+            continue;
+        }
+        let reload = e.art == Art::Download;
+        let len = std::fs::metadata(&e.path).map(|m| m.len()).ok();
+        let problem = match (e.state, len) {
+            (State::Done, None) => Some(tr("Datei fehlt").to_string()),
+            (State::Done, Some(l)) if e.total > 0 && l < e.total => Some(tf!(
+                "unvollständig: {have} von {all}",
+                have = crate::ablageview::size_text(l),
+                all = crate::ablageview::size_text(e.total)
+            )),
+            (State::Partial, _) if e.art != Art::Recording => Some(tr("abgebrochen, nicht vollständig geladen").to_string()),
+            (State::Failed, _) => Some(tr("fehlgeschlagen").to_string()),
+            _ => None,
+        };
+        if let Some(problem) = problem {
+            found.push(Finding { id: Some(e.id), title: e.title.clone(), path: e.path.clone(), problem, reload });
+        }
+    }
+    // Dateien in den Unterordnern der Ablage, zu denen kein Eintrag gehört.
+    let mut dirs = vec![
+        sub_dir(app, Art::Cache, ""),
+        sub_dir(app, Art::Recording, ""),
+        sub_dir(app, Art::Download, "oer"),
+    ];
+    for l in &app.settings().libraries {
+        if is_server_source(&l.id) {
+            dirs.push(sub_dir(app, Art::Download, &l.id));
+        }
+    }
+    let mut files = 0;
+    for dir in dirs {
+        let Ok(list) = std::fs::read_dir(&dir) else { continue };
+        for f in list.flatten() {
+            let path = f.path();
+            if !path.is_file() || f.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            files += 1;
+            if !known.contains(&path) {
+                let size = f.metadata().map(|m| m.len()).unwrap_or(0);
+                found.push(Finding {
+                    id: None,
+                    title: path.strip_prefix(storage_dir(app)).unwrap_or(&path).display().to_string(),
+                    path,
+                    problem: tf!("Datei ohne Eintrag, {size}", size = crate::ablageview::size_text(size)),
+                    reload: false,
+                });
+            }
+        }
+    }
+    (found, entries.len(), files)
+}
+
+/// Befund beheben: nachladen (wenn möglich) oder löschen (Eintrag samt Datei bzw. die Datei).
+pub fn fix_finding(app: &Rc<App>, f: &Finding, reload: bool) {
+    match (f.id, reload && f.reload) {
+        (Some(id), true) => resume_entry(app, id),
+        (Some(id), false) => delete_entry(id),
+        (None, _) => {
+            let _ = std::fs::remove_file(&f.path);
+        }
+    }
 }
 
 /// Abgebrochenen Download fortsetzen.

@@ -384,6 +384,13 @@ pub fn season_count(library: &str, series_id: &str, season: Option<i64>) -> usiz
     })
 }
 
+/// Folgen einer Staffel aus dem Zwischenspeicher der Bibliothek (sortiert).
+pub fn season_episodes(library: &str, series_id: &str, season: Option<i64>) -> Vec<Item> {
+    db(library).map_or_else(Vec::new, |d| {
+        d.episodes(series_id).into_iter().filter(|e| e.season_no == season).collect()
+    })
+}
+
 fn db(library: &str) -> Option<JellyfinLibrary> {
     paths::library_db(library)
         .filter(|p| p.exists())

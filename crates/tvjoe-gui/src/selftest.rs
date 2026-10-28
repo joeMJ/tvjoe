@@ -425,15 +425,14 @@ const UPDATE_STEPS: &[Step] = &[
     ("93-ende", main_window, 500),
 ];
 
-/// Ablage (`TVJOE_SELFTEST_ABLAGE=1`, nur diese Schritte): Reiter „Ablage“ im Programm, erste
-/// Gruppe aufgeklappt, „Prüfen“, dann die Seite „Über“ der Einstellungen.
+/// Ablage (`TVJOE_SELFTEST_ABLAGE=1`, nur diese Schritte): Ebene „Ablage“ (Taste D), erste
+/// Gruppe aufgeklappt, „Alles prüfen“, dann die Seite „Über“ der Einstellungen.
 const ABLAGE_STEPS: &[Step] = &[
     ("80-start", main_window, 4000),
     (
         "81-ablage",
         |p| {
-            crate::grid::open(&p.app);
-            click_in(p.app.window.upcast_ref(), tvjoe_core::tr("Ablage"));
+            crate::ablageview::open(&p.app);
             main_window(p)
         },
         3000,
@@ -464,7 +463,7 @@ const ABLAGE_STEPS: &[Step] = &[
     (
         "83-ablage-pruefen",
         |p| {
-            click_in(p.app.window.upcast_ref(), tvjoe_core::tr("Prüfen"));
+            click_in(p.app.window.upcast_ref(), tvjoe_core::tr("Alles prüfen"));
             main_window(p)
         },
         2000,

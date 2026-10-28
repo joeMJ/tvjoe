@@ -114,6 +114,7 @@ pub fn sync(app: &Rc<App>, library: &str) {
         };
         let _ = tx.send_blocking(run());
     });
+    let weak = Rc::downgrade(app);
     glib::spawn_future_local(async move {
         let Ok(result) = rx.recv().await else { return };
         SYNCING.with(|s| s.borrow_mut().remove(&library));
@@ -121,6 +122,10 @@ pub fn sync(app: &Rc<App>, library: &str) {
             Ok(text) => {
                 trace(&format!("Jellyfin-Abgleich {library}: {text}"));
                 crate::jfview::refresh(&library);
+                // Abos der Staffeln: neue Folgen laden oder melden.
+                if let Some(app) = weak.upgrade() {
+                    crate::ablage::after_sync(&app, &library);
+                }
             }
             Err(e) => eprintln!("tvjoe: Jellyfin-Abgleich {library}: {e}"),
         }

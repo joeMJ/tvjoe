@@ -150,6 +150,7 @@ The detailed documentation is in German:
 | End | Back to live |
 | R | Record the current show / stop recording |
 | G | Guide grid |
+| D | Storage (downloads and recordings) |
 | Ctrl+E | Manage channels |
 | Ctrl+, | Settings |
 | Ctrl+Q | Quit |

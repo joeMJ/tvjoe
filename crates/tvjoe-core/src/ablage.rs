@@ -121,7 +121,34 @@ CREATE TABLE IF NOT EXISTS timers(
     id INTEGER PRIMARY KEY, channel_id INTEGER NOT NULL, sat INTEGER NOT NULL,
     channel TEXT NOT NULL, title TEXT NOT NULL, start INTEGER NOT NULL, stop INTEGER NOT NULL,
     UNIQUE(channel_id, sat, start));
+CREATE TABLE IF NOT EXISTS subscriptions(
+    source TEXT NOT NULL, series_id TEXT NOT NULL, season INTEGER NOT NULL,
+    mode TEXT NOT NULL, PRIMARY KEY(source, series_id, season));
 ";
+
+/// Abo einer Staffel (Nutzer, 2026-10-28): neue Folgen nach dem Abgleich mit dem Server
+/// melden (`Manual`, Knopf „Nachladen“) oder selbst laden (`Auto`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Subscription {
+    Manual,
+    Auto,
+}
+
+impl Subscription {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Auto => "auto",
+        }
+    }
+    fn parse(s: &str) -> Option<Self> {
+        match s {
+            "manual" => Some(Self::Manual),
+            "auto" => Some(Self::Auto),
+            _ => None,
+        }
+    }
+}
 
 pub fn now() -> i64 {
     std::time::SystemTime::now()
@@ -285,6 +312,50 @@ impl Index {
 
     pub fn remove(&self, id: i64) {
         let _ = self.conn.execute("DELETE FROM entries WHERE id = ?1", [id]);
+    }
+
+    /// Abo einer Staffel (`None`: keins). Staffel `-1` steht für „ohne Staffel“.
+    pub fn subscription(&self, source: &str, series_id: &str, season: i64) -> Option<Subscription> {
+        self.conn
+            .query_row(
+                "SELECT mode FROM subscriptions WHERE source = ?1 AND series_id = ?2 AND season = ?3",
+                rusqlite::params![source, series_id, season],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|m| Subscription::parse(&m))
+    }
+
+    /// Abo setzen oder (mit `None`) aufheben.
+    pub fn set_subscription(&self, source: &str, series_id: &str, season: i64, mode: Option<Subscription>) {
+        let _ = match mode {
+            Some(m) => self.conn.execute(
+                "INSERT INTO subscriptions(source, series_id, season, mode) VALUES(?1, ?2, ?3, ?4)
+                 ON CONFLICT(source, series_id, season) DO UPDATE SET mode = excluded.mode",
+                rusqlite::params![source, series_id, season, m.as_str()],
+            ),
+            None => self.conn.execute(
+                "DELETE FROM subscriptions WHERE source = ?1 AND series_id = ?2 AND season = ?3",
+                rusqlite::params![source, series_id, season],
+            ),
+        };
+    }
+
+    /// Alle Abos einer Herkunft: (Serie, Staffel, Art).
+    pub fn subscriptions(&self, source: &str) -> Vec<(String, i64, Subscription)> {
+        let Ok(mut st) = self
+            .conn
+            .prepare("SELECT series_id, season, mode FROM subscriptions WHERE source = ?1")
+        else {
+            return Vec::new();
+        };
+        st.query_map([source], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))
+            .map(|rows| {
+                rows.flatten()
+                    .filter_map(|(s, n, m)| Subscription::parse(&m).map(|m| (s, n, m)))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Belegung des Zwischenspeichers (Bytes).
@@ -597,6 +668,22 @@ fn download_once(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn abo_je_staffel() {
+        let i = Index::in_memory();
+        assert_eq!(i.subscription("plex", "s1", 1), None);
+        i.set_subscription("plex", "s1", 1, Some(Subscription::Manual));
+        i.set_subscription("plex", "s1", 1, Some(Subscription::Auto));
+        i.set_subscription("plex", "s1", 2, Some(Subscription::Manual));
+        i.set_subscription("jellyfin", "s9", 1, Some(Subscription::Auto));
+        assert_eq!(i.subscription("plex", "s1", 1), Some(Subscription::Auto));
+        let mut all = i.subscriptions("plex");
+        all.sort_by_key(|x| x.1);
+        assert_eq!(all, vec![("s1".into(), 1, Subscription::Auto), ("s1".into(), 2, Subscription::Manual)]);
+        i.set_subscription("plex", "s1", 1, None);
+        assert_eq!(i.subscription("plex", "s1", 1), None);
+    }
 
     #[test]
     fn names() {
