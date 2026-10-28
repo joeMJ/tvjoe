@@ -304,7 +304,7 @@ pub fn prefs_groups(
         .build();
     let server = adw::EntryRow::builder()
         .title(if plex {
-            tr("Adresse (z. B. http://plex.example.org:32400)")
+            tr("Adresse (z. B. http://<IP-Adresse>:32400)")
         } else {
             tr("Adresse (z. B. https://jellyfin.example.org)")
         })

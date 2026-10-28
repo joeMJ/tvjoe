@@ -1063,7 +1063,7 @@ msgid "{title} · Staffel {nr}"
 msgstr "{title} · Season {nr}"
 
 #: crates/tvjoe-gui/src/ablageview.rs:354
-#: crates/tvjoe-gui/src/ablageview.rs:384 crates/tvjoe-gui/src/jfview.rs:1153
+#: crates/tvjoe-gui/src/ablageview.rs:384 crates/tvjoe-gui/src/jfview.rs:1164
 #: crates/tvjoe-gui/src/mediathek.rs:1132
 #: crates/tvjoe-gui/src/mediathek.rs:2032
 #, no-c-format
@@ -1203,7 +1203,7 @@ msgstr "{percent} %"
 msgid "lädt"
 msgstr "downloading"
 
-#: crates/tvjoe-gui/src/ablageview.rs:649 crates/tvjoe-gui/src/jfview.rs:1096
+#: crates/tvjoe-gui/src/ablageview.rs:649 crates/tvjoe-gui/src/jfview.rs:1107
 #: crates/tvjoe-gui/src/mediathek.rs:897 crates/tvjoe-gui/src/mediathek.rs:927
 msgid "Abspielen"
 msgstr "Play"
@@ -2314,7 +2314,7 @@ msgstr ""
 msgid "{entries} Einträge · {findings} Befunde, davon {errors} Fehler"
 msgstr "{entries} entries · {findings} findings, {errors} of them errors"
 
-#: crates/tvjoe-gui/src/import.rs:198 crates/tvjoe-gui/src/jfview.rs:737
+#: crates/tvjoe-gui/src/import.rs:198 crates/tvjoe-gui/src/jfview.rs:748
 #: crates/tvjoe-gui/src/mediathek.rs:1459
 msgid "Alle"
 msgstr "All"
@@ -2473,8 +2473,8 @@ msgstr ""
 "password"
 
 #: crates/tvjoe-gui/src/jellyfin.rs:307
-msgid "Adresse (z. B. http://plex.example.org:32400)"
-msgstr "Address (e.g. http://plex.example.org:32400)"
+msgid "Adresse (z. B. http://<IP-Adresse>:32400)"
+msgstr "Address (e.g. http://<IP address>:32400)"
 
 #: crates/tvjoe-gui/src/jellyfin.rs:309
 msgid "Adresse (z. B. https://jellyfin.example.org)"
@@ -2632,78 +2632,78 @@ msgstr ""
 "\n"
 "tvjoe waits up to 15 minutes and then closes this dialog by itself."
 
-#: crates/tvjoe-gui/src/jfview.rs:1068 crates/tvjoe-gui/src/jfview.rs:1435
+#: crates/tvjoe-gui/src/jfview.rs:1079 crates/tvjoe-gui/src/jfview.rs:1446
 msgid "gesehen"
 msgstr "watched"
 
-#: crates/tvjoe-gui/src/jfview.rs:1085 crates/tvjoe-gui/src/mediathek.rs:919
+#: crates/tvjoe-gui/src/jfview.rs:1096 crates/tvjoe-gui/src/mediathek.rs:919
 #, no-c-format
 msgid "Weitersehen ab {zeit}"
 msgstr "Continue from {zeit}"
 
-#: crates/tvjoe-gui/src/jfview.rs:1094 crates/tvjoe-gui/src/mediathek.rs:923
+#: crates/tvjoe-gui/src/jfview.rs:1105 crates/tvjoe-gui/src/mediathek.rs:923
 msgid "Von vorn"
 msgstr "From the beginning"
 
-#: crates/tvjoe-gui/src/jfview.rs:1155
+#: crates/tvjoe-gui/src/jfview.rs:1166
 #, no-c-format
 msgid "{n} Film"
 msgid_plural "{n} Filme"
 msgstr[0] "{n} film"
 msgstr[1] "{n} films"
 
-#: crates/tvjoe-gui/src/jfview.rs:1170
+#: crates/tvjoe-gui/src/jfview.rs:1181
 #, no-c-format
 msgid "Weitersehen: {was} ab {zeit}"
 msgstr "Continue: {was} from {zeit}"
 
-#: crates/tvjoe-gui/src/jfview.rs:1176
+#: crates/tvjoe-gui/src/jfview.rs:1187
 #, no-c-format
 msgid "Weitersehen: {was}"
 msgstr "Continue: {was}"
 
-#: crates/tvjoe-gui/src/jfview.rs:1178
+#: crates/tvjoe-gui/src/jfview.rs:1189
 #, no-c-format
 msgid "Ansehen ab {was}"
 msgstr "Watch from {was}"
 
-#: crates/tvjoe-gui/src/jfview.rs:1265
+#: crates/tvjoe-gui/src/jfview.rs:1276
 msgid "Extras"
 msgstr "Extras"
 
-#: crates/tvjoe-gui/src/jfview.rs:1266
+#: crates/tvjoe-gui/src/jfview.rs:1277
 #, no-c-format
 msgid "Staffel {nr}"
 msgstr "Season {nr}"
 
-#: crates/tvjoe-gui/src/jfview.rs:1267 crates/tvjoe-gui/src/mediathek.rs:1241
+#: crates/tvjoe-gui/src/jfview.rs:1278 crates/tvjoe-gui/src/mediathek.rs:1241
 msgid "Weitere"
 msgstr "More"
 
-#: crates/tvjoe-gui/src/jfview.rs:1300 crates/tvjoe-gui/src/mediathek.rs:1280
+#: crates/tvjoe-gui/src/jfview.rs:1311 crates/tvjoe-gui/src/mediathek.rs:1280
 #, no-c-format
 msgid "Diese Staffel herunterladen ({n})"
 msgstr "Download this season ({n})"
 
-#: crates/tvjoe-gui/src/jfview.rs:1304 crates/tvjoe-gui/src/jfview.rs:1350
-#: crates/tvjoe-gui/src/jfview.rs:1391 crates/tvjoe-gui/src/mediathek.rs:1281
+#: crates/tvjoe-gui/src/jfview.rs:1315 crates/tvjoe-gui/src/jfview.rs:1361
+#: crates/tvjoe-gui/src/jfview.rs:1402 crates/tvjoe-gui/src/mediathek.rs:1281
 #: crates/tvjoe-gui/src/mediathek.rs:1372
 #: crates/tvjoe-gui/src/mediathek.rs:1804
 #, no-c-format
 msgid "Alle Folgen herunterladen ({n})"
 msgstr "Download all episodes ({n})"
 
-#: crates/tvjoe-gui/src/jfview.rs:1351
+#: crates/tvjoe-gui/src/jfview.rs:1362
 #, no-c-format
 msgid "Extras herunterladen ({n})"
 msgstr "Download extras ({n})"
 
-#: crates/tvjoe-gui/src/jfview.rs:1352 crates/tvjoe-gui/src/jfview.rs:1404
+#: crates/tvjoe-gui/src/jfview.rs:1363 crates/tvjoe-gui/src/jfview.rs:1415
 #, no-c-format
 msgid "Staffel {k} herunterladen ({n})"
 msgstr "Download season {k} ({n})"
 
-#: crates/tvjoe-gui/src/jfview.rs:1353 crates/tvjoe-gui/src/mediathek.rs:1805
+#: crates/tvjoe-gui/src/jfview.rs:1364 crates/tvjoe-gui/src/mediathek.rs:1805
 #, no-c-format
 msgid "Weitere herunterladen ({n})"
 msgstr "Download more ({n})"
@@ -2723,84 +2723,84 @@ msgstr "{min} min"
 msgid "Folge {nr}"
 msgstr "Episode {nr}"
 
-#: crates/tvjoe-gui/src/jfview.rs:472 crates/tvjoe-gui/src/mediathek.rs:564
+#: crates/tvjoe-gui/src/jfview.rs:483 crates/tvjoe-gui/src/mediathek.rs:564
 msgid "Filme"
 msgstr "Films"
 
-#: crates/tvjoe-gui/src/jfview.rs:473
+#: crates/tvjoe-gui/src/jfview.rs:484
 msgid "Sammlungen"
 msgstr "Collections"
 
-#: crates/tvjoe-gui/src/jfview.rs:474
+#: crates/tvjoe-gui/src/jfview.rs:485
 msgid "Serien"
 msgstr "Series"
 
-#: crates/tvjoe-gui/src/jfview.rs:475 crates/tvjoe-gui/src/jfview.rs:815
+#: crates/tvjoe-gui/src/jfview.rs:486 crates/tvjoe-gui/src/jfview.rs:826
 #: crates/tvjoe-gui/src/mediathek.rs:565 crates/tvjoe-gui/src/mediathek.rs:1649
 #: crates/tvjoe-gui/src/mediathek.rs:1683
 msgid "Suche"
 msgstr "Search"
 
-#: crates/tvjoe-gui/src/jfview.rs:489 crates/tvjoe-gui/src/mediathek.rs:638
+#: crates/tvjoe-gui/src/jfview.rs:500 crates/tvjoe-gui/src/mediathek.rs:638
 msgid "Neueste"
 msgstr "Latest"
 
-#: crates/tvjoe-gui/src/jfview.rs:506 crates/tvjoe-gui/src/mediathek.rs:656
+#: crates/tvjoe-gui/src/jfview.rs:517 crates/tvjoe-gui/src/mediathek.rs:656
 msgid "Geladen"
 msgstr "Downloaded"
 
-#: crates/tvjoe-gui/src/jfview.rs:512
+#: crates/tvjoe-gui/src/jfview.rs:523
 msgid "Einstellungen von Jellyfin"
 msgstr "Jellyfin settings"
 
-#: crates/tvjoe-gui/src/jfview.rs:520
+#: crates/tvjoe-gui/src/jfview.rs:531
 msgid "Titel, Serie oder Beschreibung"
 msgstr "Title, series or description"
 
-#: crates/tvjoe-gui/src/jfview.rs:774
+#: crates/tvjoe-gui/src/jfview.rs:785
 #, no-c-format
 msgid "Stand {when} · {filme} Filme · {serien} Serien"
 msgstr "As of {when} · {filme} films · {serien} series"
 
-#: crates/tvjoe-gui/src/jfview.rs:780
+#: crates/tvjoe-gui/src/jfview.rs:791
 #, no-c-format
 msgid "{filme} Filme · {serien} Serien"
 msgstr "{filme} films · {serien} series"
 
-#: crates/tvjoe-gui/src/jfview.rs:799
+#: crates/tvjoe-gui/src/jfview.rs:810
 msgid "Bibliothek wird abgeglichen"
 msgstr "Syncing library"
 
-#: crates/tvjoe-gui/src/jfview.rs:800
+#: crates/tvjoe-gui/src/jfview.rs:811
 msgid ""
 "Der erste Abgleich mit dem Jellyfin-Server dauert etwa eine halbe Minute."
 msgstr "The first sync with the Jellyfin server takes about half a minute."
 
-#: crates/tvjoe-gui/src/jfview.rs:815 crates/tvjoe-gui/src/mediathek.rs:1649
+#: crates/tvjoe-gui/src/jfview.rs:826 crates/tvjoe-gui/src/mediathek.rs:1649
 #: crates/tvjoe-gui/src/mediathek.rs:1683
 msgid "Mindestens zwei Zeichen eingeben."
 msgstr "Enter at least two characters."
 
-#: crates/tvjoe-gui/src/jfview.rs:832
+#: crates/tvjoe-gui/src/jfview.rs:843
 msgid "Keine Einträge"
 msgstr "No entries"
 
-#: crates/tvjoe-gui/src/jfview.rs:834 crates/tvjoe-gui/src/mediathek.rs:1729
+#: crates/tvjoe-gui/src/jfview.rs:845 crates/tvjoe-gui/src/mediathek.rs:1729
 msgid "Für diese Auswahl ist nichts heruntergeladen."
 msgstr "Nothing in this selection has been downloaded."
 
-#: crates/tvjoe-gui/src/jfview.rs:836
+#: crates/tvjoe-gui/src/jfview.rs:847
 msgid "Für diese Auswahl gibt es nichts."
 msgstr "There is nothing for this selection."
 
-#: crates/tvjoe-gui/src/jfview.rs:845
+#: crates/tvjoe-gui/src/jfview.rs:856
 #, no-c-format
 msgid "Sammlung · {n} Film"
 msgid_plural "Sammlung · {n} Filme"
 msgstr[0] "Collection · {n} film"
 msgstr[1] "Collection · {n} films"
 
-#: crates/tvjoe-gui/src/jfview.rs:853
+#: crates/tvjoe-gui/src/jfview.rs:864
 #, no-c-format
 msgid "Serie · {n} Folge"
 msgid_plural "Serie · {n} Folgen"
