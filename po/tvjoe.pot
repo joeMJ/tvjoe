@@ -2196,7 +2196,7 @@ msgid "Eigener Jellyfin-Server; die Anmeldung läuft über Quick Connect, tvjoe 
 msgstr ""
 
 #: crates/tvjoe-gui/src/jellyfin.rs:307
-msgid "Adresse (z. B. http://<IP-Adresse>:32400)"
+msgid "Adresse (z. B. http://plex.example.org:32400)"
 msgstr ""
 
 #: crates/tvjoe-gui/src/jellyfin.rs:309
