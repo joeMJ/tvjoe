@@ -272,6 +272,9 @@ impl JellyfinLibrary {
     /// Voller Abgleich: alle Video-Bibliotheken seitenweise, Sammlungen mit ihren Teilen;
     /// Einträge, die es auf dem Server nicht mehr gibt, fallen weg.
     pub fn sync_full(&mut self, acc: &Account, now: i64) -> Result<SyncStats, String> {
+        if acc.kind == crate::jellyfin::ServerKind::Plex {
+            return crate::plex::sync(self, acc, now);
+        }
         let views = acc.get_json(&format!("/Users/{}/Views", acc.user_id), &[])?;
         let libs: Vec<LibraryInfo> = views["Items"]
             .as_array()
@@ -343,20 +346,32 @@ impl JellyfinLibrary {
             }
         }
 
+        self.store_full(&libs, &items, &collections, now)
+    }
+
+    /// Ergebnis eines vollen Abgleichs in einem Rutsch schreiben: Bibliotheken, Einträge (mit
+    /// ihrer Bibliothek), Teile der Sammlungen; was fehlt, fällt weg (auch für Plex).
+    pub fn store_full(
+        &mut self,
+        libs: &[LibraryInfo],
+        items: &[(String, Item)],
+        collections: &[(String, String)],
+        now: i64,
+    ) -> Result<SyncStats, String> {
         let tx = self.conn.transaction().map_err(db_err)?;
         tx.execute_batch(
             "DELETE FROM libraries; DELETE FROM item_libraries; DELETE FROM collection_items;
              CREATE TEMP TABLE IF NOT EXISTS keep(id TEXT PRIMARY KEY); DELETE FROM temp.keep;",
         )
         .map_err(db_err)?;
-        for l in &libs {
+        for l in libs {
             tx.execute(
                 "INSERT INTO libraries(id, name, kind) VALUES (?1, ?2, ?3)",
                 params![l.id, l.name, l.kind],
             )
             .map_err(db_err)?;
         }
-        for (lib, it) in &items {
+        for (lib, it) in items {
             Self::upsert(&tx, it).map_err(db_err)?;
             tx.execute(
                 "INSERT OR IGNORE INTO item_libraries(item_id, library_id) VALUES (?1, ?2)",
@@ -366,7 +381,7 @@ impl JellyfinLibrary {
             tx.execute("INSERT OR IGNORE INTO temp.keep(id) VALUES (?1)", [&it.id])
                 .map_err(db_err)?;
         }
-        for (c, i) in &collections {
+        for (c, i) in collections {
             tx.execute(
                 "INSERT OR IGNORE INTO collection_items(collection_id, item_id) VALUES (?1, ?2)",
                 params![c, i],
@@ -384,9 +399,11 @@ impl JellyfinLibrary {
         self.set_meta("last_sync", &now.to_string())?;
         let distinct: std::collections::HashSet<&str> =
             items.iter().map(|(_, it)| it.id.as_str()).collect();
+        let boxsets: std::collections::HashSet<&str> =
+            collections.iter().map(|(c, _)| c.as_str()).collect();
         Ok(SyncStats {
             items: distinct.len(),
-            collections: seen.len(),
+            collections: boxsets.len(),
             removed,
         })
     }
@@ -394,6 +411,10 @@ impl JellyfinLibrary {
     /// Nur Änderungen seit dem letzten Abgleich: neue/geänderte Einträge und geänderter
     /// Gesehen-Stand (Jellyfin: `MinDateLastSaved` bzw. `MinDateLastSavedForUser`).
     pub fn sync_changes(&mut self, acc: &Account, now: i64) -> Result<usize, String> {
+        // Plex: die volle Liste kommt in Sekundenbruchteilen; immer voll abgleichen.
+        if acc.kind == crate::jellyfin::ServerKind::Plex {
+            return crate::plex::sync(self, acc, now).map(|s| s.items);
+        }
         let Some(since) = self.last_sync() else {
             return self.sync_full(acc, now).map(|s| s.items);
         };

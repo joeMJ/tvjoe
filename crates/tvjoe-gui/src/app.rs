@@ -805,7 +805,8 @@ impl App {
             }
         }
         self.build_library_buttons(&libraries);
-        if libraries.iter().any(|l| l.kind == "jellyfin") {
+        if libraries.iter().any(|l| crate::jellyfin::is_server_kind(&l.kind)) {
+            // Logo vom Server nur bei Jellyfin (Plex: Server-Symbol bzw. eigenes Symbol).
             for l in libraries.iter().filter(|l| l.kind == "jellyfin") {
                 crate::jellyfin::load_logo(self, &l.id);
             }
@@ -819,7 +820,7 @@ impl App {
             self.sources_box.remove(&b);
         }
         for l in libraries {
-            let jelly = l.kind == "jellyfin";
+            let jelly = crate::jellyfin::is_server_kind(&l.kind);
             // Server: Logo des Servers (einfarbig), bis es geladen ist ein Server-Symbol.
             let icon = if !l.icon.is_empty() {
                 l.icon.as_str()
@@ -831,6 +832,8 @@ impl App {
             let image = gtk::Image::builder().icon_name(icon).pixel_size(18).build();
             let title = if !l.title.is_empty() {
                 l.title.clone()
+            } else if l.kind == "plex" {
+                "Plex".to_string()
             } else if jelly {
                 "Jellyfin".to_string()
             } else {
@@ -2074,7 +2077,7 @@ impl App {
                             &pb.url,
                             None,
                             start,
-                            Some(&format!("Authorization: {}", acc.header())),
+                            Some(&acc.header_line()),
                         );
                     }
                     if let Some(Vod::Jelly(j)) = app.vod.borrow_mut().as_mut() {

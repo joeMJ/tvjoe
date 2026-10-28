@@ -19,6 +19,11 @@ Server wird, wie bei jedem Netzzugriff, die eigene IP-Adresse übermittelt.
   alle 30 Minuten), Plakate, Wiedergabe und Meldung des Gesehen-Stands. Der Zugangsschlüssel liegt
   in `~/.config/tvjoe/jellyfin.toml` (nur für den Nutzer lesbar) und geht nur an diesen Server.
   Für das Logo im Quellenumschalter lädt tvjoe das Symbol der Jellyfin-Weboberfläche.
+- **Plex (experimentell):** zur Anmeldung einmal plex.tv (Code anfordern, auf die Bestätigung
+  warten, Name des Kontos und Liste der Server) – dabei sieht plex.tv das Konto und die
+  IP-Adresse. Danach nur der eingetragene Server: Abgleich der Bibliothek (wie bei Jellyfin),
+  Plakate, Abspielen, Meldungen zu Fortschritt und „gesehen“. Der Zugangsschlüssel liegt in
+  `~/.config/tvjoe/konten/<kennung>.toml` (nur für den Nutzer lesbar).
 - **SAT-Quelle:** RTSP (TCP 554) zum eingetragenen SAT>IP-Gerät im Heimnetz und der Datenstrom
   per RTP über UDP. Den Datenstrom gibt tvjoe intern nur über `127.0.0.1` an den Player weiter.
   Für die Logos der SAT-Sender höchstens einmal pro Woche das Verzeichnis der Kodinerds-

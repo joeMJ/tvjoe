@@ -266,6 +266,7 @@ pub fn find(id: &str, dir: Option<&Path>) -> Option<Description> {
 const BUILTIN_LIBRARY: &[(&str, &str)] = &[
     ("oer-mediathek.toml", include_str!("../../../data/adapter/library/oer-mediathek.toml")),
     ("jellyfin.toml", include_str!("../../../data/adapter/library/jellyfin.toml")),
+    ("plex.toml", include_str!("../../../data/adapter/library/plex.toml")),
 ];
 
 /// Treiber einer Bibliothek im Programm.
@@ -276,6 +277,8 @@ pub enum LibraryDriver {
     Oer,
     /// Jellyfin-Server.
     Jellyfin,
+    /// Plex Media Server.
+    Plex,
 }
 
 /// Anmeldung an einer Bibliothek.
@@ -286,6 +289,8 @@ pub enum Login {
     None,
     /// Jellyfin Quick Connect: Code in der Weboberfläche bestätigen.
     QuickConnect,
+    /// Plex: vierstelliger Code unter plex.tv/link.
+    Pin,
 }
 
 /// Beschreibung einer Bibliothek.

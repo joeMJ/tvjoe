@@ -117,6 +117,7 @@ The detailed documentation is in German:
   continue watching, next episode automatically.
 - **Jellyfin** as a second Mediathek: sign-in via Quick Connect (no password in tvjoe), watched
   state synchronised with Jellyfin, bandwidth limit with transcoding on the server.
+- **Plex** (experimental) the same way: sign-in with a code at plex.tv/link, several servers possible.
 - **Deinterlacing** against combing on 576i/1080i (can be switched off).
 - **Logos** for internet and SAT channels, switchable separately.
 - **Backup:** export settings and both channel lists to one file and import them again (without the

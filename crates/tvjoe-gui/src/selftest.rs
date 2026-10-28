@@ -770,10 +770,10 @@ const JFPLAY_STEPS: &[Step] = &[
         "71-jellyfin-wiedergabe",
         |p| {
             let id = std::env::var("TVJOE_SELFTEST_JFPLAY").ok()?;
-            let item = tvjoe_core::paths::jellyfin_db()
-                .and_then(|d| tvjoe_core::jellyfin_lib::JellyfinLibrary::open(&d).ok())
-                .and_then(|lib| lib.item(&id))?;
-            p.app.play_jellyfin(tvjoe_core::settings::LIBRARY_JELLYFIN, &item, None, Vec::new());
+            let library = std::env::var("TVJOE_SELFTEST_LIBRARY")
+                .unwrap_or_else(|_| tvjoe_core::settings::LIBRARY_JELLYFIN.to_string());
+            let item = crate::jfview::item(&library, &id)?;
+            p.app.play_jellyfin(&library, &item, None, Vec::new());
             main_window(p)
         },
         12000,

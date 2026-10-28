@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use gtk::glib;
+use tvjoe_core::jellyfin::{Account, ServerKind};
 use tvjoe_core::jellyfin_lib::{Item, JellyfinLibrary};
 use tvjoe_core::{net, paths, tf, tr, trn};
 
@@ -107,12 +108,24 @@ impl Images {
 }
 
 /// Adresse des Plakats (Höhe in Pixeln); ohne Bild-Kennung kein Plakat.
-fn poster_url(server: &str, it: &Item, height: i32) -> Option<String> {
+fn poster_url(acc: Option<&Account>, it: &Item, height: i32) -> Option<String> {
+    let acc = acc?;
     let tag = it.image_tag.as_deref()?;
-    Some(format!(
-        "{server}/Items/{}/Images/Primary?maxHeight={height}&tag={tag}&quality=85",
-        it.id
-    ))
+    let server = &acc.server;
+    Some(match acc.kind {
+        ServerKind::Jellyfin => format!(
+            "{server}/Items/{}/Images/Primary?maxHeight={height}&tag={tag}&quality=85",
+            it.id
+        ),
+        // Plex: Pfad des Plakats, vom Server verkleinert (Seitenverhältnis 2:3).
+        ServerKind::Plex => tvjoe_core::plex::poster_url(
+            server,
+            &acc.token,
+            tag,
+            (height * 2 / 3) as u32,
+            height as u32,
+        ),
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -253,7 +266,8 @@ struct JfView {
     items: RefCell<Vec<Item>>,
     posters: RefCell<HashMap<String, gtk::Picture>>,
     images: Option<Images>,
-    server: String,
+    /// Zugang (Server, für Plex auch der Schlüssel der Plakate).
+    account: Option<Account>,
     detail_open: Cell<bool>,
 }
 
@@ -302,17 +316,23 @@ pub fn refresh(library: &str) {
 }
 
 /// Selbstprobe: öffnen, Reiter wählen, erste Kachel öffnen.
+/// Bibliothek der Selbstprobe (`TVJOE_SELFTEST_LIBRARY`, sonst die erste Jellyfin-Bibliothek).
+fn probe_library() -> String {
+    std::env::var("TVJOE_SELFTEST_LIBRARY")
+        .unwrap_or_else(|_| tvjoe_core::settings::LIBRARY_JELLYFIN.to_string())
+}
+
 pub fn probe_open(app: &Rc<App>, tab: usize) -> Option<gtk::Window> {
-    let library = tvjoe_core::settings::LIBRARY_JELLYFIN;
-    open(app, library);
-    let v = VIEWS.with(|v| v.borrow().get(library).cloned())?;
+    let library = probe_library();
+    open(app, &library);
+    let v = VIEWS.with(|v| v.borrow().get(&library).cloned())?;
     v.tabs.get(tab)?.set_active(true);
     let view: Rc<dyn crate::layer::View> = v;
     crate::layer::window_of(app, &view)
 }
 
 pub fn probe_first(app: &Rc<App>) -> Option<gtk::Window> {
-    let v = VIEWS.with(|v| v.borrow().get(tvjoe_core::settings::LIBRARY_JELLYFIN).cloned())?;
+    let v = VIEWS.with(|v| v.borrow().get(&probe_library()).cloned())?;
     let first = v.items.borrow().first().cloned()?;
     v.activate(&first);
     let view: Rc<dyn crate::layer::View> = v;
@@ -467,9 +487,7 @@ impl JfView {
             Some((i, r)) => (Some(i), Some(r)),
             None => (None, None),
         };
-        let server = crate::jellyfin::account(library)
-            .map(|a| a.server)
-            .unwrap_or_default();
+        let account = crate::jellyfin::account(library);
         let v = Rc::new(Self {
             app: Rc::downgrade(app),
             source: library.to_string(),
@@ -491,7 +509,7 @@ impl JfView {
             items: RefCell::new(Vec::new()),
             posters: RefCell::new(HashMap::new()),
             images,
-            server,
+            account,
             detail_open: Cell::new(false),
         });
         if let Some(results) = results {
@@ -777,7 +795,7 @@ impl JfView {
             }
             self.flow.append(&tile);
             if let (Some(img), Some(url)) =
-                (&self.images, poster_url(&self.server, it, POSTER_H * 3 / 2))
+                (&self.images, poster_url(self.account.as_ref(), it, POSTER_H * 3 / 2))
             {
                 self.posters.borrow_mut().insert(it.id.clone(), poster);
                 img.request(generation, &it.id, url);
@@ -858,7 +876,7 @@ impl JfView {
             .content_fit(gtk::ContentFit::Cover)
             .can_shrink(true)
             .build();
-        if let Some(url) = poster_url(&self.server, it, DETAIL_H * 3 / 2) {
+        if let Some(url) = poster_url(self.account.as_ref(), it, DETAIL_H * 3 / 2) {
             if let Some(dir) = paths::thumb_cache_dir() {
                 let path = dir.join(net::cache_name(&url, "jpg"));
                 if path.exists() {

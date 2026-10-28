@@ -9,7 +9,7 @@ tvjoe describes every source with an **adapter** – a small TOML file. There ar
 | Class (`class`) | Purpose | Examples | Folder |
 |---|---|---|---|
 | `television` | live TV with channel list and guide | Internet TV (M3U), SAT>IP receivers, DVB card, HDHomeRun | `television/` |
-| `library` | media libraries and media servers with films, series, episodes | Mediathek of the public broadcasters, Jellyfin (Plex planned) | `library/` |
+| `library` | media libraries and media servers with films, series, episodes | Mediathek of the public broadcasters, Jellyfin, Plex | `library/` |
 
 The included adapters live in the repository under
 [`data/adapter/television/`](../data/adapter/television) and
@@ -168,7 +168,7 @@ for all of them.
 
 They are set up under **Settings → Media libraries**: one row per library with a switch and a
 page of its own (name in the header bar, settings of its type); “+” adds another one. Several
-Jellyfin servers are possible, the Mediathek exists once.
+Jellyfin or Plex servers are possible, the Mediathek exists once.
 
 ### Drivers
 
@@ -176,7 +176,7 @@ Jellyfin servers are possible, the Mediathek exists once.
 |---|---|---|---|
 | `oer` | film list from [MediathekView](https://mediathekview.de/), videos straight from the broadcasters | none | tested |
 | `jellyfin` | your own Jellyfin server | Quick Connect | tested |
-| `plex` | your own Plex server | PIN via plex.tv | planned |
+| `plex` | your own Plex Media Server | PIN via plex.tv | experimental, tested with films |
 
 ### Included descriptions
 
@@ -184,6 +184,7 @@ Jellyfin servers are possible, the Mediathek exists once.
 |---|---|---|---|
 | ÖR-Mediathek | `oer` | none | no |
 | Jellyfin | `jellyfin` | Quick Connect | yes |
+| Plex | `plex` | PIN (plex.tv/link) | yes |
 
 ### Example
 
@@ -203,8 +204,8 @@ server = true
 | `class` | yes | `library` |
 | `id` | yes | identifier of letters, digits and hyphens |
 | `name` | yes | name in the settings |
-| `driver` | yes | `oer` or `jellyfin` |
-| `login` | yes | `none` (no login) or `quick-connect` (Jellyfin) |
+| `driver` | yes | `oer`, `jellyfin` or `plex` |
+| `login` | yes | `none` (no login), `quick-connect` (Jellyfin) or `pin` (Plex) |
 | `server` | no | `true` if a server address has to be entered; default `false` |
 
 Your own descriptions go into the `adapter/library/` folder of the configuration

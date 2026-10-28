@@ -21,6 +21,7 @@ pub mod m3u;
 pub mod mediathek;
 pub mod net;
 pub mod paths;
+pub mod plex;
 pub mod plan;
 pub mod satip;
 pub mod settings;

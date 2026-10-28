@@ -962,7 +962,7 @@ fn run_fetch(
             original,
             kbps,
         } => {
-            let header = format!("Authorization: {}", account.header());
+            let header = account.header_line();
             if original {
                 let (url, container, size) = account.download_source(&item_id)?;
                 let path = path.with_extension(&container);

@@ -12,9 +12,22 @@ use serde::{Deserialize, Serialize};
 use crate::net;
 use crate::tr;
 
+/// Art des Medienservers eines Zugangs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServerKind {
+    #[default]
+    Jellyfin,
+    /// Plex Media Server (`crate::plex`); `user_id` ist dort die Serverkennung, `device_id` die
+    /// Client-Kennung bei plex.tv.
+    Plex,
+}
+
 /// Gespeicherter Zugang.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
+    #[serde(default)]
+    pub kind: ServerKind,
     pub server: String,
     pub user_id: String,
     pub user_name: String,
@@ -32,6 +45,8 @@ pub struct Playback {
     pub transcoded: bool,
     /// Bitrate der Originaldatei (bit/s, 0 = unbekannt).
     pub bitrate: u64,
+    /// Laufzeit in Millisekunden (Plex braucht sie für Meldungen; 0 = unbekannt).
+    pub duration_ms: u64,
 }
 
 /// Art der Meldung an Jellyfin.
@@ -96,7 +111,7 @@ fn agent() -> net::Agent {
     net::agent(Duration::from_secs(20))
 }
 
-fn read_json(
+pub(crate) fn read_json(
     resp: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
 ) -> Result<serde_json::Value, String> {
     let mut resp = resp.map_err(|e| e.to_string())?;
@@ -168,6 +183,7 @@ pub fn quick_connect_finish(
             .send(serde_json::json!({ "Secret": qc.secret }).to_string()),
     )?;
     Ok(Account {
+        kind: ServerKind::Jellyfin,
         server: server.to_string(),
         user_id: v["User"]["Id"]
             .as_str()
@@ -186,6 +202,14 @@ impl Account {
     /// Kopfzeile für angemeldete Anfragen.
     pub fn header(&self) -> String {
         auth_header(&self.device_id, Some(&self.token))
+    }
+
+    /// Vollständige Kopfzeile „Name: Wert“ für Player und Downloads.
+    pub fn header_line(&self) -> String {
+        match self.kind {
+            ServerKind::Jellyfin => format!("Authorization: {}", self.header()),
+            ServerKind::Plex => format!("X-Plex-Token: {}", self.token),
+        }
     }
 
     /// Angemeldete GET-Anfrage, Antwort als JSON.
@@ -223,6 +247,9 @@ impl Account {
         max_kbps: u32,
         session: &str,
     ) -> Result<Playback, String> {
+        if self.kind == ServerKind::Plex {
+            return crate::plex::playback(self, item_id, max_kbps, session);
+        }
         let v = self.get_json(
             &format!("/Users/{}/Items/{item_id}", self.user_id),
             &[("Fields", "MediaSources")],
@@ -240,6 +267,7 @@ impl Account {
                 source_id,
                 transcoded: false,
                 bitrate,
+                duration_ms: 0,
             });
         }
         let audio = 128_000;
@@ -256,12 +284,16 @@ impl Account {
             source_id,
             transcoded: true,
             bitrate,
+            duration_ms: 0,
         })
     }
 
     /// Originaldatei zum Herunterladen: Adresse (mit Anmeldekopf abzurufen), Containerformat
     /// als Dateiendung und Größe in Bytes (0 = unbekannt).
     pub fn download_source(&self, item_id: &str) -> Result<(String, String, u64), String> {
+        if self.kind == ServerKind::Plex {
+            return crate::plex::download_source(self, item_id);
+        }
         let v = self.get_json(
             &format!("/Users/{}/Items/{item_id}", self.user_id),
             &[("Fields", "MediaSources")],
@@ -296,6 +328,9 @@ impl Account {
         pos: f64,
         paused: bool,
     ) -> Result<(), String> {
+        if self.kind == ServerKind::Plex {
+            return crate::plex::report(self, what, item_id, pb, session, pos, paused);
+        }
         let path = match what {
             Report::Start => "/Sessions/Playing",
             Report::Progress => "/Sessions/Playing/Progress",
@@ -317,6 +352,9 @@ impl Account {
 
     /// Umrechnung auf dem Server beenden (nach dem Abspielen mit Bandbreitengrenze).
     pub fn stop_transcoding(&self, session: &str) {
+        if self.kind == ServerKind::Plex {
+            return crate::plex::stop_transcoding(self, session);
+        }
         let _ = net::agent(Duration::from_secs(10))
             .delete(format!("{}/Videos/ActiveEncodings", self.server))
             .query("DeviceId", &self.device_id)
@@ -327,6 +365,10 @@ impl Account {
 
     /// Abmelden: Schlüssel beim Server ungültig machen (Fehler werden ignoriert).
     pub fn logout(&self) {
+        // Plex: der Schlüssel gilt für das Konto; tvjoe vergisst ihn nur.
+        if self.kind == ServerKind::Plex {
+            return;
+        }
         let _ = agent()
             .post(format!("{}/Sessions/Logout", self.server))
             .header("Authorization", self.header())
@@ -409,6 +451,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("tvjoe-jf-{}", std::process::id()));
         let path = dir.join("jellyfin.toml");
         let acc = Account {
+            kind: ServerKind::Jellyfin,
             server: "https://x.invalid".into(),
             user_id: "u".into(),
             user_name: "n".into(),

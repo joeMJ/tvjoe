@@ -1,0 +1,9 @@
+# Bibliothek: eigener Plex Media Server. Anmeldung per PIN (Code unter plex.tv/link
+# bestätigen), tvjoe speichert nur den Zugangsschlüssel. Getestet mit Plex Media Server 1.43
+# (Filme); Serien und Sammlungen nach der Plex-Schnittstelle, ungetestet.
+class = "library"
+id = "plex"
+name = "Plex"
+driver = "plex"
+login = "pin"
+server = true

@@ -39,12 +39,18 @@ pub fn account(library: &str) -> Option<Account> {
     paths::library_account_path(library).and_then(|p| Account::load(&p))
 }
 
-/// Eingeschaltete Jellyfin-Bibliotheken.
+/// Art einer Bibliothek mit eigenem Server (Jellyfin, Plex) – teilen sich Zwischenspeicher,
+/// Ansicht, Abgleich und Abspielen.
+pub fn is_server_kind(kind: &str) -> bool {
+    matches!(kind, "jellyfin" | "plex")
+}
+
+/// Eingeschaltete Server-Bibliotheken (Jellyfin, Plex).
 fn jellyfin_libraries(app: &App) -> Vec<String> {
     app.settings()
         .enabled_libraries()
         .into_iter()
-        .filter(|l| l.kind == "jellyfin")
+        .filter(|l| is_server_kind(&l.kind))
         .map(|l| l.id)
         .collect()
 }
@@ -271,22 +277,47 @@ fn make_white(library: &str, path: &std::path::Path) {
 pub fn prefs_groups(
     app: &Rc<App>,
     library: &str,
+    kind: &str,
 ) -> (Vec<adw::PreferencesGroup>, impl Fn(&mut Settings) + 'static) {
     let l = app.settings().library(library).cloned().unwrap_or_default();
     let id = library.to_string();
+    let plex = kind == "plex";
+    // Plex im Heimnetz meist ohne TLS unter der IP-Adresse (Port 32400).
+    let normalize = move |url: &str| -> String {
+        let url = url.trim().trim_end_matches('/');
+        if plex && !url.is_empty() && !url.contains("://") {
+            format!("http://{url}")
+        } else if plex {
+            url.to_string()
+        } else {
+            jellyfin::normalize_server(url)
+        }
+    };
 
     let server_group = adw::PreferencesGroup::builder()
         .title(tr("Server"))
-        .description(tr("Eigener Jellyfin-Server; die Anmeldung läuft über Quick Connect, tvjoe fragt nie nach einem Passwort"))
+        .description(if plex {
+            tr("Eigener Plex Media Server (experimentell); die Anmeldung läuft über einen Code bei plex.tv, tvjoe fragt nie nach einem Passwort. Dabei gehen Konto und IP-Adresse an plex.tv.")
+        } else {
+            tr("Eigener Jellyfin-Server; die Anmeldung läuft über Quick Connect, tvjoe fragt nie nach einem Passwort")
+        })
         .build();
     let server = adw::EntryRow::builder()
-        .title(tr("Adresse (z. B. https://jellyfin.example.org)"))
+        .title(if plex {
+            tr("Adresse (z. B. http://plex.example.org:32400)")
+        } else {
+            tr("Adresse (z. B. https://jellyfin.example.org)")
+        })
         .text(server_of(&l))
         .build();
     let login_row = adw::ActionRow::builder().title(tr("Anmeldung")).build();
     let login_hint = adw::ActionRow::builder()
         .title(tr("So geht die Anmeldung"))
-        .subtitle(tr("„Anmelden…“ zeigt einen Code. In Jellyfin oben rechts auf das Benutzersymbol klicken, „Quick Connect“ wählen und den Code bestätigen."))
+        .subtitle(if plex {
+            tr("„Anmelden…“ zeigt einen vierstelligen Code. Im Browser plex.tv/link öffnen, mit dem Plex-Konto anmelden und den Code eingeben.")
+        } else {
+            tr("„Anmelden…“ zeigt einen Code. In Jellyfin oben rechts auf das Benutzersymbol klicken, „Quick Connect“ wählen und den Code bestätigen.")
+        })
         .build();
     let login = gtk::Button::builder()
         .label(tr("Anmelden…"))
@@ -337,12 +368,16 @@ pub fn prefs_groups(
     let entry = server.clone();
     let lid = id.clone();
     login.connect_clicked(move |b| {
-        let url = jellyfin::normalize_server(&entry.text());
+        let url = normalize(&entry.text());
         if url.is_empty() {
             return;
         }
         entry.set_text(&url);
-        quick_connect(b, &lid, url, st.clone());
+        if plex {
+            plex_pin(b, &lid, url, st.clone());
+        } else {
+            quick_connect(b, &lid, url, st.clone());
+        }
     });
 
     let traffic = adw::PreferencesGroup::builder()
@@ -397,7 +432,7 @@ pub fn prefs_groups(
 
     let apply = move |s: &mut Settings| {
         let Some(l) = s.library_mut(&id) else { return };
-        l.server = jellyfin::normalize_server(&server.text());
+        l.server = normalize(&server.text());
         l.max_kbps = LIMITS.get(limit.selected() as usize).copied().unwrap_or(0);
         if !lib_rows.is_empty() {
             l.hidden = lib_rows
@@ -476,6 +511,78 @@ fn quick_connect(parent: &impl IsA<gtk::Widget>, library: &str, server: String, 
                     match saved {
                         Ok(()) => {
                             trace(&format!("Jellyfin: angemeldet als {}", account.user_name));
+                            dialog.close();
+                        }
+                        Err(e) => dialog.set_body(&tf!("Speichern fehlgeschlagen: {fehler}", fehler = e)),
+                    }
+                    done();
+                    break;
+                }
+                Step::Done(Err(e)) => {
+                    dialog.set_body(&tf!("Anmeldung nicht möglich: {fehler}", fehler = e));
+                    break;
+                }
+            }
+        }
+    });
+}
+
+/// Plex: Code bei plex.tv holen und anzeigen, im Hintergrund auf die Bestätigung unter
+/// plex.tv/link warten (höchstens 15 min), dann den Zugang zum Server speichern.
+fn plex_pin(parent: &impl IsA<gtk::Widget>, library: &str, server: String, done: Rc<dyn Fn()>) {
+    let library = library.to_string();
+    let client_id = account(&library)
+        .map(|a| a.device_id)
+        .unwrap_or_else(jellyfin::new_device_id);
+    let dialog = adw::AlertDialog::new(Some(tr("Bei Plex anmelden")), Some(tr("Verbinde mit plex.tv …")));
+    dialog.add_response("cancel", tr("Abbrechen"));
+    dialog.set_close_response("cancel");
+    dialog.present(Some(parent));
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let c = cancel.clone();
+    dialog.connect_response(None, move |_, _| {
+        c.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    enum Step {
+        Code(String),
+        Done(Result<Account, String>),
+    }
+    let (tx, rx) = async_channel::unbounded();
+    let stop = cancel.clone();
+    std::thread::spawn(move || {
+        let run = || -> Result<Account, String> {
+            let pin = tvjoe_core::plex::pin_start(&client_id)?;
+            let _ = tx.send_blocking(Step::Code(pin.code.clone()));
+            for _ in 0..450 {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Err(tr("abgebrochen").into());
+                }
+                std::thread::sleep(Duration::from_secs(2));
+                if let Some(token) = tvjoe_core::plex::pin_token(&client_id, &pin)? {
+                    return tvjoe_core::plex::login(&server, &client_id, &token);
+                }
+            }
+            Err(tr("Zeit abgelaufen – bitte erneut anmelden.").into())
+        };
+        let _ = tx.send_blocking(Step::Done(run()));
+    });
+    glib::spawn_future_local(async move {
+        while let Ok(step) = rx.recv().await {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            match step {
+                Step::Code(code) => dialog.set_body(&tf!(
+                    "Code: {code}\n\nSo bestätigst du ihn:\n1. Im Browser plex.tv/link öffnen.\n2. Mit dem Plex-Konto anmelden, dem der Server gehört oder das ihn nutzen darf.\n3. Den Code eingeben.\n\ntvjoe wartet bis zu 15 Minuten und schließt diesen Dialog dann selbst.",
+                    code = code
+                )),
+                Step::Done(Ok(account)) => {
+                    let saved = paths::library_account_path(&library)
+                        .ok_or_else(|| tr("kein Konfigurationsordner").to_string())
+                        .and_then(|p| account.save(&p));
+                    match saved {
+                        Ok(()) => {
+                            trace(&format!("Plex: angemeldet als {}", account.user_name));
                             dialog.close();
                         }
                         Err(e) => dialog.set_body(&tf!("Speichern fehlgeschlagen: {fehler}", fehler = e)),

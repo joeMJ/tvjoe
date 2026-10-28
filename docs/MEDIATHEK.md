@@ -44,3 +44,20 @@ Ein eigener Jellyfin-Server lässt sich als zweite Mediathek einbinden.
 - **Gesehen-Stand:** Fortschritt und „gesehen“ werden an Jellyfin gemeldet und gelten damit auch
   in anderen Jellyfin-Programmen.
 - Bibliotheken lassen sich in den Einstellungen ausblenden.
+
+## Plex (experimentell)
+
+Ein eigener Plex Media Server lässt sich genauso einbinden; Ansicht, Ablage, „Geladen“,
+Weitersehen und Bandbreitengrenze funktionieren wie bei Jellyfin.
+
+1. **Einstellungen → Mediatheken → „+“ → Plex:** die Adresse des Servers eintragen, im Heimnetz
+   meist `http://<IP-Adresse>:32400`.
+2. **Anmelden:** tvjoe holt bei plex.tv einen vierstelligen Code; im Browser **plex.tv/link**
+   öffnen, mit dem Plex-Konto anmelden und den Code eingeben. Dabei gehen Konto und IP-Adresse an
+   plex.tv. tvjoe fragt nie nach einem Passwort; der Zugangsschlüssel liegt nur für den Nutzer
+   lesbar in `~/.config/tvjoe/konten/<kennung>.toml`.
+3. Der Knopf mit dem Server-Symbol öffnet **Filme, Sammlungen, Serien und Suche**.
+
+- **Weitersehen:** Plex speichert eine Stelle erst ab etwa einer Minute Spielzeit.
+- Getestet mit Plex Media Server 1.43 und einer Filmbibliothek; Serien und Sammlungen folgen der
+  Plex-Schnittstelle, sind aber ungetestet.
