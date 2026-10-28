@@ -210,9 +210,62 @@ server = true
 | `driver` | ja | `oer`, `jellyfin` oder `plex` |
 | `login` | ja | `none` (keine Anmeldung), `quick-connect` (Jellyfin) oder `pin` (Plex) |
 | `server` | nein | `true`, wenn die Adresse eines Servers einzutragen ist; Vorgabe `false` |
+| `[detail]` | nein | zusätzliche Angaben in der Filminfo, siehe unten |
 
 Eigene Beschreibungen gehören in den Ordner `adapter/library/` der Konfiguration
 (`~/.config/tvjoe/adapter/library/` bzw. `%APPDATA%\tvjoe\adapter\library\`).
+
+### Zusätzliche Angaben (`[detail]`)
+
+Was die Filminfo und die Serienseite über die Beschreibung hinaus zeigen (Video, Ton, Untertitel,
+Freigabe, Bewertungen, Regie, Besetzung, Links), steht nicht im Programm, sondern im Abschnitt
+`[detail]` des Adapters. Ändert ein Server sein Format oder soll eine Angabe dazukommen, genügt
+eine Änderung der TOML-Datei (eigene Fassung im Ordner `adapter/library/`, gleiche `id`).
+
+```toml
+[detail]
+request = "/library/metadata/{id}?includeGuids=1"   # Anfrage beim Server
+root = "MediaContainer.Metadata[0]"                  # Wurzel im Ergebnis (leer = alles)
+
+[[detail.field]]                                     # Zeile „Beschriftung – Wert“
+label = "Ton"
+label_en = "Audio"
+value = "Media[0].Part[0].Stream[streamType=2].displayTitle"
+
+[[detail.people]]                                    # Personen mit Rolle und Foto
+label = "Besetzung"
+list = "Role"
+name = "tag"
+role = "role"
+photo = "{server}/photo/:/transcode?width=160&height=240&url={thumb|url}&X-Plex-Token={token}"
+max = 30
+
+[[detail.link]]                                      # Knopf, öffnet die Seite im Browser
+label = "IMDb"
+url = "https://www.imdb.com/title/{Guid[id^=imdb://].id|strip:imdb://}/"
+```
+
+**Pfadsprache** für Fundstellen: Ebenen mit Punkt (`Media.Part`), `[3]` ein Eintrag, `[]` alle,
+`[Feld=Wert]` Filter, `[Feld^=Anfang]` Filter nach Textanfang. Ist eine Ebene eine Liste, gilt der
+nächste Name für jeden Eintrag; mehrere Treffer ergeben eine Liste.
+
+**Platzhalter** in `request`, `photo` und `url`: `{Pfad}`, `{Pfad|strip:Anfang}` (Anfang
+entfernen), `{Pfad|url}` (für Adressen kodiert) sowie `{server}`, `{token}`, `{id}`, `{user_id}`.
+Fehlt ein Wert, entfällt der Knopf bzw. das Foto.
+
+| Abschnitt | Feld | Bedeutung |
+|---|---|---|
+| `[[detail.field]]` | `label`, `label_en` | Beschriftung deutsch und englisch |
+| | `value` | Fundstelle; mehrere Treffer werden verbunden |
+| | `join` | Trenner bei mehreren Werten (Vorgabe „ · “) |
+| | `digits` | Zahlen runden (deutsch mit Komma) |
+| | `suffix`, `strip` | Text anhängen bzw. Anfang entfernen |
+| `[[detail.people]]` | `label`, `label_en`, `list`, `name`, `role`, `photo`, `max` | Liste, Name, Rolle, Foto-Adresse, Höchstzahl |
+| `[[detail.link]]` | `label`, `url`, `when` | Beschriftung, Adresse, Bedingung (`Pfad=Wert`, z. B. `type=movie`) |
+
+Die Angaben erscheinen in der Reihenfolge der Datei; was der Server nicht liefert, bleibt weg.
+Eine falsche Fundstelle lässt die Zeile weg; eine fehlgeschlagene Anfrage nennt tvjoe mit
+`TVJOE_TRACE=1`.
 
 ## Eigene Adapter beisteuern
 

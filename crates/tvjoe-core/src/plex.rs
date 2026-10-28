@@ -114,7 +114,7 @@ pub fn login(server: &str, client_id: &str, token: &str) -> Result<Account, Stri
 }
 
 /// Angemeldete Anfrage an den Server, Antwort als JSON.
-fn get(acc: &Account, path: &str) -> Result<Value, String> {
+pub(crate) fn get(acc: &Account, path: &str) -> Result<Value, String> {
     read_json(
         net::agent(Duration::from_secs(60))
             .get(format!("{}{path}", acc.server))

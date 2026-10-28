@@ -9,6 +9,7 @@ pub mod check;
 #[cfg(target_os = "linux")]
 pub mod dvb;
 pub mod console;
+pub mod detail;
 pub mod epg;
 pub mod hdhomerun;
 pub mod i18n;

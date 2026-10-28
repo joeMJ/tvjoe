@@ -188,6 +188,93 @@ fn label(text: &str, class: &str) -> gtk::Label {
         .build()
 }
 
+/// Zusätzliche Angaben darstellen: Zeilen „Beschriftung – Wert“, Besetzung mit Fotos
+/// (waagerecht blätterbar), Knöpfe zu externen Seiten.
+fn fill_detail(area: &gtk::Box, info: &tvjoe_core::detail::Info) {
+    if !info.fields.is_empty() {
+        let grid = gtk::Grid::builder().column_spacing(16).row_spacing(4).build();
+        for (i, (k, v)) in info.fields.iter().enumerate() {
+            let key = label(k, "tvjoe-osd-sub");
+            key.set_valign(gtk::Align::Start);
+            let value = label(v, "tvjoe-mt-detail-desc");
+            value.set_hexpand(true);
+            grid.attach(&key, 0, i as i32, 1, 1);
+            grid.attach(&value, 1, i as i32, 1, 1);
+        }
+        area.append(&grid);
+    }
+    for (title, people) in &info.people {
+        area.append(&label(title, "tvjoe-osd-sub"));
+        let row = gtk::Box::builder().spacing(12).build();
+        for p in people {
+            let tile = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .spacing(4)
+                .width_request(96)
+                .build();
+            let pic = gtk::Picture::builder()
+                .content_fit(gtk::ContentFit::Cover)
+                .width_request(96)
+                .height_request(144)
+                .css_classes(["tvjoe-mt-thumb"])
+                .overflow(gtk::Overflow::Hidden)
+                .build();
+            tile.append(&pic);
+            let name = label(&p.name, "tvjoe-mt-detail-desc");
+            name.set_max_width_chars(12);
+            tile.append(&name);
+            if !p.role.is_empty() {
+                let role = label(&p.role, "tvjoe-osd-sub");
+                role.set_max_width_chars(12);
+                tile.append(&role);
+            }
+            if let Some(url) = p.photo.clone() {
+                let (tx, rx) = async_channel::bounded(1);
+                std::thread::spawn(move || {
+                    let _ = tx.send_blocking(net::fetch(
+                        &net::agent(std::time::Duration::from_secs(15)),
+                        &url,
+                        2 << 20,
+                    ));
+                });
+                let pic = pic.clone();
+                glib::spawn_future_local(async move {
+                    if let Ok(Ok(bytes)) = rx.recv().await {
+                        if let Ok(t) = gtk::gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes)) {
+                            pic.set_paintable(Some(&t));
+                        }
+                    }
+                });
+            }
+            row.append(&tile);
+        }
+        area.append(
+            &gtk::ScrolledWindow::builder()
+                .hscrollbar_policy(gtk::PolicyType::Automatic)
+                .vscrollbar_policy(gtk::PolicyType::Never)
+                .child(&row)
+                .build(),
+        );
+    }
+    if !info.links.is_empty() {
+        let row = gtk::Box::builder().spacing(8).build();
+        for (title, url) in &info.links {
+            let b = gtk::Button::builder()
+                .label(title)
+                .css_classes(["pill"])
+                .tooltip_text(url)
+                .build();
+            let url = url.clone();
+            b.connect_clicked(move |b| {
+                let parent = b.root().and_downcast::<gtk::Window>();
+                gtk::UriLauncher::new(&url).launch(parent.as_ref(), gtk::gio::Cancellable::NONE, |_| {});
+            });
+            row.append(&b);
+        }
+        area.append(&row);
+    }
+}
+
 /// Abspielen im Hauptfenster; als Ebene schließt sich die Ansicht, als Fenster kommt das
 /// Hauptfenster nach vorn.
 fn play(app: &Rc<App>, library: &str, item: &Item, start: Option<f64>, rest: Vec<Item>) {
@@ -830,6 +917,45 @@ impl JfView {
         }
     }
 
+    /// Zusätzliche Angaben (Video, Ton, Besetzung, Links …) nach der Beschreibung `[detail]` des
+    /// Adapters; im Hintergrund beim Server abgefragt, die Fläche füllt sich danach.
+    fn detail_box(&self, it: &Item) -> gtk::Box {
+        let area = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(14)
+            .margin_top(10)
+            .build();
+        let kind = self
+            .app
+            .upgrade()
+            .and_then(|a| a.settings().library(&self.source).map(|l| l.kind.clone()))
+            .unwrap_or_default();
+        let dir = paths::config_dir().map(|d| d.join("adapter"));
+        let detail = tvjoe_core::adapter::libraries(dir.as_deref())
+            .0
+            .into_iter()
+            .find(|d| d.id == kind)
+            .and_then(|d| d.detail);
+        let (Some(detail), Some(acc)) = (detail, self.account.clone()) else {
+            return area;
+        };
+        let id = it.id.clone();
+        let english = tvjoe_core::i18n::lang() != "de";
+        let (tx, rx) = async_channel::bounded(1);
+        std::thread::spawn(move || {
+            let _ = tx.send_blocking(tvjoe_core::detail::load(&detail, &acc, &id, english));
+        });
+        let a = area.clone();
+        glib::spawn_future_local(async move {
+            match rx.recv().await {
+                Ok(Ok(info)) => fill_detail(&a, &info),
+                Ok(Err(e)) => trace(&format!("Zusatzangaben: {e}")),
+                Err(_) => {}
+            }
+        });
+        area
+    }
+
     /// Teile einer Sammlung bzw. Folgen einer Serie; mit dem Schalter nur Heruntergeladenes.
     fn only_stored(&self, list: Vec<Item>) -> Vec<Item> {
         match self.stored_only() {
@@ -979,6 +1105,7 @@ impl JfView {
         let desc = label(it.overview.trim(), "tvjoe-mt-detail-desc");
         desc.set_margin_top(10);
         right.append(&desc);
+        right.append(&self.detail_box(it));
         let poster = self.big_poster(it);
         self.present_detail(&self.page(&poster, &right));
     }
@@ -1061,6 +1188,7 @@ impl JfView {
             d.set_ellipsize(gtk::pango::EllipsizeMode::End);
             right.append(&d);
         }
+        right.append(&self.detail_box(head));
 
         // Staffelwähler (nur Serien mit mehreren Staffeln) und Liste.
         let rows = gtk::ListBox::builder()

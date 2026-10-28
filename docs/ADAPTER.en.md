@@ -207,9 +207,62 @@ server = true
 | `driver` | yes | `oer`, `jellyfin` or `plex` |
 | `login` | yes | `none` (no login), `quick-connect` (Jellyfin) or `pin` (Plex) |
 | `server` | no | `true` if a server address has to be entered; default `false` |
+| `[detail]` | no | additional details on the film page, see below |
 
 Your own descriptions go into the `adapter/library/` folder of the configuration
 (`~/.config/tvjoe/adapter/library/` or `%APPDATA%\tvjoe\adapter\library\`).
+
+### Additional details (`[detail]`)
+
+What the film page and the series page show beyond the description (video, audio, subtitles,
+rating, scores, director, cast, links) is not in the program but in the adapter's `[detail]`
+section. If a server changes its format or a detail should be added, editing the TOML file is
+enough (your own copy in the `adapter/library/` folder, same `id`).
+
+```toml
+[detail]
+request = "/library/metadata/{id}?includeGuids=1"   # request to the server
+root = "MediaContainer.Metadata[0]"                  # root in the result (empty = everything)
+
+[[detail.field]]                                     # row “label – value”
+label = "Ton"
+label_en = "Audio"
+value = "Media[0].Part[0].Stream[streamType=2].displayTitle"
+
+[[detail.people]]                                    # people with role and photo
+label = "Besetzung"
+label_en = "Cast"
+list = "Role"
+name = "tag"
+role = "role"
+photo = "{server}/photo/:/transcode?width=160&height=240&url={thumb|url}&X-Plex-Token={token}"
+max = 30
+
+[[detail.link]]                                      # button, opens the page in the browser
+label = "IMDb"
+url = "https://www.imdb.com/title/{Guid[id^=imdb://].id|strip:imdb://}/"
+```
+
+**Path language:** levels separated by dots (`Media.Part`), `[3]` one entry, `[]` all,
+`[field=value]` filter, `[field^=prefix]` filter by prefix. If a level is a list, the next name
+applies to each entry; several matches form a list.
+
+**Placeholders** in `request`, `photo` and `url`: `{path}`, `{path|strip:prefix}`, `{path|url}`
+(encoded for addresses) and `{server}`, `{token}`, `{id}`, `{user_id}`. If a value is missing, the
+button or photo is left out.
+
+| Section | Field | Meaning |
+|---|---|---|
+| `[[detail.field]]` | `label`, `label_en` | label in German and English |
+| | `value` | path; several matches are joined |
+| | `join` | separator for several values (default “ · ”) |
+| | `digits` | round numbers (German with a decimal comma) |
+| | `suffix`, `strip` | append text or remove a prefix |
+| `[[detail.people]]` | `label`, `label_en`, `list`, `name`, `role`, `photo`, `max` | list, name, role, photo address, maximum |
+| `[[detail.link]]` | `label`, `url`, `when` | label, address, condition (`path=value`, e.g. `type=movie`) |
+
+Details appear in the order of the file; whatever the server does not deliver is left out.
+A wrong path leaves the row out; tvjoe names a failed request with `TVJOE_TRACE=1`.
 
 ## Contributing adapters
 

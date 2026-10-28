@@ -305,6 +305,9 @@ pub struct LibraryDescription {
     /// Braucht die Adresse eines Servers.
     #[serde(default)]
     pub server: bool,
+    /// Zusätzliche Angaben in der Filminfo (Anfrage und Fundstellen).
+    #[serde(default)]
+    pub detail: Option<crate::detail::Detail>,
     /// Eingebaut (sonst aus dem Ordner `adapter/library/`).
     #[serde(skip)]
     pub builtin: bool,

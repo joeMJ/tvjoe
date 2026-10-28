@@ -6,3 +6,96 @@ name = "Jellyfin"
 driver = "jellyfin"
 login = "quick-connect"
 server = true
+
+# Zusätzliche Angaben in der Filminfo (Fundstellen im Ergebnis von /Users/…/Items/…).
+[detail]
+request = "/Users/{user_id}/Items/{id}?Fields=MediaStreams,People,Studios,ProviderIds,Taglines,Genres"
+
+[[detail.field]]
+label = "Slogan"
+label_en = "Tagline"
+value = "Taglines[0]"
+
+[[detail.field]]
+label = "Freigabe"
+label_en = "Rating"
+value = "OfficialRating"
+
+[[detail.field]]
+label = "Bewertung"
+label_en = "Score"
+value = "CommunityRating"
+digits = 1
+
+[[detail.field]]
+label = "Kritiker"
+label_en = "Critics"
+value = "CriticRating"
+suffix = " %"
+
+[[detail.field]]
+label = "Video"
+label_en = "Video"
+value = "MediaStreams[Type=Video].DisplayTitle"
+
+[[detail.field]]
+label = "Ton"
+label_en = "Audio"
+value = "MediaStreams[Type=Audio].DisplayTitle"
+
+[[detail.field]]
+label = "Untertitel"
+label_en = "Subtitles"
+value = "MediaStreams[Type=Subtitle].DisplayTitle"
+
+[[detail.field]]
+label = "Regie"
+label_en = "Director"
+value = "People[Type=Director].Name"
+join = ", "
+
+[[detail.field]]
+label = "Buch"
+label_en = "Writer"
+value = "People[Type=Writer].Name"
+join = ", "
+
+[[detail.field]]
+label = "Studios"
+label_en = "Studios"
+value = "Studios.Name"
+join = ", "
+
+[[detail.field]]
+label = "Genres"
+label_en = "Genres"
+value = "Genres"
+join = ", "
+
+[[detail.people]]
+label = "Besetzung"
+label_en = "Cast"
+list = "People[Type=Actor]"
+name = "Name"
+role = "Role"
+photo = "{server}/Items/{Id}/Images/Primary?maxHeight=240&tag={PrimaryImageTag}"
+max = 30
+
+[[detail.link]]
+label = "IMDb"
+url = "https://www.imdb.com/title/{ProviderIds.Imdb}/"
+
+[[detail.link]]
+label = "TMDB"
+url = "https://www.themoviedb.org/movie/{ProviderIds.Tmdb}"
+when = "Type=Movie"
+
+[[detail.link]]
+label = "TMDB"
+url = "https://www.themoviedb.org/tv/{ProviderIds.Tmdb}"
+when = "Type=Series"
+
+[[detail.link]]
+label = "TheTVDB"
+url = "https://thetvdb.com/series/{ProviderIds.Tvdb}"
+when = "Type=Series"

@@ -227,6 +227,20 @@ impl Account {
         read_json(req.call())
     }
 
+    /// Angemeldete GET-Anfrage an einen Pfad mit Abfrageteil (Jellyfin oder Plex), Antwort als
+    /// JSON (zusätzliche Angaben, `crate::detail`).
+    pub fn get_path(&self, path: &str) -> Result<serde_json::Value, String> {
+        if self.kind == ServerKind::Plex {
+            return crate::plex::get(self, path);
+        }
+        read_json(
+            net::agent(Duration::from_secs(30))
+                .get(format!("{}{path}", self.server))
+                .header("Authorization", self.header())
+                .call(),
+        )
+    }
+
     /// Angemeldete POST-Anfrage mit JSON (Antwort wird nicht ausgewertet).
     pub fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<(), String> {
         net::agent(Duration::from_secs(10))

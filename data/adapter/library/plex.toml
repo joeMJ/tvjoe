@@ -7,3 +7,97 @@ name = "Plex"
 driver = "plex"
 login = "pin"
 server = true
+
+# Zusätzliche Angaben in der Filminfo (Fundstellen im Ergebnis von /library/metadata/…).
+# Fotos der Besetzung holt der eigene Server ab (tvjoe fragt nur ihn).
+[detail]
+request = "/library/metadata/{id}?includeGuids=1"
+root = "MediaContainer.Metadata[0]"
+
+[[detail.field]]
+label = "Slogan"
+label_en = "Tagline"
+value = "tagline"
+
+[[detail.field]]
+label = "Freigabe"
+label_en = "Rating"
+value = "contentRating"
+
+[[detail.field]]
+label = "Kritiker"
+label_en = "Critics"
+value = "rating"
+digits = 1
+
+[[detail.field]]
+label = "Publikum"
+label_en = "Audience"
+value = "audienceRating"
+digits = 1
+
+[[detail.field]]
+label = "Video"
+label_en = "Video"
+value = "Media[0].Part[0].Stream[streamType=1].displayTitle"
+
+[[detail.field]]
+label = "Ton"
+label_en = "Audio"
+value = "Media[0].Part[0].Stream[streamType=2].displayTitle"
+
+[[detail.field]]
+label = "Untertitel"
+label_en = "Subtitles"
+value = "Media[0].Part[0].Stream[streamType=3].displayTitle"
+
+[[detail.field]]
+label = "Regie"
+label_en = "Director"
+value = "Director.tag"
+join = ", "
+
+[[detail.field]]
+label = "Buch"
+label_en = "Writer"
+value = "Writer.tag"
+join = ", "
+
+[[detail.field]]
+label = "Studio"
+label_en = "Studio"
+value = "studio"
+
+[[detail.field]]
+label = "Genres"
+label_en = "Genres"
+value = "Genre.tag"
+join = ", "
+
+[[detail.people]]
+label = "Besetzung"
+label_en = "Cast"
+list = "Role"
+name = "tag"
+role = "role"
+photo = "{server}/photo/:/transcode?width=160&height=240&minSize=1&url={thumb|url}&X-Plex-Token={token}"
+max = 30
+
+[[detail.link]]
+label = "IMDb"
+url = "https://www.imdb.com/title/{Guid[id^=imdb://].id|strip:imdb://}/"
+
+[[detail.link]]
+label = "TMDB"
+url = "https://www.themoviedb.org/movie/{Guid[id^=tmdb://].id|strip:tmdb://}"
+when = "type=movie"
+
+[[detail.link]]
+label = "TMDB"
+url = "https://www.themoviedb.org/tv/{Guid[id^=tmdb://].id|strip:tmdb://}"
+when = "type=show"
+
+[[detail.link]]
+label = "TheTVDB"
+url = "https://thetvdb.com/dereferrer/series/{Guid[id^=tvdb://].id|strip:tvdb://}"
+when = "type=show"
