@@ -254,11 +254,6 @@ impl Player {
         header: Option<&str>,
         ts: bool,
     ) {
-        let (format, analyze) = if ts { ("mpegts", "1") } else { ("", "0") };
-        let _ = self.mpv.set_property("demuxer-lavf-format", format);
-        let _ = self
-            .mpv
-            .set_property("demuxer-lavf-analyzeduration", analyze);
         let _ = self
             .mpv
             .command("change-list", &["http-header-fields", "clr", ""]);
@@ -289,8 +284,12 @@ impl Player {
         let _ = self.mpv.set_property("sid", sid);
         // Eine Pause aus einem Mediathek-Video gilt nicht für den nächsten Stream.
         let _ = self.mpv.set_property("pause", false);
-        if let Err(e) = self.mpv.command("loadfile", &[url]) {
-            eprintln!("tvjoe: Laden fehlgeschlagen: {e:?}");
+        // Formatvorgabe nur für diesen Strom (Einstellungen von `loadfile`), nie global: libmpv
+        // 0.37 (Ubuntu 24.04) behält nach `mpegts` einen leeren Wert als Formatnamen „“, danach
+        // erkennt ffmpeg keinen HLS-Strom mehr (Unknown lavf format).
+        let options = if ts { "demuxer-lavf-format=mpegts,demuxer-lavf-analyzeduration=1" } else { "" };
+        if let Err(e) = loadfile(&self.mpv, url, options) {
+            eprintln!("tvjoe: Laden fehlgeschlagen: {e}");
         }
     }
 
@@ -709,9 +708,103 @@ fn language_name(code: &str) -> &str {
     }
 }
 
+/// `loadfile` mit benannten Angaben (`url`, `flags`, `options`): die Reihenfolge der Angaben
+/// hat sich mit mpv 0.38 geändert (neu `index` vor `options`), benannt gilt für alle Fassungen.
+/// `options`: Einstellungen nur für diesen Strom, `name=wert,…`.
+fn loadfile(mpv: &Mpv, url: &str, options: &str) -> Result<(), String> {
+    use libmpv2_sys::{mpv_node, mpv_node__bindgen_ty_1, mpv_node_list};
+    use std::ffi::CString;
+    let pairs = [("name", "loadfile"), ("url", url), ("flags", "replace"), ("options", options)];
+    let mut keys = Vec::new();
+    let mut texts = Vec::new();
+    for (k, v) in pairs {
+        keys.push(CString::new(k).map_err(|e| e.to_string())?);
+        texts.push(CString::new(v).map_err(|e| e.to_string())?);
+    }
+    let mut key_ptrs: Vec<*mut std::os::raw::c_char> = keys.iter().map(|k| k.as_ptr() as *mut _).collect();
+    let mut values: Vec<mpv_node> = texts
+        .iter()
+        .map(|t| mpv_node {
+            u: mpv_node__bindgen_ty_1 { string: t.as_ptr() as *mut _ },
+            format: libmpv2_sys::mpv_format_MPV_FORMAT_STRING,
+        })
+        .collect();
+    let mut list = mpv_node_list {
+        num: values.len() as i32,
+        values: values.as_mut_ptr(),
+        keys: key_ptrs.as_mut_ptr(),
+    };
+    let mut args = mpv_node {
+        u: mpv_node__bindgen_ty_1 { list: &mut list },
+        format: libmpv2_sys::mpv_format_MPV_FORMAT_NODE_MAP,
+    };
+    // Ohne Ergebnisknoten (NULL): mpv legt keins an, nichts freizugeben.
+    let rc = unsafe { libmpv2_sys::mpv_command_node(mpv.ctx.as_ptr(), &mut args, std::ptr::null_mut()) };
+    if rc < 0 { Err(format!("Fehler {rc}")) } else { Ok(()) }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
+
+    /// Ablauf SAT → Internet (Ubuntu 24.04, libmpv 0.37) ohne Netz: erst mit Formatvorgabe
+    /// `mpegts` laden (wirkt: eine WAV-Datei wird nicht als WAV erkannt), danach ohne – dann
+    /// muss das Format wieder selbst erkannt werden, und global bleibt keine Vorgabe stehen.
+    #[test]
+    fn formatvorgabe_nur_fuer_den_strom() {
+        let dir = std::env::temp_dir().join(format!("tvjoe-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wav = dir.join("stille.wav");
+        let data = vec![0u8; 48000 * 2];
+        let mut f = Vec::new();
+        f.extend_from_slice(b"RIFF");
+        f.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        f.extend_from_slice(b"WAVEfmt ");
+        f.extend_from_slice(&16u32.to_le_bytes());
+        f.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        f.extend_from_slice(&1u16.to_le_bytes()); // mono
+        f.extend_from_slice(&48000u32.to_le_bytes());
+        f.extend_from_slice(&96000u32.to_le_bytes());
+        f.extend_from_slice(&2u16.to_le_bytes());
+        f.extend_from_slice(&16u16.to_le_bytes());
+        f.extend_from_slice(b"data");
+        f.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        f.extend_from_slice(&data);
+        std::fs::write(&wav, f).unwrap();
+        let path = wav.to_string_lossy().to_string();
+
+        unsafe { libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr()) };
+        let mpv = libmpv2::Mpv::with_initializer(|i| {
+            i.set_option("vo", "null")?;
+            i.set_option("ao", "null")?;
+            i.set_option("pause", "yes")?;
+            Ok(())
+        })
+        .unwrap();
+        // Erkanntes Format nach dem Laden (None: nicht geöffnet).
+        let format = |options: &str| {
+            super::loadfile(&mpv, &path, options).unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+            for _ in 0..30 {
+                if let Ok(f) = mpv.get_property::<String>("file-format") {
+                    return Some(f);
+                }
+                if mpv.get_property::<bool>("idle-active").unwrap_or(false) {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            None
+        };
+        let ts = format("demuxer-lavf-format=mpegts,demuxer-lavf-analyzeduration=1");
+        let plain = format("");
+        let global = mpv.get_property::<String>("options/demuxer-lavf-format").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("mit mpegts: {ts:?}, danach ohne: {plain:?}, global: „{global}“");
+        assert_ne!(ts.as_deref(), Some("wav"));
+        assert_eq!(plain.as_deref(), Some("wav"));
+        assert_eq!(global, "");
+    }
 
     /// Prüft ohne Fenster und ohne Ton, ob `hls-bitrate` die Stufe eines adaptiven Streams
     /// wählt (Netz nötig). `cargo test -p tvjoe-gui -- --ignored --nocapture`
