@@ -415,6 +415,12 @@ impl JellyfinLibrary {
         if acc.kind == crate::jellyfin::ServerKind::Plex {
             return crate::plex::sync(self, acc, now).map(|s| s.items);
         }
+        // Emby: neu eingelesene Serien tragen oft ein älteres Speicherdatum und fehlten im
+        // Änderungsabgleich (2026-10-28: 27 statt 85 Serien); der volle Abgleich ist schnell
+        // (rund 4000 Einträge in 2–3 s) und erkennt auch Entferntes.
+        if acc.kind == crate::jellyfin::ServerKind::Emby {
+            return self.sync_full(acc, now).map(|s| s.items);
+        }
         let Some(since) = self.last_sync() else {
             return self.sync_full(acc, now).map(|s| s.items);
         };
