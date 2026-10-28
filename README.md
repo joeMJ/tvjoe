@@ -38,6 +38,7 @@ The detailed documentation is in German:
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md) – installation on Ubuntu and Windows
 - [`docs/ERSTE-SCHRITTE.md`](docs/ERSTE-SCHRITTE.md) – first steps: import a channel list, add a guide, sort, back up
 - [`docs/SAT-IP.md`](docs/SAT-IP.md) – set up a SAT>IP receiver, channel scan, firewall, on the road via WireGuard
+- [`docs/TVHEADEND.en.md`](docs/TVHEADEND.en.md) – Tvheadend as a reception source: user, channels, guide, pay TV, sharing tuners
 - [`docs/ADAPTER.en.md`](docs/ADAPTER.en.md) – adapters for reception sources and libraries: classes, drivers, included adapters, writing and contributing your own
 - [`docs/MEDIATHEK.md`](docs/MEDIATHEK.md) – Mediathek of the public broadcasters and Jellyfin
 - [`docs/DATENSCHUTZ.md`](docs/DATENSCHUTZ.md) – privacy: every network access

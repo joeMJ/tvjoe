@@ -30,10 +30,10 @@ pub fn settings_text(s: &crate::Settings) -> String {
 }
 
 /// Zugangsschlüssel aus einem Text entfernen (Plex `X-Plex-Token`, Jellyfin `Token="…"`,
-/// Kopfzeilen `Authorization`).
+/// Tickets von Tvheadend `ticket=`, Kopfzeilen `Authorization`).
 pub fn redact(s: &str) -> String {
     let mut out = s.to_string();
-    for key in ["X-Plex-Token=", "X-Plex-Token: ", "Token=\"", "api_key=", "ApiKey="] {
+    for key in ["X-Plex-Token=", "X-Plex-Token: ", "Token=\"", "api_key=", "ApiKey=", "ticket="] {
         let mut from = 0;
         while let Some(i) = out[from..].find(key) {
             let start = from + i + key.len();
@@ -70,5 +70,9 @@ mod tests {
         assert_eq!(redact("MediaBrowser Client=\"tvjoe\", Token=\"geheim\""), "MediaBrowser Client=\"tvjoe\", Token=\"…\"");
         assert_eq!(redact("Authorization: MediaBrowser x"), "Authorization: …");
         assert_eq!(redact("nichts"), "nichts");
+        assert_eq!(
+            redact("http://h:9981/stream/channelid/1?ticket=abc123&profile=pass"),
+            "http://h:9981/stream/channelid/1?ticket=…&profile=pass"
+        );
     }
 }
