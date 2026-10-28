@@ -870,7 +870,26 @@ impl App {
             .iter()
             .map(|n| (*n, self.source_title(*n), self.driver_of(*n)))
             .collect();
-        if current == on {
+        // Gewähltes Symbol, sonst die Vorgabe nach Treiber.
+        let icons: Vec<String> = titles
+            .iter()
+            .map(|(n, _, driver)| {
+                let s = self.settings.borrow();
+                s.source(*n)
+                    .map(|a| a.icon.clone())
+                    .filter(|i| !i.is_empty())
+                    .unwrap_or_else(|| default_source_icon(*driver).to_string())
+            })
+            .collect();
+        // Gleiche Quellen, gleiche Symbole: nur Titel nachziehen.
+        let same_icons = self.source_buttons.borrow().len() == icons.len()
+            && self
+                .source_buttons
+                .borrow()
+                .iter()
+                .zip(&icons)
+                .all(|((_, b), i)| b.icon_name().as_deref() == Some(i.as_str()));
+        if current == on && same_icons {
             for ((_, b), (_, t, _)) in self.source_buttons.borrow().iter().zip(&titles) {
                 b.set_tooltip_text(Some(t));
             }
@@ -880,13 +899,9 @@ impl App {
             self.sources_box.remove(&b);
         }
         let mut after: Option<gtk::Button> = None;
-        for (n, title, driver) in titles {
+        for ((n, title, _), icon) in titles.into_iter().zip(icons) {
             let b = gtk::Button::builder()
-                .icon_name(match driver {
-                    Driver::Iptv => "video-display-symbolic",
-                    Driver::Satip => crate::icons::SATELLITE,
-                    Driver::LinuxDvb | Driver::Hdhomerun => crate::icons::ANTENNA,
-                })
+                .icon_name(icon.as_str())
                 .tooltip_text(&title)
                 .css_classes(["tvjoe-source"])
                 .build();
@@ -2941,4 +2956,13 @@ pub fn status_page(title: &str, text: &str) -> adw::StatusPage {
         .title(title)
         .description(text)
         .build()
+}
+
+/// Vorgabe-Symbol einer Empfangsquelle nach Treiber (Kopfleiste, Symbolwahl).
+pub fn default_source_icon(driver: Driver) -> &'static str {
+    match driver {
+        Driver::Iptv => "video-display-symbolic",
+        Driver::Satip => crate::icons::SATELLITE,
+        Driver::LinuxDvb | Driver::Hdhomerun => crate::icons::ANTENNA,
+    }
 }

@@ -534,10 +534,64 @@ const MEDIATHEKEN_STEPS: &[Step] = &[
     (
         "52-jellyfin-seite",
         |p| {
-            activate_row("Jellyfin");
+            activate_row(&std::env::var("TVJOE_SELFTEST_ZEILE").unwrap_or_else(|_| "Jellyfin".into()));
             main_window(p)
         },
         2000,
+    ),
+    (
+        "53-symbolwahl",
+        |p| {
+            // Nur sichtbare Knöpfe: „Ändern …“ gibt es auch auf der Seite „Ablage“.
+            PREFS.with(|d| {
+                if let Some(d) = d.borrow().as_ref() {
+                    click_in(d.upcast_ref(), tvjoe_core::tr("Ändern …"));
+                }
+            });
+            main_window(p)
+        },
+        2000,
+    ),
+    (
+        "54-symbol-gewaehlt",
+        |p| {
+            // Erstes Symbol mit dem Namen aus TVJOE_SELFTEST_SYMBOL (z. B. solid/server) wählen.
+            let want = std::env::var("TVJOE_SELFTEST_SYMBOL").unwrap_or_else(|_| "solid/server".into());
+            fn find(w: &gtk::Widget, name: &str) -> Option<gtk::Button> {
+                if let Some(b) = w.downcast_ref::<gtk::Button>() {
+                    if b.widget_name() == name {
+                        return Some(b.clone());
+                    }
+                }
+                let mut c = w.first_child();
+                while let Some(child) = c {
+                    if let Some(b) = find(&child, name) {
+                        return Some(b);
+                    }
+                    c = child.next_sibling();
+                }
+                None
+            }
+            PREFS.with(|d| {
+                if let Some(b) = d.borrow().as_ref().and_then(|d| find(d.upcast_ref(), &want)) {
+                    b.emit_clicked();
+                }
+            });
+            main_window(p)
+        },
+        2000,
+    ),
+    (
+        "55-kopfleiste",
+        |p| {
+            PREFS.with(|d| {
+                if let Some(d) = d.borrow_mut().take() {
+                    d.close();
+                }
+            });
+            main_window(p)
+        },
+        2500,
     ),
 ];
 

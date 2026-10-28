@@ -187,6 +187,12 @@ Dateien stammen unverändert aus den Paketen von [MSYS2](https://www.msys2.org/)
   Bedingungen der GPL zusätzlich; der Quelltext von tvjoe steht unter Apache-2.0, die mit GPL-3 verträglich ist.
 - Die DLLs werden dynamisch geladen und lassen sich durch andere Fassungen ersetzen (LGPL).
 
+## Symbole
+
+| Quelle | Lizenz | Hinweis |
+|---|---|---|
+| [Font Awesome Free](https://fontawesome.com) 6.7.2 (Auswahl, `data/icons/fontawesome/`) | CC BY 4.0 (Symbole) | Wählbare Symbole für Empfangsquellen und Mediatheken. Namensnennung: „Font Awesome Free by @fontawesome – https://fontawesome.com“; Lizenztext in `data/icons/fontawesome/LICENSE.txt`. |
+
 ## Daten
 
 | Quelle | Hinweis |

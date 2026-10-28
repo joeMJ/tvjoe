@@ -448,6 +448,12 @@ fn about_dialog() -> adw::AboutDialog {
         &["MediathekView https://mediathekview.de/"],
     );
     d.add_legal_section(
+        tr("Symbole: Font Awesome Free"),
+        Some("Fonticons, Inc. – https://fontawesome.com"),
+        gtk::License::Custom,
+        Some(tr("Auswahl aus Font Awesome Free 6.7.2 für die Symbole der Quellen; Lizenz der Symbole: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).")),
+    );
+    d.add_legal_section(
         tr("GTK 4 und libadwaita"),
         Some("The GTK Team, GNOME"),
         gtk::License::Lgpl21,

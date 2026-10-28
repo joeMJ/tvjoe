@@ -267,6 +267,8 @@ pub struct Adapter {
     pub logos: bool,
     /// Gleichzeitige Aufnahmen höchstens (0 = ohne Grenze).
     pub record_max: u32,
+    /// Symbol in der Kopfleiste (leer = Vorgabe nach Treiber).
+    pub icon: String,
 }
 
 impl Default for Adapter {
@@ -283,6 +285,7 @@ impl Default for Adapter {
             signal_epg_hours: 6,
             logos: true,
             record_max: 0,
+            icon: String::new(),
         }
     }
 }
@@ -434,6 +437,7 @@ impl Settings {
                 signal_epg_hours: self.sat_epg_hours,
                 logos: self.sat_logo,
                 record_max: self.record_max_sat,
+                icon: String::new(),
             });
         }
         // Einträge aus 0.0.17 (ohne Nummer und letzten Sender) ergänzen.

@@ -68,9 +68,22 @@ pub fn dir() -> Option<PathBuf> {
     Some(dir)
 }
 
+/// Symbolname eines Font-Awesome-Symbols (`solid/tv` → `tvjoe-fa-solid-tv-symbolic`).
+pub fn fa_name(key: &str) -> String {
+    format!("tvjoe-fa-{}-symbolic", key.replace('/', "-"))
+}
+
 /// Eigene Symbole ablegen (beim Start).
 pub fn install() {
     let Some(dir) = dir() else { return };
+    // Font Awesome: Füllfarbe setzen, damit GTK die Form in der Textfarbe einfärbt.
+    for (key, svg) in crate::fa_icons::ICONS {
+        let path = dir.join(format!("{}.svg", fa_name(key)));
+        let svg = svg.replacen("<svg ", "<svg fill=\"#2e3436\" ", 1);
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(svg.as_str()) {
+            let _ = std::fs::write(&path, svg);
+        }
+    }
     for (name, svg) in [
         (SATELLITE, SATELLITE_SVG),
         (ANTENNA, ANTENNA_SVG),
@@ -85,4 +98,116 @@ pub fn install() {
             let _ = std::fs::write(&path, svg);
         }
     }
+}
+
+/// Zeile „Symbol“ mit Vorschau und „Ändern …“: öffnet eine Auswahlseite (Raster mit Suche, eigene
+/// Unterseite statt Aufklappmenü). `current` leer = Vorgabe `default`; `set` bekommt den neuen
+/// Symbolnamen (leer = Vorgabe).
+pub fn chooser_row(
+    dialog: &adw::PreferencesDialog,
+    current: &str,
+    default: &str,
+    set: std::rc::Rc<dyn Fn(String)>,
+) -> adw::ActionRow {
+    use adw::prelude::*;
+    let preview = gtk::Image::builder()
+        .icon_name(if current.is_empty() { default } else { current })
+        .pixel_size(24)
+        .build();
+    let row = adw::ActionRow::builder()
+        .title(tvjoe_core::tr("Symbol in der Kopfleiste"))
+        .subtitle(tvjoe_core::tr("Auswahl aus Font Awesome Free (CC BY 4.0)"))
+        .build();
+    row.add_prefix(&preview);
+    let change = gtk::Button::builder()
+        .label(tvjoe_core::tr("Ändern …"))
+        .valign(gtk::Align::Center)
+        .build();
+    row.add_suffix(&change);
+    let (dialog, default) = (dialog.clone(), default.to_string());
+    change.connect_clicked(move |_| {
+        let (preview, set, dialog2, default) =
+            (preview.clone(), set.clone(), dialog.clone(), default.clone());
+        let pick = std::rc::Rc::new(move |name: String| {
+            preview.set_icon_name(Some(if name.is_empty() { default.as_str() } else { name.as_str() }));
+            set(name);
+            dialog2.pop_subpage();
+        });
+        dialog.push_subpage(&chooser_page(pick));
+    });
+    row
+}
+
+/// Auswahlseite: Suchfeld, „Vorgabe“, Raster aller Font-Awesome-Symbole.
+fn chooser_page(pick: std::rc::Rc<dyn Fn(String)>) -> adw::NavigationPage {
+    use adw::prelude::*;
+    let search = gtk::SearchEntry::builder()
+        .placeholder_text(tvjoe_core::tr("Suchen (englische Namen, z. B. tv, film, server)"))
+        .hexpand(true)
+        .build();
+    let default = gtk::Button::builder()
+        .label(tvjoe_core::tr("Vorgabe"))
+        .tooltip_text(tvjoe_core::tr("Symbol bzw. Logo nach Art der Quelle"))
+        .build();
+    let top = gtk::Box::builder()
+        .spacing(8)
+        .margin_start(12)
+        .margin_end(12)
+        .margin_top(12)
+        .build();
+    top.append(&search);
+    top.append(&default);
+    let flow = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .max_children_per_line(12)
+        .min_children_per_line(4)
+        .column_spacing(6)
+        .row_spacing(6)
+        .margin_start(12)
+        .margin_end(12)
+        .margin_top(12)
+        .margin_bottom(12)
+        .valign(gtk::Align::Start)
+        .build();
+    for (key, _) in crate::fa_icons::ICONS {
+        let name = fa_name(key);
+        let b = gtk::Button::builder()
+            .icon_name(&name)
+            .tooltip_text(*key)
+            .css_classes(["flat"])
+            .name(*key)
+            .build();
+        let pick = pick.clone();
+        b.connect_clicked(move |_| pick(name.clone()));
+        flow.append(&b);
+    }
+    {
+        let flow2 = flow.clone();
+        search.connect_search_changed(move |e| {
+            let text = e.text().to_lowercase();
+            flow2.set_filter_func(move |child| {
+                text.is_empty() || child.child().is_some_and(|c| c.widget_name().contains(text.as_str()))
+            });
+        });
+    }
+    {
+        let pick = pick.clone();
+        default.connect_clicked(move |_| pick(String::new()));
+    }
+    let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    body.append(&top);
+    body.append(
+        &gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .child(&flow)
+            .build(),
+    );
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&adw::HeaderBar::new());
+    toolbar.set_content(Some(&body));
+    adw::NavigationPage::builder()
+        .title(tvjoe_core::tr("Symbol wählen"))
+        .child(&toolbar)
+        .build()
 }

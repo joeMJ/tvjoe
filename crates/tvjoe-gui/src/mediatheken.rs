@@ -286,6 +286,23 @@ fn library_page(
         });
     }
     general.add(&name);
+    {
+        let (state, id) = (state.clone(), id.to_string());
+        let default = match driver_of(&l, descs) {
+            Some(LibraryDriver::Oer) | None => "folder-videos-symbolic",
+            Some(_) => "network-server-symbolic",
+        };
+        general.add(&crate::icons::chooser_row(
+            dialog,
+            &l.icon,
+            default,
+            Rc::new(move |icon: String| {
+                if let Some(l) = state.borrow_mut().libraries.iter_mut().find(|l| l.id == id) {
+                    l.icon = icon;
+                }
+            }),
+        ));
+    }
     // Die ÖR-Mediathek gibt es genau einmal; Server-Bibliotheken lassen sich entfernen.
     if driver_of(&l, descs) != Some(LibraryDriver::Oer) {
         let remove_row = adw::ActionRow::builder()

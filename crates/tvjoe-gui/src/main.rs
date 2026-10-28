@@ -15,6 +15,7 @@ mod dnd;
 #[cfg(target_os = "linux")]
 mod dvbcard;
 mod empfang;
+mod fa_icons;
 mod gl;
 mod grid;
 mod icons;

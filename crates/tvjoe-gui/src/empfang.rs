@@ -326,6 +326,15 @@ fn adapter_page(
         .bidirectional()
         .build();
     general.add(&enabled);
+    {
+        let edit = edit.clone();
+        general.add(&crate::icons::chooser_row(
+            dialog,
+            &a.icon,
+            crate::app::default_source_icon(driver),
+            Rc::new(move |name: String| edit(&|a: &mut Adapter| a.icon = name.clone())),
+        ));
+    }
     if sat {
         let choices: Vec<&Description> =
             descs.iter().filter(|d| d.driver == Driver::Satip).collect();
