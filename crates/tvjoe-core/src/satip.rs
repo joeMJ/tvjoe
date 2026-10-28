@@ -160,7 +160,12 @@ pub fn request(
         .map_err(|e| e.to_string())?
         .next()
         .ok_or(tr("Adresse nicht auflösbar"))?;
-    let mut s = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(|e| e.to_string())?;
+    let t0 = std::time::Instant::now();
+    crate::diag::log("rtsp", &format!("→ {method} {url} {headers:?}"));
+    let mut s = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(|e| {
+        crate::diag::log("rtsp", &format!("✖ Verbindung zu {addr}: {e}"));
+        e.to_string()
+    })?;
     s.set_read_timeout(Some(TIMEOUT)).ok();
     s.set_write_timeout(Some(TIMEOUT)).ok();
     let mut req = format!("{method} {url} RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: tvjoe\r\n");
@@ -195,6 +200,15 @@ pub fn request(
         }
     }
     let text = String::from_utf8_lossy(&data).to_string();
+    crate::diag::log(
+        "rtsp",
+        &format!(
+            "← {method} nach {} ms, {} Bytes: {}",
+            t0.elapsed().as_millis(),
+            data.len(),
+            text.replace("\r\n", " | ")
+        ),
+    );
     let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
     let mut lines = head.lines();
     let status = lines
@@ -455,7 +469,7 @@ impl Relay {
         let packets = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let eit: Arc<Mutex<Vec<crate::ts::EitSection>>> = Arc::default();
         let (st, sp, pk, ei) = (status.clone(), stop.clone(), packets.clone(), eit.clone());
-        let thread = std::thread::spawn(move || {
+        let thread = std::thread::Builder::new().name("satip-weitergabe".into()).spawn(move || {
             let stopped = || sp.load(Ordering::Relaxed);
             let Ok(sock) = bind_rtp() else { return };
             let Ok(port) = sock.local_addr().map(|a| a.port()) else {
@@ -481,10 +495,16 @@ impl Relay {
             // Erste Verbindung des Players abwarten; trennt er (z. B. erneutes Öffnen beim
             // Erkennen des Formats), kurz auf eine neue warten.
             let mut wait = Duration::from_secs(15);
+            crate::diag::log("satip-weitergabe", &format!("bereit, RTP-Port {port}, Sitzung {}", session.id));
+            let mut sent: u64 = 0;
             'clients: while !stopped() {
                 let t = Instant::now();
                 let mut client = loop {
                     if stopped() || t.elapsed() > wait {
+                        crate::diag::log(
+                            "satip-weitergabe",
+                            if stopped() { "Ende (gestoppt) beim Warten auf den Player" } else { "Ende: kein Player verbunden" },
+                        );
                         break 'clients;
                     }
                     match listener.accept() {
@@ -498,6 +518,7 @@ impl Relay {
                     }
                 };
                 wait = Duration::from_secs(3);
+                crate::diag::log("satip-weitergabe", &format!("Player verbunden: {:?}", client.peer_addr()));
                 client.set_nonblocking(false).ok();
                 client.set_read_timeout(Some(Duration::from_secs(2))).ok();
                 client.set_write_timeout(Some(Duration::from_secs(5))).ok();
@@ -521,9 +542,14 @@ impl Relay {
                             for p in ts.chunks(188) {
                                 col.push_packet(p, &|pid| pid == 18);
                             }
-                            if client.write_all(ts).is_err() {
+                            if let Err(e) = client.write_all(ts) {
+                                crate::diag::log(
+                                    "satip-weitergabe",
+                                    &format!("Player getrennt nach {sent} Bytes: {e}"),
+                                );
                                 continue 'clients;
                             }
+                            sent += ts.len() as u64;
                         }
                     }
                     if Instant::now() >= next_status {
@@ -546,7 +572,12 @@ impl Relay {
                     }
                 }
             }
+            crate::diag::log(
+                "satip-weitergabe",
+                &format!("Schleife beendet (gestoppt: {}), {sent} Bytes weitergegeben; TEARDOWN", stopped()),
+            );
             session.teardown();
+            crate::diag::log("satip-weitergabe", "TEARDOWN fertig, Thread endet");
         });
         Ok(Self {
             local_url: format!("http://127.0.0.1:{port}/satip.ts"),
@@ -554,7 +585,7 @@ impl Relay {
             packets,
             eit,
             stop,
-            thread: Some(thread),
+            thread: thread.ok(),
         })
     }
 
@@ -586,6 +617,7 @@ impl Relay {
 
 impl Drop for Relay {
     fn drop(&mut self) {
+        crate::diag::log("satip-weitergabe", &format!("Stopp angefordert ({})", self.local_url));
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }

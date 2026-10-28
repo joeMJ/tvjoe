@@ -8,6 +8,7 @@
 //! - `TVJOE_SELFTEST_MEDIATHEKEN=1` (nur diese Schritte): Reiter „Mediatheken“, Seite Jellyfin.
 //! - `TVJOE_SELFTEST_WECHSEL=1` (nur diese Schritte): Quellenwechsel SAT ↔ Internet-TV, Bildzähler.
 //! - `TVJOE_SELFTEST_UMZUG=/ziel` (nur diese Schritte, nur mit Testordnern): Ablage verschieben.
+//! - `TVJOE_SELFTEST_UPDATE=1` (nur diese Schritte): Update-Dialog, Aufzeichnung der Bedienung.
 //! - `TVJOE_SELFTEST_ABLAGE=1` (nur diese Schritte): Reiter „Ablage“, Gruppe, Prüfen, Seite „Über“.
 //! - `TVJOE_SELFTEST_EMPFANG=1` (nur diese Schritte): Reiter „Empfang“ und Seiten der Quellen.
 //! - `TVJOE_SELFTEST_README=1` (nur diese Schritte): Bilder für das README; mit neutralen Daten
@@ -403,6 +404,26 @@ fn click_in(w: &gtk::Widget, label: &str) {
         None => eprintln!("tvjoe: Selbstprobe: Knopf „{label}“ nicht gefunden"),
     }
 }
+
+/// Update-Dialog und Aufzeichnung der Bedienung (`TVJOE_SELFTEST_UPDATE=1`, nur diese
+/// Schritte; mit `TVJOE_DIAGNOSE=1`): Angebot mit Notizen aus `TVJOE_SELFTEST_NOTES`, danach
+/// ein Testfeld für Passwörter im Fokus. Klicks und Tasten kommen von außen (XTest).
+const UPDATE_STEPS: &[Step] = &[
+    ("90-start", main_window, 3000),
+    ("91-update", |p| { crate::prefs::offer_probe(&p.app); main_window(p) }, 10000),
+    (
+        "92-eingabe",
+        |p| {
+            let entry = gtk::PasswordEntry::new();
+            let d = adw::Dialog::builder().title("Testfeld").child(&entry).content_width(300).build();
+            d.present(Some(&p.app.window));
+            entry.grab_focus();
+            main_window(p)
+        },
+        10000,
+    ),
+    ("93-ende", main_window, 500),
+];
 
 /// Ablage (`TVJOE_SELFTEST_ABLAGE=1`, nur diese Schritte): Reiter „Ablage“ im Programm, erste
 /// Gruppe aufgeklappt, „Prüfen“, dann die Seite „Über“ der Einstellungen.
@@ -1037,6 +1058,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         WECHSEL_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_UMZUG").is_some() {
         UMZUG_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_UPDATE").is_some() {
+        UPDATE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_ABLAGE").is_some() {
         ABLAGE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_JELLYFIN").is_some() {

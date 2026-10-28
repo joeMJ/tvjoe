@@ -545,19 +545,64 @@ pub fn check_for_update(app: &Rc<App>, manual: bool) {
     });
 }
 
+/// Selbstprobe: Update-Angebot mit den Notizen aus `TVJOE_SELFTEST_NOTES` (Datei) zeigen.
+pub(crate) fn offer_probe(app: &Rc<App>) {
+    let body = std::env::var_os("TVJOE_SELFTEST_NOTES")
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .unwrap_or_else(|| "- **Probe:** Text mit `Code`.".into());
+    offer(
+        app,
+        update::Release {
+            tag_name: "v9.9.9".into(),
+            name: None,
+            body: Some(body),
+            html_url: String::new(),
+            draft: false,
+            prerelease: false,
+            assets: Vec::new(),
+        },
+    );
+}
+
 fn offer(app: &Rc<App>, release: update::Release) {
-    let notes: String = release
-        .body
-        .clone()
-        .unwrap_or_default()
-        .chars()
-        .take(800)
-        .collect();
     let d = alert(
         app,
         &tf!("tvjoe {version} ist verfügbar", version = release.tag_name),
-        &(tf!("Installiert ist {version}.", version = VERSION) + "\n\n" + &notes),
+        &tf!("Installiert ist {version}.", version = VERSION),
     );
+    // Versionsnotizen linksbündig, nur in der Sprache der Oberfläche, Markdown als Markup.
+    let body = release.body.clone().unwrap_or_default();
+    let blocks = update::release_notes(&body, tvjoe_core::i18n::lang() != "de");
+    if !blocks.is_empty() {
+        let list = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        for b in blocks {
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            if b.bullet {
+                let dot = gtk::Label::new(Some("•"));
+                dot.set_valign(gtk::Align::Start);
+                row.append(&dot);
+            }
+            let l = gtk::Label::new(None);
+            l.set_markup(&b.markup);
+            l.set_wrap(true);
+            l.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+            l.set_xalign(0.0);
+            l.set_hexpand(true);
+            l.set_max_width_chars(60);
+            row.append(&l);
+            list.append(&row);
+        }
+        let scroll = gtk::ScrolledWindow::new();
+        scroll.set_hscrollbar_policy(gtk::PolicyType::Never);
+        scroll.set_propagate_natural_height(true);
+        scroll.set_max_content_height(320);
+        scroll.set_child(Some(&list));
+        d.set_extra_child(Some(&scroll));
+    }
+    // Breiter ab libadwaita 1.6 (Ubuntu 24.04 hat 1.5: Eigenschaft fehlt, Dialog bleibt schmal).
+    if d.find_property("prefer-wide-layout").is_some() {
+        d.set_property("prefer-wide-layout", true);
+    }
     d.add_response("close", tr("Später"));
     d.add_response("download", tr("Herunterladen…"));
     d.set_response_appearance("download", adw::ResponseAppearance::Suggested);
@@ -585,6 +630,33 @@ fn offer(app: &Rc<App>, release: update::Release) {
             }
         });
     });
+}
+
+/// Nach dem Update neu starten (Linux): dasselbe Programm mit denselben Angaben, sobald dieser
+/// Prozess beendet ist (Tuner, Player und Einstellungen sind dann frei bzw. gespeichert).
+fn restart(app: &Rc<App>) {
+    let exe = std::env::current_exe()
+        .map(|p| {
+            // Nach dem Ersetzen durch das Paket meldet Linux „… (deleted)“.
+            let s = p.to_string_lossy().to_string();
+            std::path::PathBuf::from(s.strip_suffix(" (deleted)").unwrap_or(&s))
+        })
+        .unwrap_or_else(|_| "tvjoe-gui".into());
+    let spawned = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; shift; exec \"$@\"")
+        .arg("sh")
+        .arg(std::process::id().to_string())
+        .arg(&exe)
+        .args(std::env::args_os().skip(1))
+        .spawn();
+    match spawned {
+        Ok(_) => app.window.close(),
+        Err(e) => {
+            let d = alert(app, tr("Neustart nicht möglich"), &e.to_string());
+            d.add_response("close", tr("OK"));
+        }
+    }
 }
 
 fn confirm_install(app: &Rc<App>, path: &std::path::Path) {
@@ -641,16 +713,25 @@ fn confirm_install(app: &Rc<App>, path: &std::path::Path) {
         glib::spawn_future_local(async move {
             let Ok(ok) = rx.recv().await else { return };
             let Some(app) = weak.upgrade() else { return };
-            let d = if ok {
-                alert(&app, tr("Installiert"), tr("Bitte tvjoe neu starten."))
+            if ok {
+                let d = alert(&app, tr("Installiert"), tr("tvjoe jetzt neu starten, damit die neue Fassung läuft?"));
+                d.add_response("close", tr("Später"));
+                d.add_response("restart", tr("Neu starten"));
+                d.set_response_appearance("restart", adw::ResponseAppearance::Suggested);
+                let weak = Rc::downgrade(&app);
+                d.connect_response(Some("restart"), move |_, _| {
+                    if let Some(app) = weak.upgrade() {
+                        restart(&app);
+                    }
+                });
             } else {
-                alert(
+                let d = alert(
                     &app,
                     tr("Installation nicht abgeschlossen"),
                     tr("Abgebrochen oder fehlgeschlagen."),
-                )
-            };
-            d.add_response("close", tr("OK"));
+                );
+                d.add_response("close", tr("OK"));
+            }
         });
     });
 }

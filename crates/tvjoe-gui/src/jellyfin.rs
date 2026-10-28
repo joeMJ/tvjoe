@@ -153,7 +153,13 @@ fn library_status(library: &str) -> String {
 
 /// Serveradresse: aus den Einstellungen, sonst aus dem gespeicherten Zugang.
 fn server_of(l: &Library) -> String {
-    let from_settings = jellyfin::normalize_server(&l.server);
+    // Plex im Heimnetz meist ohne TLS: ohne Angabe http://, nicht die Jellyfin-Vorgabe https://.
+    let raw = l.server.trim().trim_end_matches('/');
+    let from_settings = if l.kind == "plex" && !raw.is_empty() && !raw.contains("://") {
+        format!("http://{raw}")
+    } else {
+        jellyfin::normalize_server(&l.server)
+    };
     if from_settings.is_empty() {
         account(&l.id).map(|a| a.server).unwrap_or_default()
     } else {
@@ -314,7 +320,7 @@ pub fn prefs_groups(
     let login_hint = adw::ActionRow::builder()
         .title(tr("So geht die Anmeldung"))
         .subtitle(if plex {
-            tr("„Anmelden…“ zeigt einen vierstelligen Code. Im Browser plex.tv/link öffnen, mit dem Plex-Konto anmelden und den Code eingeben.")
+            tr("1. „Anmelden…“ drücken: tvjoe prüft den Server und zeigt einen vierstelligen Code.\n2. plex.tv/link öffnen (Knopf rechts) und mit dem Plex-Konto anmelden, dem der Server gehört oder das ihn nutzen darf.\n3. Den Code eingeben – tvjoe meldet sich dann selbst an.\nAdresse im Heimnetz meist http://IP-Adresse:32400.")
         } else {
             tr("„Anmelden…“ zeigt einen Code. In Jellyfin oben rechts auf das Benutzersymbol klicken, „Quick Connect“ wählen und den Code bestätigen.")
         })
@@ -331,6 +337,9 @@ pub fn prefs_groups(
     login_row.add_suffix(&logout);
     server_group.add(&server);
     server_group.add(&login_row);
+    if plex {
+        login_hint.add_suffix(&plex_link_button());
+    }
     server_group.add(&login_hint);
 
     let show_state = {
@@ -374,7 +383,7 @@ pub fn prefs_groups(
         }
         entry.set_text(&url);
         if plex {
-            plex_pin(b, &lid, url, st.clone());
+            plex_pin(b, &lid, url, &entry, st.clone());
         } else {
             quick_connect(b, &lid, url, st.clone());
         }
@@ -529,12 +538,25 @@ fn quick_connect(parent: &impl IsA<gtk::Widget>, library: &str, server: String, 
 
 /// Plex: Code bei plex.tv holen und anzeigen, im Hintergrund auf die Bestätigung unter
 /// plex.tv/link warten (höchstens 15 min), dann den Zugang zum Server speichern.
-fn plex_pin(parent: &impl IsA<gtk::Widget>, library: &str, server: String, done: Rc<dyn Fn()>) {
+/// Knopf „plex.tv/link öffnen“ (Anleitung, Code-Dialog).
+fn plex_link_button() -> gtk::LinkButton {
+    let b = gtk::LinkButton::with_label("https://plex.tv/link", &tr("plex.tv/link öffnen"));
+    b.set_valign(gtk::Align::Center);
+    b
+}
+
+fn plex_pin(
+    parent: &impl IsA<gtk::Widget>,
+    library: &str,
+    server: String,
+    entry: &adw::EntryRow,
+    done: Rc<dyn Fn()>,
+) {
     let library = library.to_string();
     let client_id = account(&library)
         .map(|a| a.device_id)
         .unwrap_or_else(jellyfin::new_device_id);
-    let dialog = adw::AlertDialog::new(Some(tr("Bei Plex anmelden")), Some(tr("Verbinde mit plex.tv …")));
+    let dialog = adw::AlertDialog::new(Some(tr("Bei Plex anmelden")), Some(tr("Prüfe den Plex-Server …")));
     dialog.add_response("cancel", tr("Abbrechen"));
     dialog.set_close_response("cancel");
     dialog.present(Some(parent));
@@ -544,13 +566,22 @@ fn plex_pin(parent: &impl IsA<gtk::Widget>, library: &str, server: String, done:
         c.store(true, std::sync::atomic::Ordering::Relaxed);
     });
     enum Step {
+        /// Nutzbare Adresse, wenn sie von der eingegebenen abweicht (https → http).
+        Server(String),
         Code(String),
         Done(Result<Account, String>),
     }
     let (tx, rx) = async_channel::unbounded();
     let stop = cancel.clone();
+    let given = server.clone();
+    let entry = entry.clone();
     std::thread::spawn(move || {
         let run = || -> Result<Account, String> {
+            // Erst den Server prüfen – sonst merkt man einen Fehler erst nach plex.tv/link.
+            let server = tvjoe_core::plex::reachable(&server)?;
+            if server != given {
+                let _ = tx.send_blocking(Step::Server(server.clone()));
+            }
             let pin = tvjoe_core::plex::pin_start(&client_id)?;
             let _ = tx.send_blocking(Step::Code(pin.code.clone()));
             for _ in 0..450 {
@@ -572,10 +603,19 @@ fn plex_pin(parent: &impl IsA<gtk::Widget>, library: &str, server: String, done:
                 break;
             }
             match step {
-                Step::Code(code) => dialog.set_body(&tf!(
-                    "Code: {code}\n\nSo bestätigst du ihn:\n1. Im Browser plex.tv/link öffnen.\n2. Mit dem Plex-Konto anmelden, dem der Server gehört oder das ihn nutzen darf.\n3. Den Code eingeben.\n\ntvjoe wartet bis zu 15 Minuten und schließt diesen Dialog dann selbst.",
+                Step::Server(url) => {
+                    trace(&format!("Plex: Server antwortet nur über {url}"));
+                    entry.set_text(&url);
+                }
+                Step::Code(code) => {
+                    if dialog.extra_child().is_none() {
+                        dialog.set_extra_child(Some(&plex_link_button()));
+                    }
+                    dialog.set_body(&tf!(
+                    "Code: {code}\n\nSo bestätigst du ihn:\n1. plex.tv/link öffnen (Knopf unten).\n2. Mit dem Plex-Konto anmelden, dem der Server gehört oder das ihn nutzen darf.\n3. Den Code eingeben.\n\ntvjoe wartet bis zu 15 Minuten und schließt diesen Dialog dann selbst.",
                     code = code
-                )),
+                    ))
+                }
                 Step::Done(Ok(account)) => {
                     let saved = paths::library_account_path(&library)
                         .ok_or_else(|| tr("kein Konfigurationsordner").to_string())

@@ -63,6 +63,46 @@ pub fn pin_token(client_id: &str, pin: &Pin) -> Result<Option<String>, String> {
     Ok(v["authToken"].as_str().filter(|t| !t.is_empty()).map(str::to_string))
 }
 
+/// Fehler beim Aufbau einer verschlüsselten Verbindung (kein oder ungültiges Zertifikat)?
+fn tls_error(e: &str) -> bool {
+    let e = e.to_lowercase();
+    // „corrupt message“: https an einen Server, der nur http spricht.
+    ["certificate", "tls", "ssl", "handshake", "corrupt message", "invalidcontenttype"]
+        .iter()
+        .any(|k| e.contains(k))
+}
+
+/// Server vor der Anmeldung prüfen (`/identity`, ohne Schlüssel). Gibt die nutzbare Adresse
+/// zurück: Scheitert `https://` (Zertifikat, Server spricht nur http), wird dieselbe Adresse
+/// mit `http://` versucht (Plex im Heimnetz läuft meist ohne Verschlüsselung).
+pub fn reachable(server: &str) -> Result<String, String> {
+    let identity = |s: &str| {
+        read_json(agent().get(format!("{s}/identity")).header("Accept", "application/json").call())
+    };
+    let e = match identity(server) {
+        Ok(_) => return Ok(server.to_string()),
+        Err(e) => e,
+    };
+    if let Some(rest) = server.strip_prefix("https://") {
+        let http = format!("http://{rest}");
+        if identity(&http).is_ok() {
+            return Ok(http);
+        }
+    }
+    if tls_error(&e) {
+        Err(tf!(
+            "Der Server hat für https kein gültiges Zertifikat ({error}). Plex im Heimnetz läuft meist ohne Verschlüsselung: Adresse mit http:// eingeben, z. B. http://192.0.2.10:32400.",
+            error = e
+        ))
+    } else {
+        Err(tf!(
+            "Plex-Server unter {server} nicht erreichbar ({error}). Adresse und Port prüfen – Plex meist mit :32400.",
+            server = server,
+            error = e
+        ))
+    }
+}
+
 /// Zugang zu einem Server: Name des Kontos, Kennung des Servers und der passende Schlüssel
 /// (eigener Server: der des Kontos; freigegebener Server: der aus der Ressourcenliste).
 pub fn login(server: &str, client_id: &str, token: &str) -> Result<Account, String> {
@@ -391,6 +431,35 @@ fn urlencode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Plex-Server nur mit http (lokal nachgestellt): eingegeben mit https → Zertifikatsfehler,
+    /// tvjoe nimmt dieselbe Adresse mit http. Ohne Server: verständliche Meldung.
+    #[test]
+    fn https_faellt_auf_http_zurueck() {
+        assert!(tls_error("io: invalid peer certificate: UnknownIssuer"));
+        assert!(!tls_error("io: Connection refused"));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                use std::io::{Read, Write};
+                let mut s = stream;
+                let mut buf = [0u8; 2048];
+                let n = s.read(&mut buf).unwrap_or(0);
+                if buf[..n].starts_with(b"GET /identity") {
+                    let body = r#"{"MediaContainer":{"machineIdentifier":"abc"}}"#;
+                    let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                }
+            }
+        });
+        let http = format!("http://127.0.0.1:{port}");
+        assert_eq!(reachable(&format!("https://127.0.0.1:{port}")), Ok(http.clone()));
+        assert_eq!(reachable(&http), Ok(http));
+        // Kein Server auf dem Port (gerade freigegeben).
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let e = reachable(&format!("http://127.0.0.1:{free}")).unwrap_err();
+        assert!(e.contains("nicht erreichbar"), "{e}");
+    }
 
     /// Gegen einen echten Server: `TVJOE_TEST_PLEX=http://host:32400`,
     /// `TVJOE_TEST_PLEX_TOKEN=<Datei mit Schlüssel>`, `TVJOE_TEST_PLEX_CLIENT=<Kennung>`.

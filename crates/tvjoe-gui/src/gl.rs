@@ -67,3 +67,22 @@ pub fn current_framebuffer() -> i32 {
     }
     fbo
 }
+
+type GlGetString = unsafe extern "C" fn(u32) -> *const u8;
+
+/// Text von `glGetString` (Hersteller, Renderer, Version) für das Diagnoseprotokoll; braucht
+/// einen aktuellen Kontext.
+pub fn string(name: u32) -> String {
+    let p = get_proc_address(&(), "glGetString");
+    if p.is_null() {
+        return "–".into();
+    }
+    let f = unsafe { std::mem::transmute::<*mut c_void, GlGetString>(p) };
+    let s = unsafe { f(name) };
+    if s.is_null() {
+        return "–".into();
+    }
+    unsafe { std::ffi::CStr::from_ptr(s.cast::<c_char>()) }
+        .to_string_lossy()
+        .into_owned()
+}

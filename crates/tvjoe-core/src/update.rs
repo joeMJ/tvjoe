@@ -233,9 +233,96 @@ pub fn install_command(package: &Path) -> Vec<String> {
     ]
 }
 
+/// Ein Absatz der Versionsnotizen für die Anzeige: Pango-Markup, `bullet` für einen Punkt
+/// einer Aufzählung.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NoteBlock {
+    pub bullet: bool,
+    pub markup: String,
+}
+
+/// Versionsnotizen (Markdown des Release) für die Anzeige: nur die Sprache der Oberfläche
+/// (Deutsch vor `---`, Englisch dahinter unter `**English**`), Aufzählungen, `**fett**`,
+/// `` `Code` `` und `[Text](Adresse)` als Pango-Markup.
+pub fn release_notes(body: &str, english: bool) -> Vec<NoteBlock> {
+    let mut parts = body.split("\n---");
+    let german = parts.next().unwrap_or_default();
+    let text = match parts.next() {
+        Some(en) if english => en,
+        _ => german,
+    };
+    let mut blocks: Vec<NoteBlock> = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line == "---" || line == "**English**" {
+            continue;
+        }
+        let (bullet, rest) = match line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
+            Some(r) => (true, r),
+            None => (false, line),
+        };
+        blocks.push(NoteBlock { bullet, markup: inline_markup(rest) });
+    }
+    blocks
+}
+
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// `**fett**`, `` `Code` `` und `[Text](Adresse)` als Pango-Markup, alles andere maskiert.
+fn inline_markup(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while !rest.is_empty() {
+        if let Some(r) = rest.strip_prefix("**") {
+            if let Some(end) = r.find("**") {
+                out.push_str(&format!("<b>{}</b>", inline_markup(&r[..end])));
+                rest = &r[end + 2..];
+                continue;
+            }
+        } else if let Some(r) = rest.strip_prefix('`') {
+            if let Some(end) = r.find('`') {
+                out.push_str(&format!("<tt>{}</tt>", escape(&r[..end])));
+                rest = &r[end + 1..];
+                continue;
+            }
+        } else if let Some(r) = rest.strip_prefix('[') {
+            if let Some((label, after)) = r.split_once("](") {
+                if let Some(end) = after.find(')') {
+                    out.push_str(&format!("<a href=\"{}\">{}</a>", escape(&after[..end]), escape(label)));
+                    rest = &after[end + 1..];
+                    continue;
+                }
+            }
+        }
+        let c = rest.chars().next().unwrap();
+        out.push_str(&escape(&c.to_string()));
+        rest = &rest[c.len_utf8()..];
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn versionsnotizen_als_markup() {
+        let body = "- **Wechsel:** Formatvorgabe `mpegts` nur für SAT, siehe [Doku](https://x.invalid/a?b=1&c=2).\n- Kein <Tag>\n\n---\n\n**English**\n\n- **Switch:** fixed.";
+        let de = release_notes(body, false);
+        assert_eq!(de.len(), 2);
+        assert!(de[0].bullet);
+        assert_eq!(
+            de[0].markup,
+            "<b>Wechsel:</b> Formatvorgabe <tt>mpegts</tt> nur für SAT, siehe <a href=\"https://x.invalid/a?b=1&amp;c=2\">Doku</a>."
+        );
+        assert_eq!(de[1].markup, "Kein &lt;Tag&gt;");
+        let en = release_notes(body, true);
+        assert_eq!(en, vec![NoteBlock { bullet: true, markup: "<b>Switch:</b> fixed.".into() }]);
+        // Ohne englischen Teil: Deutsch auch für Englisch.
+        assert_eq!(release_notes("Neu: Merkliste", true)[0].markup, "Neu: Merkliste");
+    }
 
     const JSON: &str = r#"{
         "tag_name": "v0.2.0", "name": "tvjoe 0.2.0", "body": "Neu: Merkliste",
