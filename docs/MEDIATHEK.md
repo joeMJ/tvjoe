@@ -61,3 +61,19 @@ Weitersehen und Bandbreitengrenze funktionieren wie bei Jellyfin.
 - **Weitersehen:** Plex speichert eine Stelle erst ab etwa einer Minute Spielzeit.
 - Getestet mit Plex Media Server 1.43 und einer Filmbibliothek; Serien und Sammlungen folgen der
   Plex-Schnittstelle, sind aber ungetestet.
+
+## Emby (experimentell)
+
+Ein eigener Emby-Server funktioniert wie Jellyfin (gleiche Schnittstelle); Ansicht, Ablage,
+„Geladen“, Weitersehen und Bandbreitengrenze sind dieselben.
+
+1. **Einstellungen → Mediatheken → „+“ → Emby:** die Adresse eintragen, im Heimnetz meist
+   `http://<IP-Adresse>:8096`.
+2. **Anmelden:** Benutzer und Passwort eingeben – oder statt des Passworts einen API-Schlüssel
+   (in Emby: Einstellungen → Erweitert → API-Schlüssel), der dann für den genannten Benutzer
+   gilt (ohne Namen: der erste Administrator). tvjoe speichert nur den Zugangsschlüssel, nicht
+   das Passwort; beim Abmelden mit API-Schlüssel wird er nur vergessen, nicht beim Server
+   entwertet.
+
+- Getestet mit Emby Server 4.10 und einer Filmbibliothek; Serien folgen der Schnittstelle von
+  Jellyfin, sind aber ungetestet.

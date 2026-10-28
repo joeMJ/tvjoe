@@ -42,7 +42,7 @@ pub fn account(library: &str) -> Option<Account> {
 /// Art einer Bibliothek mit eigenem Server (Jellyfin, Plex) – teilen sich Zwischenspeicher,
 /// Ansicht, Abgleich und Abspielen.
 pub fn is_server_kind(kind: &str) -> bool {
-    matches!(kind, "jellyfin" | "plex")
+    matches!(kind, "jellyfin" | "plex" | "emby")
 }
 
 /// Eingeschaltete Server-Bibliotheken (Jellyfin, Plex).
@@ -160,7 +160,7 @@ fn library_status(library: &str) -> String {
 fn server_of(l: &Library) -> String {
     // Plex im Heimnetz meist ohne TLS: ohne Angabe http://, nicht die Jellyfin-Vorgabe https://.
     let raw = l.server.trim().trim_end_matches('/');
-    let from_settings = if l.kind == "plex" && !raw.is_empty() && !raw.contains("://") {
+    let from_settings = if (l.kind == "plex" || l.kind == "emby") && !raw.is_empty() && !raw.contains("://") {
         format!("http://{raw}")
     } else {
         jellyfin::normalize_server(&l.server)
@@ -293,12 +293,13 @@ pub fn prefs_groups(
     let l = app.settings().library(library).cloned().unwrap_or_default();
     let id = library.to_string();
     let plex = kind == "plex";
-    // Plex im Heimnetz meist ohne TLS unter der IP-Adresse (Port 32400).
+    let emby = kind == "emby";
+    // Plex und Emby im Heimnetz meist ohne TLS unter der IP-Adresse (Port 32400 bzw. 8096).
     let normalize = move |url: &str| -> String {
         let url = url.trim().trim_end_matches('/');
-        if plex && !url.is_empty() && !url.contains("://") {
+        if (plex || emby) && !url.is_empty() && !url.contains("://") {
             format!("http://{url}")
-        } else if plex {
+        } else if plex || emby {
             url.to_string()
         } else {
             jellyfin::normalize_server(url)
@@ -309,6 +310,8 @@ pub fn prefs_groups(
         .title(tr("Server"))
         .description(if plex {
             tr("Eigener Plex Media Server (experimentell); die Anmeldung läuft über einen Code bei plex.tv, tvjoe fragt nie nach einem Passwort. Dabei gehen Konto und IP-Adresse an plex.tv.")
+        } else if emby {
+            tr("Eigener Emby-Server (experimentell); Anmeldung mit Benutzer und Passwort oder mit einem API-Schlüssel. tvjoe speichert nur den Zugangsschlüssel, nicht das Passwort.")
         } else {
             tr("Eigener Jellyfin-Server; die Anmeldung läuft über Quick Connect, tvjoe fragt nie nach einem Passwort")
         })
@@ -316,6 +319,8 @@ pub fn prefs_groups(
     let server = adw::EntryRow::builder()
         .title(if plex {
             tr("Adresse (z. B. http://plex.example.org:32400)")
+        } else if emby {
+            tr("Adresse (z. B. http://emby.example.org:8096)")
         } else {
             tr("Adresse (z. B. https://jellyfin.example.org)")
         })
@@ -326,6 +331,8 @@ pub fn prefs_groups(
         .title(tr("So geht die Anmeldung"))
         .subtitle(if plex {
             tr("1. „Anmelden…“ drücken: tvjoe prüft den Server und zeigt einen vierstelligen Code.\n2. plex.tv/link öffnen (Knopf rechts) und mit dem Plex-Konto anmelden, dem der Server gehört oder das ihn nutzen darf.\n3. Den Code eingeben – tvjoe meldet sich dann selbst an.\nAdresse im Heimnetz meist http://IP-Adresse:32400.")
+        } else if emby {
+            tr("„Anmelden…“ fragt Benutzer und Passwort ab. Statt des Passworts geht auch ein API-Schlüssel (Emby: Einstellungen → Erweitert → API-Schlüssel), dann gilt er für den genannten Benutzer.\nAdresse im Heimnetz meist http://IP-Adresse:8096.")
         } else {
             tr("„Anmelden…“ zeigt einen Code. In Jellyfin oben rechts auf das Benutzersymbol klicken, „Quick Connect“ wählen und den Code bestätigen.")
         })
@@ -389,6 +396,8 @@ pub fn prefs_groups(
         entry.set_text(&url);
         if plex {
             plex_pin(b, &lid, url, &entry, st.clone());
+        } else if emby {
+            emby_login(b, &lid, url, st.clone());
         } else {
             quick_connect(b, &lid, url, st.clone());
         }
@@ -543,6 +552,63 @@ fn quick_connect(parent: &impl IsA<gtk::Widget>, library: &str, server: String, 
 
 /// Plex: Code bei plex.tv holen und anzeigen, im Hintergrund auf die Bestätigung unter
 /// plex.tv/link warten (höchstens 15 min), dann den Zugang zum Server speichern.
+/// Emby: Benutzer und Passwort (oder API-Schlüssel) abfragen, im Hintergrund anmelden und den
+/// Zugang speichern. Das Passwort wird nicht gespeichert.
+fn emby_login(parent: &impl IsA<gtk::Widget>, library: &str, server: String, done: Rc<dyn Fn()>) {
+    let library = library.to_string();
+    let device_id = account(&library)
+        .map(|a| a.device_id)
+        .unwrap_or_else(jellyfin::new_device_id);
+    let dialog = adw::AlertDialog::new(Some(tr("Bei Emby anmelden")), Some(&server));
+    let fields = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).build();
+    let user = adw::EntryRow::builder().title(tr("Benutzer")).build();
+    let password = adw::PasswordEntryRow::builder().title(tr("Passwort")).build();
+    let key = adw::PasswordEntryRow::builder().title(tr("oder API-Schlüssel")).build();
+    fields.append(&user);
+    fields.append(&password);
+    fields.append(&key);
+    dialog.set_extra_child(Some(&fields));
+    dialog.add_response("cancel", tr("Abbrechen"));
+    dialog.add_response("login", tr("Anmelden"));
+    dialog.set_response_appearance("login", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("login"));
+    dialog.set_close_response("cancel");
+    let parent_widget: gtk::Widget = parent.as_ref().clone();
+    dialog.connect_response(Some("login"), move |_, _| {
+        let (name, pw, k) = (user.text().to_string(), password.text().to_string(), key.text().to_string());
+        let (server, device_id, library) = (server.clone(), device_id.clone(), library.clone());
+        let (tx, rx) = async_channel::bounded(1);
+        std::thread::spawn(move || {
+            let r = if k.trim().is_empty() {
+                jellyfin::emby_login(&server, &device_id, name.trim(), &pw)
+            } else {
+                jellyfin::emby_login_key(&server, &device_id, k.trim(), &name)
+            };
+            let _ = tx.send_blocking(r);
+        });
+        let (done, parent) = (done.clone(), parent_widget.clone());
+        glib::spawn_future_local(async move {
+            let Ok(result) = rx.recv().await else { return };
+            let saved = result.and_then(|account| {
+                let path = paths::library_account_path(&library).ok_or_else(|| tr("kein Konfigurationsordner").to_string())?;
+                account.save(&path)?;
+                trace(&format!("Emby: angemeldet als {}", account.user_name));
+                Ok(())
+            });
+            if let Err(e) = saved {
+                let d = adw::AlertDialog::new(
+                    Some(tr("Anmeldung nicht möglich")),
+                    Some(&e),
+                );
+                d.add_response("close", tr("OK"));
+                d.present(Some(&parent));
+            }
+            done();
+        });
+    });
+    dialog.present(Some(parent));
+}
+
 /// Knopf „plex.tv/link öffnen“ (Anleitung, Code-Dialog).
 fn plex_link_button() -> gtk::LinkButton {
     let b = gtk::LinkButton::with_label("https://plex.tv/link", &tr("plex.tv/link öffnen"));

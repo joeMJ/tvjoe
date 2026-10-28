@@ -146,6 +146,7 @@ pub fn login(server: &str, client_id: &str, token: &str) -> Result<Account, Stri
             .to_string(),
         token: access,
         device_id: client_id.to_string(),
+        api_key: false,
     };
     // Probe: Bibliotheken lesbar?
     get(&acc, "/library/sections")

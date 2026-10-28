@@ -180,6 +180,7 @@ Mehrere Jellyfin- bzw. Plex-Server sind möglich, die ÖR-Mediathek gibt es einm
 | `oer` | Filmliste von [MediathekView](https://mediathekview.de/), Videos direkt von den Sendern | keine | getestet |
 | `jellyfin` | eigener Jellyfin-Server | Quick Connect | getestet |
 | `plex` | eigener Plex Media Server | PIN über plex.tv | experimentell, getestet mit Filmen |
+| `emby` | eigener Emby-Server (Schnittstelle wie Jellyfin) | Benutzer und Passwort oder API-Schlüssel | experimentell, getestet mit Filmen |
 
 ### Mitgelieferte Beschreibungen
 
@@ -188,6 +189,7 @@ Mehrere Jellyfin- bzw. Plex-Server sind möglich, die ÖR-Mediathek gibt es einm
 | ÖR-Mediathek | `oer` | keine | nein |
 | Jellyfin | `jellyfin` | Quick Connect | ja |
 | Plex | `plex` | PIN (plex.tv/link) | ja |
+| Emby | `emby` | Passwort oder API-Schlüssel | ja |
 
 ### Beispiel
 
@@ -207,8 +209,8 @@ server = true
 | `class` | ja | `library` |
 | `id` | ja | Kennung aus Buchstaben, Ziffern und Bindestrich |
 | `name` | ja | Name in den Einstellungen |
-| `driver` | ja | `oer`, `jellyfin` oder `plex` |
-| `login` | ja | `none` (keine Anmeldung), `quick-connect` (Jellyfin) oder `pin` (Plex) |
+| `driver` | ja | `oer`, `jellyfin`, `plex` oder `emby` |
+| `login` | ja | `none` (keine Anmeldung), `quick-connect` (Jellyfin), `pin` (Plex) oder `password` (Emby) |
 | `server` | nein | `true`, wenn die Adresse eines Servers einzutragen ist; Vorgabe `false` |
 | `[detail]` | nein | zusätzliche Angaben in der Filminfo, siehe unten |
 

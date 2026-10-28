@@ -845,6 +845,8 @@ impl App {
                 l.title.clone()
             } else if l.kind == "plex" {
                 "Plex".to_string()
+            } else if l.kind == "emby" {
+                "Emby".to_string()
             } else if jelly {
                 "Jellyfin".to_string()
             } else {

@@ -116,6 +116,7 @@ SAT>IP-Empfänger.
 - **Jellyfin** als zweite Mediathek: Anmeldung per Quick Connect (ohne Passwort in tvjoe),
   Gesehen-Stand mit Jellyfin abgeglichen, Bandbreitengrenze mit Umrechnung auf dem Server.
 - **Plex** (experimentell) genauso: Anmeldung mit einem Code unter plex.tv/link, mehrere Server möglich.
+- **Emby** (experimentell) genauso: Anmeldung mit Benutzer und Passwort oder API-Schlüssel.
 - **Zeilensprung entfernen** gegen Kammstreifen bei 576i/1080i (abschaltbar).
 - **Logos** für Internet- und SAT-Sender getrennt ein- und ausschaltbar.
 - **Sicherung:** Einstellungen und beide Senderlisten in eine Datei exportieren und wieder

@@ -267,6 +267,7 @@ const BUILTIN_LIBRARY: &[(&str, &str)] = &[
     ("oer-mediathek.toml", include_str!("../../../data/adapter/library/oer-mediathek.toml")),
     ("jellyfin.toml", include_str!("../../../data/adapter/library/jellyfin.toml")),
     ("plex.toml", include_str!("../../../data/adapter/library/plex.toml")),
+    ("emby.toml", include_str!("../../../data/adapter/library/emby.toml")),
 ];
 
 /// Treiber einer Bibliothek im Programm.
@@ -279,6 +280,8 @@ pub enum LibraryDriver {
     Jellyfin,
     /// Plex Media Server.
     Plex,
+    /// Emby Server (Schnittstelle wie Jellyfin).
+    Emby,
 }
 
 /// Anmeldung an einer Bibliothek.
@@ -291,6 +294,8 @@ pub enum Login {
     QuickConnect,
     /// Plex: vierstelliger Code unter plex.tv/link.
     Pin,
+    /// Emby: Benutzer und Passwort oder API-Schlüssel.
+    Password,
 }
 
 /// Beschreibung einer Bibliothek.

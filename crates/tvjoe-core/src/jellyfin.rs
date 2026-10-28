@@ -10,7 +10,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::net;
-use crate::tr;
+use crate::{tf, tr};
 
 /// Art des Medienservers eines Zugangs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +21,9 @@ pub enum ServerKind {
     /// Plex Media Server (`crate::plex`); `user_id` ist dort die Serverkennung, `device_id` die
     /// Client-Kennung bei plex.tv.
     Plex,
+    /// Emby Server: Schnittstelle wie Jellyfin (gleiche Pfade und Anmeldekopfzeile), Anmeldung
+    /// mit Benutzer und Passwort oder API-Schlüssel statt Quick Connect.
+    Emby,
 }
 
 /// Gespeicherter Zugang.
@@ -34,6 +37,10 @@ pub struct Account {
     pub token: String,
     /// Gerätekennung dieser Installation (bleibt über Anmeldungen hinweg gleich).
     pub device_id: String,
+    /// Emby: Zugang mit einem API-Schlüssel (beim Abmelden nur vergessen, nicht beim Server
+    /// abmelden – das würde den Schlüssel entwerten).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub api_key: bool,
 }
 
 /// Abspielquelle eines Eintrags.
@@ -195,6 +202,70 @@ pub fn quick_connect_finish(
             .ok_or(tr("kein Zugangsschlüssel"))?
             .to_string(),
         device_id: device_id.to_string(),
+        api_key: false,
+    })
+}
+
+/// Emby: Anmeldung mit Benutzer und Passwort (`/Users/AuthenticateByName`).
+pub fn emby_login(server: &str, device_id: &str, user: &str, password: &str) -> Result<Account, String> {
+    let v = read_json(
+        agent()
+            .post(format!("{server}/Users/AuthenticateByName"))
+            .header("Authorization", auth_header(device_id, None))
+            .header("Content-Type", "application/json")
+            .send(serde_json::json!({ "Username": user, "Pw": password }).to_string()),
+    )
+    .map_err(|e| {
+        if e.contains("401") {
+            tr("Benutzer oder Passwort falsch").to_string()
+        } else {
+            e
+        }
+    })?;
+    Ok(Account {
+        kind: ServerKind::Emby,
+        server: server.to_string(),
+        user_id: v["User"]["Id"].as_str().ok_or(tr("keine Benutzerkennung"))?.to_string(),
+        user_name: v["User"]["Name"].as_str().unwrap_or(user).to_string(),
+        token: v["AccessToken"].as_str().ok_or(tr("kein Zugangsschlüssel"))?.to_string(),
+        device_id: device_id.to_string(),
+        api_key: false,
+    })
+}
+
+/// Emby: Anmeldung mit einem API-Schlüssel (Einstellungen → Erweitert → API-Schlüssel) für den
+/// genannten Benutzer; ohne Namen der einzige bzw. erste Administrator.
+pub fn emby_login_key(server: &str, device_id: &str, key: &str, user: &str) -> Result<Account, String> {
+    let users = read_json(
+        agent()
+            .get(format!("{server}/Users"))
+            .header("Authorization", auth_header(device_id, Some(key)))
+            .call(),
+    )
+    .map_err(|e| {
+        if e.contains("401") {
+            tr("API-Schlüssel ungültig").to_string()
+        } else {
+            e
+        }
+    })?;
+    let list = users.as_array().cloned().unwrap_or_default();
+    let found = if user.trim().is_empty() {
+        list.iter()
+            .find(|u| u["Policy"]["IsAdministrator"].as_bool() == Some(true))
+            .or(list.first())
+    } else {
+        list.iter().find(|u| u["Name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(user.trim())))
+    }
+    .ok_or_else(|| tf!("Benutzer „{name}“ nicht gefunden", name = user.trim()))?;
+    Ok(Account {
+        kind: ServerKind::Emby,
+        server: server.to_string(),
+        user_id: found["Id"].as_str().ok_or(tr("keine Benutzerkennung"))?.to_string(),
+        user_name: found["Name"].as_str().unwrap_or("").to_string(),
+        token: key.to_string(),
+        device_id: device_id.to_string(),
+        api_key: true,
     })
 }
 
@@ -207,7 +278,7 @@ impl Account {
     /// Vollständige Kopfzeile „Name: Wert“ für Player und Downloads.
     pub fn header_line(&self) -> String {
         match self.kind {
-            ServerKind::Jellyfin => format!("Authorization: {}", self.header()),
+            ServerKind::Jellyfin | ServerKind::Emby => format!("Authorization: {}", self.header()),
             ServerKind::Plex => format!("X-Plex-Token: {}", self.token),
         }
     }
@@ -380,7 +451,7 @@ impl Account {
     /// Abmelden: Schlüssel beim Server ungültig machen (Fehler werden ignoriert).
     pub fn logout(&self) {
         // Plex: der Schlüssel gilt für das Konto; tvjoe vergisst ihn nur.
-        if self.kind == ServerKind::Plex {
+        if self.kind == ServerKind::Plex || self.api_key {
             return;
         }
         let _ = agent()
@@ -422,6 +493,13 @@ impl Account {
 pub fn logo_url(server: &str) -> Result<String, String> {
     let html = net::fetch_prefix(&agent(), &format!("{server}/web/"), 512 * 1024)?;
     let html = String::from_utf8_lossy(&html);
+    // Emby: <link rel="apple-touch-icon" href="images/icon-192x192.png">
+    if !html.contains("touchicon") {
+        let at = html.find("apple-touch-icon\" href=\"").ok_or(tr("kein Logo auf der Startseite"))?;
+        let rest = &html[at + "apple-touch-icon\" href=\"".len()..];
+        let end = rest.find('"').ok_or(tr("Logo-Adresse unvollständig"))?;
+        return Ok(format!("{server}/web/{}", &rest[..end]));
+    }
     let start = html
         .find("touchicon")
         .ok_or(tr("kein Logo auf der Startseite"))?;
@@ -460,6 +538,45 @@ mod tests {
         assert!(auth_header("abc", Some("t")).ends_with(", Token=\"t\""));
     }
 
+    /// Gegen einen echten Emby-Server: `TVJOE_TEST_EMBY=http://host:8096`,
+    /// `TVJOE_TEST_EMBY_KEY=<Datei mit API-Schlüssel>`; Anmeldung, Abgleich, Abspielen.
+    #[test]
+    #[ignore]
+    fn emby_echter_server() {
+        let server = std::env::var("TVJOE_TEST_EMBY").unwrap();
+        let key = std::fs::read_to_string(std::env::var("TVJOE_TEST_EMBY_KEY").unwrap()).unwrap();
+        let acc = emby_login_key(&server, "tvjoe-test", key.trim(), "").unwrap();
+        eprintln!("angemeldet als {} ({:?})", acc.user_name, acc.kind);
+        let path = std::env::temp_dir().join(format!("tvjoe-emby-{}.sqlite", std::process::id()));
+        let mut lib = crate::jellyfin_lib::JellyfinLibrary::open(&path).unwrap();
+        let st = lib.sync_full(&acc, 1).unwrap();
+        eprintln!("Abgleich: {st:?}, Filme {}, Serien {}, Folgen {}", lib.count("Movie"), lib.count("Series"), lib.count("Episode"));
+        assert!(lib.count("Movie") > 0);
+        let first = lib.movies(&[], None, false).into_iter().next().unwrap();
+        eprintln!("erster Film: {}", first.name);
+        let direct = acc.playback(&first.id, 0, "t").unwrap();
+        assert!(!direct.transcoded);
+        let hls = acc.playback(&first.id, 1000, "t").unwrap();
+        eprintln!("direkt {} kbit/s, umgerechnet: {}", direct.bitrate / 1000, hls.transcoded);
+        let (_, ext, size) = acc.download_source(&first.id).unwrap();
+        eprintln!("Download {ext}, {size} Bytes");
+        // Liefert der Server die Adressen aus? HLS-Liste und Anfang der Originaldatei.
+        let fetch = |url: &str| {
+            let mut r = agent().get(url).header("Authorization", acc.header()).header("Range", "bytes=0-1023").call().unwrap();
+            let status = r.status().as_u16();
+            let body = r.body_mut().with_config().limit(1 << 20).read_to_vec().unwrap_or_default();
+            (status, body)
+        };
+        let (st, body) = fetch(&hls.url);
+        eprintln!("HLS: HTTP {st}, beginnt mit {:?}", String::from_utf8_lossy(&body[..body.len().min(7)]));
+        assert!(body.starts_with(b"#EXTM3U"));
+        let (st, body) = fetch(&direct.url);
+        eprintln!("Original: HTTP {st}, {} Bytes gelesen", body.len());
+        assert!(st == 200 || st == 206);
+        acc.stop_transcoding("t");
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn zugang_speichern_nur_fuer_nutzer() {
         let dir = std::env::temp_dir().join(format!("tvjoe-jf-{}", std::process::id()));
@@ -471,6 +588,7 @@ mod tests {
             user_name: "n".into(),
             token: "geheim".into(),
             device_id: "d".into(),
+            api_key: false,
         };
         acc.save(&path).unwrap();
         assert_eq!(Account::load(&path), Some(acc));

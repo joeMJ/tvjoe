@@ -267,6 +267,7 @@ fn section_name(app: &App, key: &str) -> String {
         id => match app.settings().library(id) {
             Some(l) if !l.title.is_empty() => l.title.clone(),
             Some(l) if l.kind == "plex" => "Plex".into(),
+            Some(l) if l.kind == "emby" => "Emby".into(),
             _ => "Jellyfin".into(),
         },
     }

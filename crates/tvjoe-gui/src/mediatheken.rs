@@ -58,6 +58,10 @@ fn summary(l: &Library, descs: &[LibraryDescription]) -> String {
             Some(a) => tf!("Plex · angemeldet bei {server}", server = a.server),
             None => tr("Plex · nicht angemeldet").to_string(),
         },
+        Some(LibraryDriver::Emby) => match crate::jellyfin::account(&l.id) {
+            Some(a) => tf!("Emby · angemeldet bei {server}", server = a.server),
+            None => tr("Emby · nicht angemeldet").to_string(),
+        },
         None => tr("Beschreibung fehlt").to_string(),
     }
 }
@@ -161,7 +165,7 @@ fn add_page(
             .subtitle(match d.driver {
                 LibraryDriver::Oer => tr("Öffentlich-rechtliche Sender"),
                 LibraryDriver::Jellyfin => tr("Eigener Server"),
-                LibraryDriver::Plex => tr("Eigener Server (experimentell)"),
+                LibraryDriver::Plex | LibraryDriver::Emby => tr("Eigener Server (experimentell)"),
             })
             .activatable(true)
             .build();
@@ -338,7 +342,7 @@ fn library_page(
             }
             state.borrow_mut().applies.push(Box::new(apply));
         }
-        Some(LibraryDriver::Jellyfin | LibraryDriver::Plex) => {
+        Some(LibraryDriver::Jellyfin | LibraryDriver::Plex | LibraryDriver::Emby) => {
             let (groups, apply) = crate::jellyfin::prefs_groups(app, id, &l.kind);
             for g in groups {
                 content.add(&g);

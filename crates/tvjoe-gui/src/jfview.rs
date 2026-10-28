@@ -113,7 +113,7 @@ fn poster_url(acc: Option<&Account>, it: &Item, height: i32) -> Option<String> {
     let tag = it.image_tag.as_deref()?;
     let server = &acc.server;
     Some(match acc.kind {
-        ServerKind::Jellyfin => format!(
+        ServerKind::Jellyfin | ServerKind::Emby => format!(
             "{server}/Items/{}/Images/Primary?maxHeight={height}&tag={tag}&quality=85",
             it.id
         ),

@@ -177,6 +177,7 @@ Jellyfin or Plex servers are possible, the Mediathek exists once.
 | `oer` | film list from [MediathekView](https://mediathekview.de/), videos straight from the broadcasters | none | tested |
 | `jellyfin` | your own Jellyfin server | Quick Connect | tested |
 | `plex` | your own Plex Media Server | PIN via plex.tv | experimental, tested with films |
+| `emby` | your own Emby server (same interface as Jellyfin) | user name and password or API key | experimental, tested with films |
 
 ### Included descriptions
 
@@ -185,6 +186,7 @@ Jellyfin or Plex servers are possible, the Mediathek exists once.
 | ÖR-Mediathek | `oer` | none | no |
 | Jellyfin | `jellyfin` | Quick Connect | yes |
 | Plex | `plex` | PIN (plex.tv/link) | yes |
+| Emby | `emby` | password or API key | yes |
 
 ### Example
 
@@ -204,8 +206,8 @@ server = true
 | `class` | yes | `library` |
 | `id` | yes | identifier of letters, digits and hyphens |
 | `name` | yes | name in the settings |
-| `driver` | yes | `oer`, `jellyfin` or `plex` |
-| `login` | yes | `none` (no login), `quick-connect` (Jellyfin) or `pin` (Plex) |
+| `driver` | yes | `oer`, `jellyfin`, `plex` or `emby` |
+| `login` | yes | `none` (no login), `quick-connect` (Jellyfin), `pin` (Plex) or `password` (Emby) |
 | `server` | no | `true` if a server address has to be entered; default `false` |
 | `[detail]` | no | additional details on the film page, see below |
 
