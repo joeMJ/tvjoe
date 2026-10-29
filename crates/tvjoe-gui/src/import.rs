@@ -547,13 +547,15 @@ impl Preview {
             self.apply();
             return;
         }
-        let dialog = adw::AlertDialog::new(
-            Some(tr("Zugangsdaten in der Adresse")),
-            Some(&tf!(
+        let body = if n == 1 {
+            tr("Ein gewählter Eintrag enthält Benutzername und Passwort in der Adresse. Für die Nutzung dieser Quelle bist du rechtlich selbst verantwortlich.").to_string()
+        } else {
+            tf!(
                 "{n} der gewählten Einträge enthalten Benutzername und Passwort in der Adresse. Für die Nutzung dieser Quelle bist du rechtlich selbst verantwortlich.",
                 n = n
-            )),
-        );
+            )
+        };
+        let dialog = adw::AlertDialog::new(Some(tr("Zugangsdaten in der Adresse")), Some(&body));
         dialog.add_response("cancel", tr("Abbrechen"));
         dialog.add_response("ok", tr("Trotzdem übernehmen"));
         dialog.set_response_appearance("ok", adw::ResponseAppearance::Destructive);

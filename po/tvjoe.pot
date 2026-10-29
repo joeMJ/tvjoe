@@ -926,7 +926,7 @@ msgstr ""
 msgid "„{title}“ wird nicht weiter geladen. Was schon da ist, bleibt; „Fortsetzen“ lädt später den Rest."
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:541 crates/tvjoe-gui/src/ablageview.rs:1134 crates/tvjoe-gui/src/backup.rs:149 crates/tvjoe-gui/src/empfang.rs:545 crates/tvjoe-gui/src/empfang.rs:671 crates/tvjoe-gui/src/empfang.rs:808 crates/tvjoe-gui/src/import.rs:76 crates/tvjoe-gui/src/import.rs:157 crates/tvjoe-gui/src/import.rs:557 crates/tvjoe-gui/src/jellyfin.rs:508 crates/tvjoe-gui/src/jellyfin.rs:600 crates/tvjoe-gui/src/jellyfin.rs:660 crates/tvjoe-gui/src/manage.rs:621 crates/tvjoe-gui/src/manage.rs:926 crates/tvjoe-gui/src/prefs.rs:675 crates/tvjoe-gui/src/prefs.rs:699 crates/tvjoe-gui/src/satip.rs:327 crates/tvjoe-gui/src/umzug.rs:93 crates/tvjoe-gui/src/umzug.rs:203
+#: crates/tvjoe-gui/src/ablage.rs:541 crates/tvjoe-gui/src/ablageview.rs:1134 crates/tvjoe-gui/src/backup.rs:149 crates/tvjoe-gui/src/empfang.rs:545 crates/tvjoe-gui/src/empfang.rs:671 crates/tvjoe-gui/src/empfang.rs:808 crates/tvjoe-gui/src/import.rs:76 crates/tvjoe-gui/src/import.rs:157 crates/tvjoe-gui/src/import.rs:559 crates/tvjoe-gui/src/jellyfin.rs:508 crates/tvjoe-gui/src/jellyfin.rs:600 crates/tvjoe-gui/src/jellyfin.rs:660 crates/tvjoe-gui/src/manage.rs:621 crates/tvjoe-gui/src/manage.rs:926 crates/tvjoe-gui/src/prefs.rs:675 crates/tvjoe-gui/src/prefs.rs:699 crates/tvjoe-gui/src/satip.rs:327 crates/tvjoe-gui/src/umzug.rs:93 crates/tvjoe-gui/src/umzug.rs:203
 msgid "Abbrechen"
 msgstr ""
 
@@ -2426,7 +2426,7 @@ msgstr ""
 msgid "Symbol wählen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/import.rs:104 crates/tvjoe-gui/src/import.rs:597
+#: crates/tvjoe-gui/src/import.rs:104 crates/tvjoe-gui/src/import.rs:599
 msgid "Liste"
 msgstr ""
 
@@ -2538,24 +2538,28 @@ msgid "Erreichbarkeit geprüft: {done} von {total} geprüft, {ok} erreichbar"
 msgstr ""
 
 #: crates/tvjoe-gui/src/import.rs:551
-msgid "Zugangsdaten in der Adresse"
+msgid "Ein gewählter Eintrag enthält Benutzername und Passwort in der Adresse. Für die Nutzung dieser Quelle bist du rechtlich selbst verantwortlich."
 msgstr ""
 
-#: crates/tvjoe-gui/src/import.rs:552
+#: crates/tvjoe-gui/src/import.rs:553
 #, no-c-format
 msgid "{n} der gewählten Einträge enthalten Benutzername und Passwort in der Adresse. Für die Nutzung dieser Quelle bist du rechtlich selbst verantwortlich."
 msgstr ""
 
 #: crates/tvjoe-gui/src/import.rs:558
+msgid "Zugangsdaten in der Adresse"
+msgstr ""
+
+#: crates/tvjoe-gui/src/import.rs:560
 msgid "Trotzdem übernehmen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/import.rs:614
+#: crates/tvjoe-gui/src/import.rs:616
 #, no-c-format
 msgid "Übernommen: {added} neu, {updated} aktualisiert, {missing} fehlen in der Quelle"
 msgstr ""
 
-#: crates/tvjoe-gui/src/import.rs:621
+#: crates/tvjoe-gui/src/import.rs:623
 #, no-c-format
 msgid "Übernommen: {added} neu, {updated} aktualisiert"
 msgstr ""
