@@ -10,6 +10,10 @@
 > Live TV from various sources such as SAT>IP, M3U lists, Tvheadend and DVB cards (Linux; Windows
 > via BDA planned) plus various media libraries, including Jellyfin, Plex, Emby and the Mediathek of
 > the German public broadcasters – with recordings and downloads, all in one window.
+>
+> **No telemetry:** tvjoe itself sends no usage data. It only connects to the sources and services
+> you set up or open and, if you enable it, to GitHub for the update check – every access:
+> [privacy](docs/DATENSCHUTZ.md) (German).
 
 <p align="center">
   <a href="https://www.johnlose.de/unterstutzung-fur-john-joe-lose/"><img src="docs/knoepfe/danke.svg" alt="Say thanks to John" width="300"></a>
@@ -91,13 +95,23 @@ The detailed documentation is in German:
   curl -fsSL https://raw.githubusercontent.com/joeMJ/tvjoe/main/install.sh | bash
   ```
 
+  Read it first, then run it (recommended if you don't want to start scripts from the internet
+  unseen):
+
+  ```bash
+  curl -fsSL -o install-tvjoe.sh https://raw.githubusercontent.com/joeMJ/tvjoe/main/install.sh
+  less install-tvjoe.sh
+  bash install-tvjoe.sh
+  ```
+
 - **Windows 10/11:** MSI from the [release page](https://github.com/joeMJ/tvjoe/releases/latest) –
   [Installation (Windows)](docs/INSTALLATION.md#installation-windows).
 
-> [!IMPORTANT]
-> **Windows: add the publisher's certificate before the first installation.** The MSI is signed with a
-> self-issued certificate; without the certificate Windows reports an “unknown publisher”.
-> Command, fingerprint and explanation: [Publisher certificate](docs/INSTALLATION.md#zertifikat-des-herausgebers) (German).
+> [!WARNING]
+> **Windows: publisher certificate – optional and with a risk.** The MSI is signed with a self-issued
+> certificate; without it Windows reports an “unknown publisher”, but tvjoe works just the same. Adding it
+> makes it trusted for the whole computer – only do so if you trust the publisher. Risk, command, fingerprint
+> and removal: [Publisher certificate](docs/INSTALLATION.md#zertifikat-des-herausgebers) (German).
 
 ---
 

@@ -13,6 +13,15 @@ Das Skript erkennt Ubuntu-Version und Architektur, lädt das Paket und die Datei
 prüft die Prüfsumme und installiert mit `sudo apt install`. Derselbe Befehl aktualisiert eine
 vorhandene Installation.
 
+**Erst lesen, dann ausführen** (empfohlen): Der Einzeiler oben führt das Skript aus, ohne dass du
+es vorher siehst. Wer das nicht will, lädt es zuerst, liest es und startet es dann:
+
+```bash
+curl -fsSL -o install-tvjoe.sh https://raw.githubusercontent.com/joeMJ/tvjoe/main/install.sh
+less install-tvjoe.sh
+bash install-tvjoe.sh
+```
+
 Von Hand: Auf der [Release-Seite](https://github.com/joeMJ/tvjoe/releases/latest) das Paket für
 die eigene Ubuntu-Version laden (`tvjoe_<Version>_ubuntu26.04_amd64.deb` bzw. `…ubuntu24.04…`),
 die Prüfsumme mit `SHA256SUMS` vergleichen und installieren:
@@ -67,12 +76,14 @@ unbekannt“ – dann die neue MSI einmal von Hand über die alte installieren.
 und Senderlisten (`%APPDATA%\tvjoe`) sowie der Zwischenspeicher (`%LOCALAPPDATA%\tvjoe`) bleiben
 erhalten.
 
-> [!IMPORTANT]
-> **Vor der ersten Installation: das Zertifikat des Herausgebers eintragen.**
-> Ohne eingetragenes Zertifikat meldet Windows einen „unbekannten Herausgeber“. Einmalig in einer PowerShell
-> **als Administrator** den Befehl aus [Zertifikat des Herausgebers](#zertifikat-des-herausgebers) einfügen –
-> er prüft Prüfsumme und Fingerabdruck, bevor er etwas einträgt. Das Eintragen ist freiwillig; ohne es
-> bestätigt man die Warnung bei der Installation von Hand.
+> [!WARNING]
+> **Zertifikat des Herausgebers: freiwillig und mit Risiko.**
+> Ohne eingetragenes Zertifikat meldet Windows bei der Installation einen „unbekannten Herausgeber“ –
+> tvjoe funktioniert trotzdem genauso, man bestätigt die Warnung nur von Hand. Das Eintragen legt ein
+> selbst ausgestelltes Zertifikat für den **ganzen Rechner** unter den vertrauenswürdigen
+> Stammzertifizierungsstellen ab. Nur eintragen, wenn du dem Herausgeber vertraust; was das bedeutet,
+> steht unter [Zertifikat des Herausgebers](#zertifikat-des-herausgebers). Im Zweifel nicht eintragen und
+> stattdessen die Prüfsumme der MSI vergleichen.
 
 > [!NOTE]
 > **Warnung „Der Computer wurde durch Windows geschützt“:** Microsoft Defender SmartScreen zeigt diese
@@ -103,6 +114,19 @@ einmalig als vertrauenswürdig eintragen.
   E-Mail taugt es nicht.
 - Fingerabdruck (SHA-1): `C595450070432A501AADD72366C837AFB268740A`
 - Dasselbe Zertifikat signiert auch remotejoe.
+
+**Was das Eintragen bedeutet:** Das Skript legt das Zertifikat in die Speicher
+**„Vertrauenswürdige Stammzertifizierungsstellen“** und **„Vertrauenswürdige Herausgeber“** des
+Rechners, also für alle Benutzer. Ab dann hält Windows **jedes** Programm für vertrauenswürdig, das mit
+dem zugehörigen privaten Schlüssel signiert ist – nicht nur tvjoe. Solange nur der Herausgeber diesen
+Schlüssel hat, ist das gewollt; käme er abhanden, könnte damit auch Schadsoftware als „vertrauenswürdig“
+erscheinen. Die Einschränkung auf Code-Signatur (siehe oben) verhindert Missbrauch für Webseiten oder
+E-Mail, nicht für Programme. Deshalb:
+
+- Nur eintragen, wenn du dem Herausgeber vertraust und tvjoe regelmäßig nutzt.
+- Ohne Eintrag bleibt alles benutzbar; die Echtheit der MSI prüfst du dann über die Prüfsumme auf der
+  Release-Seite (`Get-FileHash`, siehe oben).
+- Wird das Zertifikat nicht mehr gebraucht, mit dem Befehl unter **Wieder entfernen** (unten) austragen.
 
 **Eintragen** – PowerShell **als Administrator** öffnen, den ganzen Block kopieren und einfügen
 (Windows 10 und 11, auch im eingeschränkten Sprachmodus). Das Skript lädt die Datei, prüft Prüfsumme

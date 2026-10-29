@@ -11,6 +11,10 @@
 > Windows über BDA geplant) sowie verschiedene Medienbibliotheken, u. a. Jellyfin, Plex, Emby und
 > die Mediathek der öffentlich-rechtlichen Sender – mit Aufnahmen und Downloads, alles in einem
 > Fenster.
+>
+> **Keine Telemetrie:** tvjoe selbst sendet keine Nutzungsdaten. Es verbindet sich nur mit den
+> Quellen und Diensten, die du einrichtest oder öffnest, und auf Wunsch mit GitHub für die
+> Updateprüfung – alle Zugriffe: [Datenschutz](docs/DATENSCHUTZ.md).
 
 <p align="center">
   <a href="https://www.johnlose.de/unterstutzung-fur-john-joe-lose/"><img src="docs/knoepfe/danke.svg" alt="Danke sagen an John" width="300"></a>
@@ -90,13 +94,24 @@ SAT>IP-Empfänger.
   curl -fsSL https://raw.githubusercontent.com/joeMJ/tvjoe/main/install.sh | bash
   ```
 
+  Erst lesen, dann ausführen (empfohlen, wenn du Skripte aus dem Netz nicht ungesehen starten
+  willst):
+
+  ```bash
+  curl -fsSL -o install-tvjoe.sh https://raw.githubusercontent.com/joeMJ/tvjoe/main/install.sh
+  less install-tvjoe.sh
+  bash install-tvjoe.sh
+  ```
+
 - **Windows 10/11:** MSI von der [Release-Seite](https://github.com/joeMJ/tvjoe/releases/latest) –
   [Installation (Windows)](docs/INSTALLATION.md#installation-windows).
 
-> [!IMPORTANT]
-> **Windows: vor der ersten Installation das Zertifikat des Herausgebers eintragen.** Die MSI ist mit einem selbst
-> ausgestellten Zertifikat signiert; ohne eingetragenes Zertifikat meldet Windows einen „unbekannten Herausgeber“.
-> Befehl, Fingerabdruck und Erklärung: [Zertifikat des Herausgebers](docs/INSTALLATION.md#zertifikat-des-herausgebers).
+> [!WARNING]
+> **Windows: Zertifikat des Herausgebers – freiwillig und mit Risiko.** Die MSI ist mit einem selbst
+> ausgestellten Zertifikat signiert; ohne eingetragenes Zertifikat meldet Windows einen „unbekannten Herausgeber“,
+> tvjoe funktioniert aber genauso. Eintragen macht es rechnerweit vertrauenswürdig – nur tun, wenn du dem
+> Herausgeber vertraust. Risiko, Befehl, Fingerabdruck und Austragen:
+> [Zertifikat des Herausgebers](docs/INSTALLATION.md#zertifikat-des-herausgebers).
 
 ---
 
