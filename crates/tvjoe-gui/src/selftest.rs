@@ -1288,18 +1288,52 @@ fn next(probe: Rc<Probe>, steps: Rc<Vec<Step>>, dir: PathBuf, i: usize) {
         if std::env::var_os("TVJOE_SELFTEST_BAUCHBINDE").is_some() {
             trace(&format!("Bauchbinde {name}: {} px hoch", probe.app.osd_height()));
         }
-        match window.as_ref().map(|w| shot(w, &path)) {
-            Some(Ok(())) => trace(&format!("Bild {}", path.display())),
-            Some(Err(e)) => eprintln!("tvjoe: Bild {name}: {e}"),
-            None => eprintln!("tvjoe: Schritt {name}: kein Fenster"),
-        }
-        next(probe, steps, dir, i + 1);
+        let Some(window) = window else {
+            eprintln!("tvjoe: Schritt {name}: kein Fenster");
+            next(probe, steps, dir, i + 1);
+            return;
+        };
+        // Ohne neues Bild bleibt der Schnappschuss eines unveränderten Fensters leer: neu
+        // zeichnen lassen und nach den nächsten Bildern aufnehmen.
+        window.queue_draw();
+        let count = std::cell::Cell::new(0);
+        window.add_tick_callback(move |w, _| {
+            let ticks = count.get() + 1;
+            count.set(ticks);
+            if ticks < 2 {
+                return glib::ControlFlow::Continue;
+            }
+            match shot(w, &path) {
+                Ok(()) => trace(&format!("Bild {}", path.display())),
+                Err(_) if ticks < 12 => {
+                    w.queue_draw();
+                    return glib::ControlFlow::Continue;
+                }
+                Err(e) => eprintln!("tvjoe: Bild {name}: {e}"),
+            }
+            next(probe.clone(), steps.clone(), dir.clone(), i + 1);
+            glib::ControlFlow::Break
+        });
     });
+}
+
+thread_local! {
+    /// Ein Schnappschuss-Objekt je Fenster: nach einem verworfenen liefert GTK für dasselbe
+    /// Fenster nur noch leere Bilder.
+    static PAINTABLES: RefCell<Vec<(gtk::Window, gtk::WidgetPaintable)>> = const { RefCell::new(Vec::new()) };
 }
 
 fn shot(window: &gtk::Window, path: &Path) -> Result<(), String> {
     let (w, h) = (window.width(), window.height());
-    let paintable = gtk::WidgetPaintable::new(Some(window));
+    let paintable = PAINTABLES.with(|p| {
+        let mut p = p.borrow_mut();
+        if let Some((_, pt)) = p.iter().find(|(w, _)| w == window) {
+            return pt.clone();
+        }
+        let pt = gtk::WidgetPaintable::new(Some(window));
+        p.push((window.clone(), pt.clone()));
+        pt
+    });
     let snapshot = gtk::Snapshot::new();
     paintable.snapshot(&snapshot, f64::from(w), f64::from(h));
     let node = snapshot.to_node().ok_or("leeres Bild")?;
