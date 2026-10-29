@@ -41,12 +41,12 @@ msgstr ""
 msgid "Kennung (id) nur aus Buchstaben, Ziffern und Bindestrich"
 msgstr ""
 
-#: crates/tvjoe-core/src/adapter.rs:254 crates/tvjoe-core/src/adapter.rs:370 crates/tvjoe-gui/src/umzug.rs:258
+#: crates/tvjoe-core/src/adapter.rs:254 crates/tvjoe-core/src/adapter.rs:393 crates/tvjoe-gui/src/umzug.rs:258
 #, no-c-format
 msgid "{file}: {error}"
 msgstr ""
 
-#: crates/tvjoe-core/src/adapter.rs:346
+#: crates/tvjoe-core/src/adapter.rs:369
 msgid "Klasse (class) muss hier „library“ sein"
 msgstr ""
 
@@ -2179,7 +2179,7 @@ msgstr ""
 msgid "Mit ihrer Senderliste und ihren Programmdaten"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:532 crates/tvjoe-gui/src/empfang.rs:546 crates/tvjoe-gui/src/empfang.rs:656 crates/tvjoe-gui/src/empfang.rs:672 crates/tvjoe-gui/src/empfang.rs:749 crates/tvjoe-gui/src/mediatheken.rs:342
+#: crates/tvjoe-gui/src/empfang.rs:532 crates/tvjoe-gui/src/empfang.rs:546 crates/tvjoe-gui/src/empfang.rs:656 crates/tvjoe-gui/src/empfang.rs:672 crates/tvjoe-gui/src/empfang.rs:749 crates/tvjoe-gui/src/mediatheken.rs:343
 msgid "Entfernen"
 msgstr ""
 
@@ -3362,15 +3362,15 @@ msgstr ""
 msgid "Allgemein"
 msgstr ""
 
-#: crates/tvjoe-gui/src/mediatheken.rs:302
+#: crates/tvjoe-gui/src/mediatheken.rs:303
 msgid "Name in der Kopfleiste"
 msgstr ""
 
-#: crates/tvjoe-gui/src/mediatheken.rs:338
+#: crates/tvjoe-gui/src/mediatheken.rs:339
 msgid "Mediathek entfernen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/mediatheken.rs:339
+#: crates/tvjoe-gui/src/mediatheken.rs:340
 msgid "Löscht auch die Anmeldung; Heruntergeladenes bleibt in der Ablage"
 msgstr ""
 

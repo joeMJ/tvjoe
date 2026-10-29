@@ -275,18 +275,19 @@ fn library_page(
         .unwrap_or_default();
     let content = adw::PreferencesPage::new();
     let general = adw::PreferencesGroup::builder().title(tr("Allgemein")).build();
-    // Herkunft der Daten aus dem Adapter (`note`, englisch `note_en`, Verweis `[link]`).
-    let mut link_row: Option<adw::ActionRow> = None;
+    // Herkunft der Daten aus dem Adapter (`note`, englisch `note_en`, Verweise `[link]` und
+    // `[thanks]`).
+    let mut link_rows: Vec<adw::ActionRow> = Vec::new();
     if let Some(d) = descs.iter().find(|d| d.id == l.kind) {
         let english = tvjoe_core::i18n::lang() != "de";
         let note = if english { d.note_en.as_ref().or(d.note.as_ref()) } else { d.note.as_ref() };
         if let Some(n) = note {
             general.set_description(Some(n));
         }
-        if let Some(link) = d.link.clone() {
+        for link in [&d.link, &d.thanks].into_iter().flatten().cloned() {
             let row = adw::ActionRow::builder()
-                .title(gtk::glib::markup_escape_text(&link.label))
-                .subtitle(gtk::glib::markup_escape_text(&link.url))
+                .title(gtk::glib::markup_escape_text(link.label(english)))
+                .subtitle(gtk::glib::markup_escape_text(link.subtitle(english)))
                 .activatable(true)
                 .build();
             row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
@@ -295,7 +296,7 @@ fn library_page(
                 let window = parent.root().and_downcast::<gtk::Window>();
                 gtk::UriLauncher::new(&link.url).launch(window.as_ref(), gtk::gio::Cancellable::NONE, |_| {});
             });
-            link_row = Some(row);
+            link_rows.push(row);
         }
     }
     let name = adw::EntryRow::builder()
@@ -358,7 +359,7 @@ fn library_page(
         });
         general.add(&remove_row);
     }
-    if let Some(r) = &link_row {
+    for r in &link_rows {
         general.add(r);
     }
     content.add(&general);

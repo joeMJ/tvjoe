@@ -50,13 +50,13 @@ msgstr "Unknown code rate “{fec}”"
 msgid "Kennung (id) nur aus Buchstaben, Ziffern und Bindestrich"
 msgstr "Identifier (id) may only contain letters, digits and hyphens"
 
-#: crates/tvjoe-core/src/adapter.rs:254 crates/tvjoe-core/src/adapter.rs:370
+#: crates/tvjoe-core/src/adapter.rs:254 crates/tvjoe-core/src/adapter.rs:393
 #: crates/tvjoe-gui/src/umzug.rs:258
 #, no-c-format
 msgid "{file}: {error}"
 msgstr "{file}: {error}"
 
-#: crates/tvjoe-core/src/adapter.rs:346
+#: crates/tvjoe-core/src/adapter.rs:369
 msgid "Klasse (class) muss hier „library“ sein"
 msgstr "Class (class) must be “library” here"
 
@@ -2436,7 +2436,7 @@ msgstr "With its channel list and guide data"
 
 #: crates/tvjoe-gui/src/empfang.rs:532 crates/tvjoe-gui/src/empfang.rs:546
 #: crates/tvjoe-gui/src/empfang.rs:656 crates/tvjoe-gui/src/empfang.rs:672
-#: crates/tvjoe-gui/src/empfang.rs:749 crates/tvjoe-gui/src/mediatheken.rs:342
+#: crates/tvjoe-gui/src/empfang.rs:749 crates/tvjoe-gui/src/mediatheken.rs:343
 msgid "Entfernen"
 msgstr "Remove"
 
@@ -2857,8 +2857,8 @@ msgid ""
 "Ein gewählter Eintrag enthält Benutzername und Passwort in der Adresse. Für "
 "die Nutzung dieser Quelle bist du rechtlich selbst verantwortlich."
 msgstr ""
-"One selected entry contains a user name and password in the address. You "
-"are responsible for using this source yourself."
+"One selected entry contains a user name and password in the address. You are "
+"responsible for using this source yourself."
 
 #: crates/tvjoe-gui/src/import.rs:553
 #, no-c-format
@@ -3795,15 +3795,15 @@ msgstr "Your own server (experimental)"
 msgid "Allgemein"
 msgstr "General"
 
-#: crates/tvjoe-gui/src/mediatheken.rs:302
+#: crates/tvjoe-gui/src/mediatheken.rs:303
 msgid "Name in der Kopfleiste"
 msgstr "Name in the header bar"
 
-#: crates/tvjoe-gui/src/mediatheken.rs:338
+#: crates/tvjoe-gui/src/mediatheken.rs:339
 msgid "Mediathek entfernen"
 msgstr "Remove media library"
 
-#: crates/tvjoe-gui/src/mediatheken.rs:339
+#: crates/tvjoe-gui/src/mediatheken.rs:340
 msgid "Löscht auch die Anmeldung; Heruntergeladenes bleibt in der Ablage"
 msgstr "Also deletes the login; downloads stay in storage"
 

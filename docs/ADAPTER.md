@@ -214,7 +214,8 @@ server = true
 | `driver` | ja | `oer`, `jellyfin`, `plex` oder `emby` |
 | `login` | ja | `none` (keine Anmeldung), `quick-connect` (Jellyfin), `pin` (Plex) oder `password` (Emby) |
 | `server` | nein | `true`, wenn die Adresse eines Servers einzutragen ist; Vorgabe `false` |
-| `[link]` | nein | Verweis zur Herkunft der Daten (`label`, `url`), als Zeile mit Link auf der Seite der Mediathek |
+| `[link]` | nein | Verweis zur Herkunft der Daten (`label`, `url`; wahlweise `label_en`, `subtitle`, `subtitle_en` – ohne Untertitel steht die Adresse in der zweiten Zeile), als Zeile mit Link auf der Seite der Mediathek |
+| `[thanks]` | nein | Danksagung oder Spendenhinweis an die Quelle, gleiche Felder wie `[link]`, als zweite Zeile mit Link darunter |
 | `note`, `note_en` | nein | Hinweis zur Herkunft der Daten auf der Seite der Mediathek in den Einstellungen (deutsch/englisch) |
 | `[detail]` | nein | zusätzliche Angaben in der Filminfo, siehe unten |
 

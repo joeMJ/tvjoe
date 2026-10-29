@@ -12,3 +12,10 @@ note_en = "The film list of the media library comes from MediathekView (mediathe
 [link]
 label = "MediathekView"
 url = "https://mediathekview.de/"
+
+[thanks]
+label = "Danke an MediathekView – Spenden"
+label_en = "Thanks to MediathekView – donate"
+subtitle = "MediathekView finanziert die Server über Spenden: mediathekview.de/spenden"
+subtitle_en = "MediathekView funds its servers through donations: mediathekview.de/spenden"
+url = "https://mediathekview.de/spenden/"

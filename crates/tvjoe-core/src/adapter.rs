@@ -301,12 +301,32 @@ pub enum Login {
     Password,
 }
 
-/// Verweis einer Bibliothek (`[link]`: `label`, `url`).
+/// Verweis einer Bibliothek (`[link]`, `[thanks]`: `label`, `url`; wahlweise `label_en`,
+/// `subtitle`, `subtitle_en` – ohne Untertitel steht die Adresse in der zweiten Zeile).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LibraryLink {
     pub label: String,
+    #[serde(default)]
+    pub label_en: Option<String>,
     pub url: String,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+    #[serde(default)]
+    pub subtitle_en: Option<String>,
+}
+
+impl LibraryLink {
+    /// Titel in der Sprache der Oberfläche.
+    pub fn label(&self, english: bool) -> &str {
+        if english { self.label_en.as_deref().unwrap_or(&self.label) } else { &self.label }
+    }
+
+    /// Zweite Zeile: Untertitel in der Sprache der Oberfläche, sonst die Adresse.
+    pub fn subtitle(&self, english: bool) -> &str {
+        let s = if english { self.subtitle_en.as_ref().or(self.subtitle.as_ref()) } else { self.subtitle.as_ref() };
+        s.map(String::as_str).unwrap_or(&self.url)
+    }
 }
 
 /// Beschreibung einer Bibliothek.
@@ -330,6 +350,9 @@ pub struct LibraryDescription {
     /// Verweis zur Herkunft der Daten (Zeile mit Link auf der Seite der Mediathek).
     #[serde(default)]
     pub link: Option<LibraryLink>,
+    /// Danksagung oder Spendenhinweis an die Quelle (zweite Zeile mit Link unter `[link]`).
+    #[serde(default)]
+    pub thanks: Option<LibraryLink>,
     /// Zusätzliche Angaben in der Filminfo (Anfrage und Fundstellen).
     #[serde(default)]
     pub detail: Option<crate::detail::Detail>,

@@ -211,7 +211,8 @@ server = true
 | `driver` | yes | `oer`, `jellyfin`, `plex` or `emby` |
 | `login` | yes | `none` (no login), `quick-connect` (Jellyfin), `pin` (Plex) or `password` (Emby) |
 | `server` | no | `true` if a server address has to be entered; default `false` |
-| `[link]` | no | link to where the data comes from (`label`, `url`), shown as a row on the library page |
+| `[link]` | no | link to where the data comes from (`label`, `url`; optionally `label_en`, `subtitle`, `subtitle_en` – without a subtitle the address is shown in the second line), shown as a row on the library page |
+| `[thanks]` | no | thanks or donation notice for the source, same fields as `[link]`, shown as a second link row below |
 | `note`, `note_en` | no | note on where the data comes from, shown on the library page in the settings (German/English) |
 | `[detail]` | no | additional details on the film page, see below |
 
