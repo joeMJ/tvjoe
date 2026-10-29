@@ -283,7 +283,9 @@ fn click_button(label: &str) {
 
 /// DVB-Karte (`TVJOE_SELFTEST_DVB=1`, nur diese Schritte; braucht eine Empfangsquelle Nummer 2
 /// mit Treiber linux-dvb in den Einstellungen und ein Gerät, z. B. dvb_vidtv): Seite der Quelle,
-/// Suchlauf, Umschalten, Wiedergabe, Info, Aufnahme.
+/// Suchlauf, Umschalten, Wiedergabe, Info, Aufnahme. Andere Quelle Nummer 2 über
+/// `TVJOE_SELFTEST_ZEILE=<Titel der Zeile>`, längerer Suchlauf über `TVJOE_SELFTEST_SUCHLAUF=<s>`
+/// (Vorgabe 40).
 const DVB_STEPS: &[Step] = &[
     ("90-start", main_window, 5000),
     (
@@ -291,7 +293,7 @@ const DVB_STEPS: &[Step] = &[
         |p| {
             let d = crate::prefs::open_at(&p.app, Some("empfang"), &p.app.window);
             PREFS.with(|s| *s.borrow_mut() = Some(d));
-            activate_row("DVB-Karte (Linux)");
+            activate_row(&std::env::var("TVJOE_SELFTEST_ZEILE").unwrap_or_else(|_| "DVB-Karte (Linux)".into()));
             main_window(p)
         },
         1500,
@@ -1283,6 +1285,10 @@ fn next(probe: Rc<Probe>, steps: Rc<Vec<Step>>, dir: PathBuf, i: usize) {
         return;
     };
     let window = action(&probe);
+    let wait = match std::env::var("TVJOE_SELFTEST_SUCHLAUF").ok().and_then(|s| s.parse::<u64>().ok()) {
+        Some(s) if name == "92-suchlauf" => s * 1000,
+        _ => wait,
+    };
     glib::timeout_add_local_once(Duration::from_millis(wait), move || {
         let path = dir.join(format!("{name}.png"));
         if std::env::var_os("TVJOE_SELFTEST_BAUCHBINDE").is_some() {

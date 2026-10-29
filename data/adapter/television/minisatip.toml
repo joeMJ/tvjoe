@@ -1,0 +1,18 @@
+# Empfangsquelle: minisatip (SAT>IP-Server unter Linux, github.com/catalinii/minisatip). Stellt
+# DVB-Karten und -Sticks eines Linux-Rechners (Raspberry Pi, NAS, Container) als SAT>IP ins Netz,
+# je nach Karte Satellit, Antenne oder Kabel. Geprüft 2026-10-29 mit minisatip v2.0.181 (Satellit,
+# als Client eines anderen SAT>IP-Geräts); Antenne und Kabel ungeprüft.
+class = "television"
+id = "minisatip"
+name = "minisatip (SAT>IP-Server unter Linux)"
+driver = "satip"
+systems = ["dvbs", "dvbs2", "dvbt", "dvbt2", "dvbc"]
+tuners = 1
+signal_epg = true
+
+[satellite]
+name = "Astra 19,2° Ost"
+orbital = 192
+east = true
+# Starttransponder des Suchlaufs (sendet die Netzwerktabelle mit allen Transpondern).
+seed = { freq = 11494, pol = "h", dvbs2 = true, mtype = "8psk", sr = 22000, fec = "23" }

@@ -65,6 +65,7 @@ The names are shown as below (German) in the program.
 | EyeTV Netstream 4Sat | `satip` | DVB-S/S2 | scan Astra 19.2° East | signal and/or XMLTV |
 | SAT>IP nach Norm (Satellit) – SAT>IP standard | `satip` | DVB-S/S2 | scan Astra 19.2° East | signal and/or XMLTV |
 | Digital Devices Octopus NET | `satip` | DVB-S/S2, DVB-T/T2, DVB-C | scan (satellite or frequency plan) | signal and/or XMLTV |
+| minisatip (SAT>IP-Server unter Linux) – SAT>IP server on Linux | `satip` | whatever the cards on the minisatip machine receive | scan (satellite or frequency plan) | signal and/or XMLTV |
 | Telestar Digibit | `satip` | DVB-S/S2 | scan Astra 19.2° East | signal and/or XMLTV |
 | Kathrein EXIP | `satip` | DVB-S/S2 | scan Astra 19.2° East | signal and/or XMLTV |
 | FRITZ!Box Cable | `satip` | DVB-C | from the box (M3U) | XMLTV |
@@ -76,6 +77,12 @@ A satellite scan starts on a seed transponder and reads the network table with a
 from there. For antenna and cable there are built-in frequency plans: **DVB-T2 Germany** (UHF
 channels 21–48) and **DVB-C Germany**. Encrypted channels are skipped; a repeated scan keeps
 numbers and your own names.
+
+[minisatip](https://github.com/catalinii/minisatip) turns the DVB cards and sticks of a Linux
+machine (Raspberry Pi, NAS, container) into a SAT>IP device on the network; this way a stick can
+also be used on Windows. As with every SAT>IP device the stream arrives via UDP: the firewall of
+the machine running tvjoe has to let UDP from the minisatip machine through (on Ubuntu e.g.
+`sudo ufw allow from <address> proto udp`).
 
 ### Settings per reception source
 

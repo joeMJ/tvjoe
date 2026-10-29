@@ -67,6 +67,7 @@ noch nicht.
 | EyeTV Netstream 4Sat | `satip` | DVB-S/S2 | Suchlauf Astra 19,2° Ost | Signal und/oder XMLTV |
 | SAT>IP nach Norm (Satellit) | `satip` | DVB-S/S2 | Suchlauf Astra 19,2° Ost | Signal und/oder XMLTV |
 | Digital Devices Octopus NET | `satip` | DVB-S/S2, DVB-T/T2, DVB-C | Suchlauf (Satellit oder Frequenzplan) | Signal und/oder XMLTV |
+| minisatip (SAT>IP-Server unter Linux) | `satip` | was die Karten am minisatip-Rechner empfangen | Suchlauf (Satellit oder Frequenzplan) | Signal und/oder XMLTV |
 | Telestar Digibit | `satip` | DVB-S/S2 | Suchlauf Astra 19,2° Ost | Signal und/oder XMLTV |
 | Kathrein EXIP | `satip` | DVB-S/S2 | Suchlauf Astra 19,2° Ost | Signal und/oder XMLTV |
 | FRITZ!Box Cable | `satip` | DVB-C | von der Box (M3U) | XMLTV |
@@ -78,6 +79,12 @@ Der Suchlauf über Satellit beginnt auf einem Starttransponder und liest von dor
 Netzwerktabelle mit allen Transpondern. Für Antenne und Kabel gibt es eingebaute Frequenzpläne:
 **DVB-T2 Deutschland** (UHF-Kanäle 21–48) und **DVB-C Deutschland**. Verschlüsselte Sender werden
 ausgelassen; ein erneuter Suchlauf behält Nummern und eigene Namen.
+
+[minisatip](https://github.com/catalinii/minisatip) macht DVB-Karten und -Sticks eines
+Linux-Rechners (Raspberry Pi, NAS, Container) zu einem SAT>IP-Gerät im Netz; so lässt sich ein
+Stick auch unter Windows nutzen. Wie bei jedem SAT>IP-Gerät kommt der Datenstrom per UDP: Die
+Firewall des Rechners mit tvjoe muss UDP vom minisatip-Rechner durchlassen (unter Ubuntu z. B.
+`sudo ufw allow from <adresse> proto udp`).
 
 ### Einstellungen je Empfangsquelle
 

@@ -25,6 +25,7 @@ const BUILTIN: &[(&str, &str)] = &[
     ("dvb-linux.toml", include_str!("../../../data/adapter/television/dvb-linux.toml")),
     ("satip-norm.toml", include_str!("../../../data/adapter/television/satip-norm.toml")),
     ("octopus-net.toml", include_str!("../../../data/adapter/television/octopus-net.toml")),
+    ("minisatip.toml", include_str!("../../../data/adapter/television/minisatip.toml")),
     ("digibit.toml", include_str!("../../../data/adapter/television/digibit.toml")),
     ("kathrein-exip.toml", include_str!("../../../data/adapter/television/kathrein-exip.toml")),
     ("fritzbox-cable.toml", include_str!("../../../data/adapter/television/fritzbox-cable.toml")),
