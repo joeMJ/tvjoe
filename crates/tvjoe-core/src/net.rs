@@ -133,6 +133,11 @@ pub fn probe(agent: &Agent, url: &str) -> Probe {
         Some(_) => return Probe::Skipped,
         None => return Probe::Failed(tr("keine URL").into()),
     }
+    // Nie Dienste auf diesem Rechner oder link-lokal anfragen (fremde Listen könnten sonst
+    // z. B. Verwaltungsseiten ansprechen).
+    if crate::pruefung::host_class(url).is_host_local() {
+        return Probe::Skipped;
+    }
     let path = url
         .split(['?', '#'])
         .next()
@@ -178,6 +183,14 @@ pub fn cache_name(url: &str, ext: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn probe_fragt_lokale_dienste_nicht_an() {
+        let agent = super::agent(std::time::Duration::from_secs(1));
+        for u in ["http://127.0.0.1:631/admin", "http://2130706433/", "http://169.254.169.254/", "http://[::1]/"] {
+            assert_eq!(super::probe(&agent, u), super::Probe::Skipped, "{u}");
+        }
+    }
+
     use super::*;
 
     #[test]

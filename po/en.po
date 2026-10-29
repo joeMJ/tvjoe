@@ -258,90 +258,88 @@ msgstr "no reception on this channel"
 msgid "keine Programmdaten empfangen"
 msgstr "no guide data received"
 
-#: crates/tvjoe-core/src/epg.rs:307
+#: crates/tvjoe-core/src/epg.rs:310
 #, no-c-format
 msgid "entpackt größer als {limit} MiB, abgelehnt"
 msgstr "larger than {limit} MiB when unpacked, rejected"
 
-#: crates/tvjoe-core/src/epg.rs:352
+#: crates/tvjoe-core/src/epg.rs:355
 #, no-c-format
 msgid "XML bei Byte {position}: {error}"
 msgstr "XML at byte {position}: {error}"
 
-#: crates/tvjoe-core/src/epg.rs:487
+#: crates/tvjoe-core/src/epg.rs:490
 msgid "legt eigene Entities fest (DOCTYPE mit ENTITY), abgelehnt"
 msgstr "defines its own entities (DOCTYPE with ENTITY), rejected"
 
-#: crates/tvjoe-core/src/epg.rs:500
-#, no-c-format
-msgid "{n} Text gesäubert (Steuerzeichen oder Länge)"
-msgid_plural "{n} Texte gesäubert (Steuerzeichen oder Länge)"
-msgstr[0] "{n} text cleaned (control characters or length)"
-msgstr[1] "{n} texts cleaned (control characters or length)"
-
-#: crates/tvjoe-core/src/epg.rs:503
+#: crates/tvjoe-core/src/epg.rs:504
 #, no-c-format
 msgid "{n} Logo-Adresse nicht erlaubt, verworfen"
 msgid_plural "{n} Logo-Adressen nicht erlaubt, verworfen"
 msgstr[0] "{n} logo address not allowed, discarded"
 msgstr[1] "{n} logo addresses not allowed, discarded"
 
-#: crates/tvjoe-core/src/epg.rs:506
+#: crates/tvjoe-core/src/epg.rs:507
 #, no-c-format
 msgid "{n} Sendung mit unmöglicher Zeit verworfen"
 msgid_plural "{n} Sendungen mit unmöglichen Zeiten verworfen"
 msgstr[0] "{n} programme with impossible time discarded"
 msgstr[1] "{n} programmes with impossible times discarded"
 
-#: crates/tvjoe-core/src/epg.rs:509
+#: crates/tvjoe-core/src/epg.rs:510
 #, no-c-format
 msgid "{n} Sendung länger als 24 Stunden"
 msgid_plural "{n} Sendungen länger als 24 Stunden"
 msgstr[0] "{n} programme longer than 24 hours"
 msgstr[1] "{n} programmes longer than 24 hours"
 
-#: crates/tvjoe-core/src/epg.rs:512
+#: crates/tvjoe-core/src/epg.rs:513
 #, no-c-format
 msgid "ungewöhnlich viele Kanäle: {count}"
 msgstr "unusually many channels: {count}"
 
-#: crates/tvjoe-core/src/epg.rs:516
+#: crates/tvjoe-core/src/epg.rs:517
 #, no-c-format
 msgid "ungewöhnlich viele Sendungen: {count}"
 msgstr "unusually many programmes: {count}"
 
-#: crates/tvjoe-core/src/epg.rs:629 crates/tvjoe-gui/src/manage.rs:340
+#: crates/tvjoe-core/src/epg.rs:630 crates/tvjoe-gui/src/manage.rs:340
 msgid "SAT-Empfang"
 msgstr "SAT reception"
 
-#: crates/tvjoe-core/src/epg.rs:633
+#: crates/tvjoe-core/src/epg.rs:634
 msgid "Aus dem Signal"
 msgstr "From the signal"
 
-#: crates/tvjoe-core/src/epg.rs:678
+#: crates/tvjoe-core/src/epg.rs:679
 #, no-c-format
 msgid "{source}: neu geladen"
 msgstr "{source}: reloaded"
 
-#: crates/tvjoe-core/src/epg.rs:683
+#: crates/tvjoe-core/src/epg.rs:684
 #, no-c-format
 msgid "{source}: Laden fehlgeschlagen ({error}), alter Stand"
 msgstr "{source}: loading failed ({error}), keeping old data"
 
-#: crates/tvjoe-core/src/epg.rs:699
+#: crates/tvjoe-core/src/epg.rs:701 crates/tvjoe-core/src/epg.rs:729
+#, no-c-format
+msgid "{source}: {error}"
+msgstr "{source}: {error}"
+
+#: crates/tvjoe-core/src/epg.rs:708
 #, no-c-format
 msgid "{source}: {channels} Kanäle, {programmes} Sendungen"
 msgstr "{source}: {channels} channels, {programmes} shows"
 
-#: crates/tvjoe-core/src/epg.rs:706
+#: crates/tvjoe-core/src/epg.rs:715
+#, no-c-format
+msgid "{source}: {count} Texte gesäubert (Steuerzeichen oder Länge)"
+msgstr "{source}: {count} texts cleaned (control characters or length)"
+
+#: crates/tvjoe-core/src/epg.rs:722
 #, no-c-format
 msgid "{source}: {warning}"
 msgstr "{source}: {warning}"
-
-#: crates/tvjoe-core/src/epg.rs:710
-#, no-c-format
-msgid "{source}: {error}"
-msgstr "{source}: {error}"
 
 #: crates/tvjoe-core/src/hdhomerun.rs:57 crates/tvjoe-core/src/hdhomerun.rs:65
 #, no-c-format
@@ -843,7 +841,7 @@ msgid "Ablageordner"
 msgstr "Storage folder"
 
 #: crates/tvjoe-gui/src/ablage.rs:1503 crates/tvjoe-gui/src/icons.rs:129
-#: crates/tvjoe-gui/src/selftest.rs:687
+#: crates/tvjoe-gui/src/selftest.rs:705
 msgid "Ändern …"
 msgstr "Change …"
 
@@ -1001,7 +999,7 @@ msgstr "File without entry, {size}"
 msgid "{server}: Eintrag nicht mehr in der Bibliothek"
 msgstr "{server}: item no longer in the library"
 
-#: crates/tvjoe-gui/src/ablage.rs:339 crates/tvjoe-gui/src/app.rs:2102
+#: crates/tvjoe-gui/src/ablage.rs:339 crates/tvjoe-gui/src/app.rs:2119
 #, no-c-format
 msgid "{server}: nicht angemeldet"
 msgstr "{server}: not signed in"
@@ -1259,11 +1257,11 @@ msgstr "{subtitle} · since {time}"
 msgid "{subtitle} · bis {time} · {size}"
 msgstr "{subtitle} · until {time} · {size}"
 
-#: crates/tvjoe-gui/src/ablageview.rs:185 crates/tvjoe-gui/src/app.rs:1608
+#: crates/tvjoe-gui/src/ablageview.rs:185 crates/tvjoe-gui/src/app.rs:1625
 msgid "Beenden"
 msgstr "Quit"
 
-#: crates/tvjoe-gui/src/ablageview.rs:197 crates/tvjoe-gui/src/grid.rs:265
+#: crates/tvjoe-gui/src/ablageview.rs:197 crates/tvjoe-gui/src/grid.rs:314
 msgid "Geplant"
 msgstr "Scheduled"
 
@@ -1284,11 +1282,11 @@ msgstr "No recordings scheduled"
 msgid "{channel} · {day} – {end}"
 msgstr "{channel} · {day} – {end}"
 
-#: crates/tvjoe-gui/src/ablageview.rs:217 crates/tvjoe-gui/src/grid.rs:175
+#: crates/tvjoe-gui/src/ablageview.rs:217 crates/tvjoe-gui/src/grid.rs:219
 msgid "Planung löschen"
 msgstr "Delete schedule"
 
-#: crates/tvjoe-gui/src/ablageview.rs:264 crates/tvjoe-gui/src/app.rs:854
+#: crates/tvjoe-gui/src/ablageview.rs:264 crates/tvjoe-gui/src/app.rs:857
 msgid "ÖR-Mediathek"
 msgstr "Public broadcaster Mediathek"
 
@@ -1535,7 +1533,7 @@ msgstr "Used {used} · {free} free"
 msgid "Belegt {used}"
 msgstr "Used {used}"
 
-#: crates/tvjoe-gui/src/ablageview.rs:928 crates/tvjoe-gui/src/selftest.rs:584
+#: crates/tvjoe-gui/src/ablageview.rs:928 crates/tvjoe-gui/src/selftest.rs:586
 msgid "Alles prüfen"
 msgstr "Check everything"
 
@@ -1568,18 +1566,18 @@ msgstr ""
 "Nothing in Storage yet. Right-click a tile in the Mediathek to download it, "
 "or press key R to record the current show."
 
-#: crates/tvjoe-gui/src/app.rs:1128
+#: crates/tvjoe-gui/src/app.rs:1145
 #, no-c-format
 msgid "{title} · bis {end}"
 msgstr "{title} · until {end}"
 
-#: crates/tvjoe-gui/src/app.rs:1141 crates/tvjoe-gui/src/app.rs:1215
-#: crates/tvjoe-gui/src/app.rs:2869
+#: crates/tvjoe-gui/src/app.rs:1158 crates/tvjoe-gui/src/app.rs:1232
+#: crates/tvjoe-gui/src/app.rs:2886
 #, no-c-format
 msgid "Danach {start}  {title}"
 msgstr "Next {start}  {title}"
 
-#: crates/tvjoe-gui/src/app.rs:1207
+#: crates/tvjoe-gui/src/app.rs:1224
 #, no-c-format
 msgid "Jetzt {start}–{end}  {title}"
 msgstr "Now {start}–{end}  {title}"
@@ -1594,7 +1592,7 @@ msgstr ""
 "graphics driver, Windows provides no usable OpenGL; please start tvjoe "
 "directly on the computer."
 
-#: crates/tvjoe-gui/src/app.rs:1235
+#: crates/tvjoe-gui/src/app.rs:1252
 msgid "● Aufnahme"
 msgstr "● Recording"
 
@@ -1617,7 +1615,7 @@ msgstr "No video picture: OpenGL is not available ({detail}). {hint}"
 msgid "Signal {signal} % · Qualität {quality} %"
 msgstr "Signal {signal} % · Quality {quality} %"
 
-#: crates/tvjoe-gui/src/app.rs:1466 crates/tvjoe-gui/src/manage.rs:144
+#: crates/tvjoe-gui/src/app.rs:1483 crates/tvjoe-gui/src/manage.rs:144
 #: crates/tvjoe-gui/src/manage.rs:385
 msgid "Favorit"
 msgstr "Favourite"
@@ -1626,11 +1624,11 @@ msgstr "Favourite"
 msgid "Kein Empfang"
 msgstr "No reception"
 
-#: crates/tvjoe-gui/src/app.rs:1600
+#: crates/tvjoe-gui/src/app.rs:1617
 msgid "tvjoe beenden?"
 msgstr "Quit tvjoe?"
 
-#: crates/tvjoe-gui/src/app.rs:1601
+#: crates/tvjoe-gui/src/app.rs:1618
 #, no-c-format
 msgid ""
 "{text}. Aufnahmen gibt es nur, solange tvjoe läuft; laufende werden beim "
@@ -1639,58 +1637,58 @@ msgstr ""
 "{text}. Recordings only happen while tvjoe is running; ongoing ones are "
 "finished when you quit, and downloads can be resumed later."
 
-#: crates/tvjoe-gui/src/app.rs:1607
+#: crates/tvjoe-gui/src/app.rs:1624
 msgid "Weiterlaufen lassen"
 msgstr "Keep running"
 
-#: crates/tvjoe-gui/src/app.rs:1762
+#: crates/tvjoe-gui/src/app.rs:1779
 msgid "Keine SAT-Sender"
 msgstr "No SAT channels"
 
-#: crates/tvjoe-gui/src/app.rs:1764
+#: crates/tvjoe-gui/src/app.rs:1781
 #, no-c-format
 msgid "Keine Sender: {source}"
 msgstr "No channels: {source}"
 
-#: crates/tvjoe-gui/src/app.rs:1769
+#: crates/tvjoe-gui/src/app.rs:1786
 msgid "Suchlauf unter Einstellungen → Empfang"
 msgstr "Channel scan under Settings → Reception"
 
-#: crates/tvjoe-gui/src/app.rs:1776
+#: crates/tvjoe-gui/src/app.rs:1793
 msgid "Keine Sender"
 msgstr "No channels"
 
-#: crates/tvjoe-gui/src/app.rs:1777
+#: crates/tvjoe-gui/src/app.rs:1794
 msgid ""
 "Sender aus einer M3U übernehmen: tvjoe --import liste.m3u --mit-warnungen"
 msgstr "Import channels from an M3U: tvjoe --import liste.m3u --mit-warnungen"
 
-#: crates/tvjoe-gui/src/app.rs:1827 crates/tvjoe-gui/src/app.rs:2066
+#: crates/tvjoe-gui/src/app.rs:1844 crates/tvjoe-gui/src/app.rs:2083
 #, no-c-format
 msgid "{name} – tvjoe"
 msgstr "{name} – tvjoe"
 
-#: crates/tvjoe-gui/src/app.rs:1874
+#: crates/tvjoe-gui/src/app.rs:1891
 msgid "Das Bild steht. Bitte den Sender neu wählen oder tvjoe neu starten."
 msgstr ""
 "The picture is frozen. Please select the channel again or restart tvjoe."
 
-#: crates/tvjoe-gui/src/app.rs:1904
+#: crates/tvjoe-gui/src/app.rs:1921
 #, no-c-format
 msgid "DVB-Karte: {error}"
 msgstr "DVB card: {error}"
 
-#: crates/tvjoe-gui/src/app.rs:1930
+#: crates/tvjoe-gui/src/app.rs:1947
 #, no-c-format
 msgid "Tvheadend: {error}"
 msgstr "Tvheadend: {error}"
 
-#: crates/tvjoe-gui/src/app.rs:1946
+#: crates/tvjoe-gui/src/app.rs:1963
 #, no-c-format
 msgid "SAT>IP: {error}"
 msgstr "SAT>IP: {error}"
 
-#: crates/tvjoe-gui/src/app.rs:1982
+#: crates/tvjoe-gui/src/app.rs:1999
 msgid ""
 "Kein Datenstrom vom SAT>IP-Gerät (UDP). Firewall: Einstellungen → Empfang → "
 "Prüfen. Über WireGuard: Masquerade im Tunnel verhindert den Rückweg (docs/"
@@ -1700,193 +1698,193 @@ msgstr ""
 "→ Check. Over WireGuard: masquerading in the tunnel blocks the way back "
 "(docs/SAT-IP.md)"
 
-#: crates/tvjoe-gui/src/app.rs:2061
+#: crates/tvjoe-gui/src/app.rs:2078
 #, no-c-format
 msgid "Weiter ab {time}"
 msgstr "Continue from {time}"
 
-#: crates/tvjoe-gui/src/app.rs:2163
+#: crates/tvjoe-gui/src/app.rs:2180
 #, no-c-format
 msgid "{server}: nicht abspielbar ({error})"
 msgstr "{server}: cannot be played ({error})"
 
-#: crates/tvjoe-gui/src/app.rs:2228
+#: crates/tvjoe-gui/src/app.rs:2245
 #, no-c-format
 msgid "{meta} · aus der Ablage"
 msgstr "{meta} · from Storage"
 
-#: crates/tvjoe-gui/src/app.rs:2304
+#: crates/tvjoe-gui/src/app.rs:2321
 msgid "Fernsehen läuft"
 msgstr "TV is playing"
 
-#: crates/tvjoe-gui/src/app.rs:2340
+#: crates/tvjoe-gui/src/app.rs:2357
 #, no-c-format
 msgid "Als Nächstes: {title}"
 msgstr "Up next: {title}"
 
-#: crates/tvjoe-gui/src/app.rs:2345
+#: crates/tvjoe-gui/src/app.rs:2362
 msgid "Beitrag zu Ende"
 msgstr "Video finished"
 
-#: crates/tvjoe-gui/src/app.rs:2346
+#: crates/tvjoe-gui/src/app.rs:2363
 msgid "Video nicht abspielbar"
 msgstr "Video cannot be played"
 
-#: crates/tvjoe-gui/src/app.rs:2370
+#: crates/tvjoe-gui/src/app.rs:2387
 #, no-c-format
 msgid "Stream gestört – weiche aus auf {quality}"
 msgstr "Stream disrupted – switching to {quality}"
 
-#: crates/tvjoe-gui/src/app.rs:2375
+#: crates/tvjoe-gui/src/app.rs:2392
 msgid "Sender nicht erreichbar – alle Streams versucht"
 msgstr "Channel unreachable – all streams tried"
 
-#: crates/tvjoe-gui/src/app.rs:2494
+#: crates/tvjoe-gui/src/app.rs:2511
 msgid "Kein Sender mit dieser Nummer"
 msgstr "No channel with this number"
 
-#: crates/tvjoe-gui/src/app.rs:2534
+#: crates/tvjoe-gui/src/app.rs:2551
 #, no-c-format
 msgid "Qualität {quality}"
 msgstr "Quality {quality}"
 
-#: crates/tvjoe-gui/src/app.rs:2536
+#: crates/tvjoe-gui/src/app.rs:2553
 #, no-c-format
 msgid "Qualität {wanted} nicht vorhanden – läuft {actual}"
 msgstr "Quality {wanted} not available – playing {actual}"
 
-#: crates/tvjoe-gui/src/app.rs:2569
+#: crates/tvjoe-gui/src/app.rs:2586
 #, no-c-format
 msgid "Lautstärke {volume} %"
 msgstr "Volume {volume} %"
 
-#: crates/tvjoe-gui/src/app.rs:2577
+#: crates/tvjoe-gui/src/app.rs:2594
 #, no-c-format
 msgid "Ton: {label} ({n}/{count})"
 msgstr "Audio: {label} ({n}/{count})"
 
-#: crates/tvjoe-gui/src/app.rs:2579
+#: crates/tvjoe-gui/src/app.rs:2596
 #, no-c-format
 msgid "Nur eine Tonspur: {label}"
 msgstr "Only one audio track: {label}"
 
-#: crates/tvjoe-gui/src/app.rs:2580
+#: crates/tvjoe-gui/src/app.rs:2597
 msgid "Keine Tonspur"
 msgstr "No audio track"
 
-#: crates/tvjoe-gui/src/app.rs:2589
+#: crates/tvjoe-gui/src/app.rs:2606
 #, no-c-format
 msgid "Untertitel: {label} ({n}/{count})"
 msgstr "Subtitles: {label} ({n}/{count})"
 
-#: crates/tvjoe-gui/src/app.rs:2591
+#: crates/tvjoe-gui/src/app.rs:2608
 msgid "Untertitel aus"
 msgstr "Subtitles off"
 
-#: crates/tvjoe-gui/src/app.rs:2592
+#: crates/tvjoe-gui/src/app.rs:2609
 msgid "Keine Untertitel"
 msgstr "No subtitles"
 
-#: crates/tvjoe-gui/src/app.rs:2629
+#: crates/tvjoe-gui/src/app.rs:2646
 msgid "Schwarze Balken werden abgeschnitten"
 msgstr "Black bars are cropped"
 
-#: crates/tvjoe-gui/src/app.rs:2631
+#: crates/tvjoe-gui/src/app.rs:2648
 msgid "Schwarze Balken bleiben"
 msgstr "Black bars stay"
 
-#: crates/tvjoe-gui/src/app.rs:2634
+#: crates/tvjoe-gui/src/app.rs:2651
 msgid "Bild füllt das Fenster"
 msgstr "Picture fills the window"
 
-#: crates/tvjoe-gui/src/app.rs:2636
+#: crates/tvjoe-gui/src/app.rs:2653
 msgid "Bild eingepasst"
 msgstr "Picture fitted"
 
-#: crates/tvjoe-gui/src/app.rs:2764
+#: crates/tvjoe-gui/src/app.rs:2781
 msgid "Ton an"
 msgstr "Unmute"
 
-#: crates/tvjoe-gui/src/app.rs:2764
+#: crates/tvjoe-gui/src/app.rs:2781
 msgid "Ton aus"
 msgstr "Mute"
 
-#: crates/tvjoe-gui/src/app.rs:2786
+#: crates/tvjoe-gui/src/app.rs:2803
 msgid "Sender – tvjoe"
 msgstr "Channels – tvjoe"
 
-#: crates/tvjoe-gui/src/app.rs:282
-msgid "Wiedergabe nicht möglich"
-msgstr "Playback not possible"
-
-#: crates/tvjoe-gui/src/app.rs:2822
+#: crates/tvjoe-gui/src/app.rs:2839
 msgid "Aus der Ablage (lokale Datei)"
 msgstr "From Storage (local file)"
 
-#: crates/tvjoe-gui/src/app.rs:283
-msgid "libmpv ließ sich nicht starten."
-msgstr "libmpv could not be started."
+#: crates/tvjoe-gui/src/app.rs:284
+msgid "Wiedergabe nicht möglich"
+msgstr "Playback not possible"
 
-#: crates/tvjoe-gui/src/app.rs:2831
+#: crates/tvjoe-gui/src/app.rs:2848
 #, no-c-format
 msgid "Danach: {title}"
 msgstr "Next: {title}"
 
-#: crates/tvjoe-gui/src/app.rs:2856
+#: crates/tvjoe-gui/src/app.rs:285
+msgid "libmpv ließ sich nicht starten."
+msgstr "libmpv could not be started."
+
+#: crates/tvjoe-gui/src/app.rs:2873
 #, no-c-format
 msgid "{channel} · {start}–{end}"
 msgstr "{channel} · {start}–{end}"
 
-#: crates/tvjoe-gui/src/app.rs:2877
+#: crates/tvjoe-gui/src/app.rs:2894
 msgid "Kein Programm (EPG) für diesen Sender"
 msgstr "No guide (EPG) for this channel"
 
-#: crates/tvjoe-gui/src/app.rs:2889
+#: crates/tvjoe-gui/src/app.rs:2906
 #, no-c-format
 msgid "{reception} · Tuner {tuner} · {freq} MHz"
 msgstr "{reception} · Tuner {tuner} · {freq} MHz"
 
-#: crates/tvjoe-gui/src/app.rs:2896
+#: crates/tvjoe-gui/src/app.rs:2913
 #, no-c-format
 msgid "{reception} · {tuning}"
 msgstr "{reception} · {tuning}"
 
-#: crates/tvjoe-gui/src/app.rs:296
+#: crates/tvjoe-gui/src/app.rs:298
 msgid "Senderliste (L)"
 msgstr "Channel list (L)"
 
-#: crates/tvjoe-gui/src/app.rs:301
+#: crates/tvjoe-gui/src/app.rs:303
 msgid "Sender verwalten (Strg+E)"
 msgstr "Manage channels (Ctrl+E)"
 
-#: crates/tvjoe-gui/src/app.rs:306 crates/tvjoe-gui/src/layer.rs:88
+#: crates/tvjoe-gui/src/app.rs:308 crates/tvjoe-gui/src/layer.rs:88
 #: crates/tvjoe-gui/src/layer.rs:241 crates/tvjoe-gui/src/layer.rs:269
 #: crates/tvjoe-gui/src/layer.rs:284 crates/tvjoe-gui/src/layer.rs:321
 #: crates/tvjoe-gui/src/layer.rs:337
 msgid "Schließen (Esc)"
 msgstr "Close (Esc)"
 
-#: crates/tvjoe-gui/src/app.rs:316
+#: crates/tvjoe-gui/src/app.rs:318
 msgid "Vollbild (F)"
 msgstr "Fullscreen (F)"
 
-#: crates/tvjoe-gui/src/app.rs:321 crates/tvjoe-gui/src/prefs.rs:150
+#: crates/tvjoe-gui/src/app.rs:323 crates/tvjoe-gui/src/prefs.rs:150
 msgid "Schwarze Balken abschneiden"
 msgstr "Crop black bars"
 
-#: crates/tvjoe-gui/src/app.rs:326
+#: crates/tvjoe-gui/src/app.rs:328
 msgid "Bild füllen (Z)"
 msgstr "Fill picture (Z)"
 
-#: crates/tvjoe-gui/src/app.rs:344
+#: crates/tvjoe-gui/src/app.rs:346
 msgid "Einstellungen (Strg+,)"
 msgstr "Settings (Ctrl+,)"
 
-#: crates/tvjoe-gui/src/app.rs:349
+#: crates/tvjoe-gui/src/app.rs:351
 msgid "Programm (G)"
 msgstr "Guide (G)"
 
-#: crates/tvjoe-gui/src/app.rs:356
+#: crates/tvjoe-gui/src/app.rs:358
 msgid "Ablage (D)"
 msgstr "Storage (D)"
 
@@ -1894,15 +1892,15 @@ msgstr "Storage (D)"
 msgid "Qualität unbekannt"
 msgstr "Quality unknown"
 
-#: crates/tvjoe-gui/src/app.rs:815 crates/tvjoe-gui/src/app.rs:1734
+#: crates/tvjoe-gui/src/app.rs:818 crates/tvjoe-gui/src/app.rs:1751
 msgid "Keine Empfangsquelle eingeschaltet – Einstellungen → Empfang"
 msgstr "No reception source switched on – Settings → Reception"
 
-#: crates/tvjoe-gui/src/app.rs:938
+#: crates/tvjoe-gui/src/app.rs:941
 msgid "Fernsehen"
 msgstr "TV"
 
-#: crates/tvjoe-gui/src/app.rs:939
+#: crates/tvjoe-gui/src/app.rs:942
 msgid "Satellit (SAT>IP)"
 msgstr "Satellite (SAT>IP)"
 
@@ -2213,7 +2211,7 @@ msgstr ""
 msgid "Suchlauf über"
 msgstr "Scan over"
 
-#: crates/tvjoe-gui/src/dvbcard.rs:85 crates/tvjoe-gui/src/selftest.rs:298
+#: crates/tvjoe-gui/src/dvbcard.rs:85 crates/tvjoe-gui/src/selftest.rs:300
 msgid "Radiosender übernehmen"
 msgstr "Include radio channels"
 
@@ -2222,7 +2220,7 @@ msgid "Suchlauf"
 msgstr "Scan"
 
 #: crates/tvjoe-gui/src/dvbcard.rs:92 crates/tvjoe-gui/src/satip.rs:101
-#: crates/tvjoe-gui/src/selftest.rs:299
+#: crates/tvjoe-gui/src/selftest.rs:301
 msgid "Suchlauf starten"
 msgstr "Start scan"
 
@@ -2395,7 +2393,7 @@ msgstr "Reload XMLTV after"
 msgid "Stunden; 0 = nur nach Änderungen an den XMLTV-Quellen"
 msgstr "Hours; 0 = only after changes to the XMLTV sources"
 
-#: crates/tvjoe-gui/src/empfang.rs:49 crates/tvjoe-gui/src/selftest.rs:190
+#: crates/tvjoe-gui/src/empfang.rs:49 crates/tvjoe-gui/src/selftest.rs:192
 msgid "Internet-TV"
 msgstr "Internet TV"
 
@@ -2619,7 +2617,7 @@ msgstr ""
 "fetching again keeps numbers and your own names. Guide from Tvheadend; "
 "switchable to XMLTV per channel in “Manage channels”."
 
-#: crates/tvjoe-gui/src/empfang.rs:881 crates/tvjoe-gui/src/selftest.rs:483
+#: crates/tvjoe-gui/src/empfang.rs:881 crates/tvjoe-gui/src/selftest.rs:485
 msgid "Kanäle holen"
 msgstr "Fetch channels"
 
@@ -2638,7 +2636,7 @@ msgid "Nicht verbunden: {error}"
 msgstr "Not connected: {error}"
 
 #: crates/tvjoe-gui/src/empfang.rs:94 crates/tvjoe-gui/src/empfang.rs:202
-#: crates/tvjoe-gui/src/selftest.rs:366
+#: crates/tvjoe-gui/src/selftest.rs:368
 msgid "Empfangsquelle hinzufügen"
 msgstr "Add reception source"
 
@@ -2673,19 +2671,19 @@ msgstr ""
 msgid "Vom Gerät holen"
 msgstr "Fetch from device"
 
-#: crates/tvjoe-gui/src/grid.rs:124
+#: crates/tvjoe-gui/src/grid.rs:168
 msgid "keine Sendungen im Zeitraum"
 msgstr "no shows in this period"
 
-#: crates/tvjoe-gui/src/grid.rs:126
+#: crates/tvjoe-gui/src/grid.rs:170
 msgid "kein EPG zugeordnet"
 msgstr "no EPG assigned"
 
-#: crates/tvjoe-gui/src/grid.rs:192
+#: crates/tvjoe-gui/src/grid.rs:236
 msgid "Aufnahme planen"
 msgstr "Schedule recording"
 
-#: crates/tvjoe-gui/src/grid.rs:237
+#: crates/tvjoe-gui/src/grid.rs:281
 msgid ""
 "Kein Programm geladen. Bitte in „Sender verwalten“ eine EPG-Quelle (XMLTV) "
 "eintragen oder bei SAT-Sendern „Aus dem SAT-Empfang“ wählen. Ist eine "
@@ -2695,14 +2693,22 @@ msgstr ""
 "choose “From SAT reception” for SAT channels. If one is entered, it is still "
 "being loaded."
 
-#: crates/tvjoe-gui/src/grid.rs:264
+#: crates/tvjoe-gui/src/grid.rs:313
 msgid "Programm"
 msgstr "Guide"
 
-#: crates/tvjoe-gui/src/grid.rs:284
+#: crates/tvjoe-gui/src/grid.rs:333
 #, no-c-format
 msgid "Programm {von} bis {bis} Uhr"
 msgstr "Guide {von} to {bis}"
+
+#: crates/tvjoe-gui/src/grid.rs:73
+msgid "Prüfung der EPG-Quellen:"
+msgstr "Check of the EPG sources:"
+
+#: crates/tvjoe-gui/src/grid.rs:84
+msgid "Hinweis ausblenden"
+msgstr "Hide notice"
 
 #: crates/tvjoe-gui/src/icons.rs:124
 msgid "Symbol in der Kopfleiste"
@@ -4937,6 +4943,12 @@ msgstr ""
 #, no-c-format
 msgid "Fehlt: {packages}. Zum Bauen in MSYS2 installieren: pacman -S {msys}"
 msgstr "Missing: {packages}. To build, install in MSYS2: pacman -S {msys}"
+
+#, no-c-format
+#~ msgid "{n} Text gesäubert (Steuerzeichen oder Länge)"
+#~ msgid_plural "{n} Texte gesäubert (Steuerzeichen oder Länge)"
+#~ msgstr[0] "{n} text cleaned (control characters or length)"
+#~ msgstr[1] "{n} texts cleaned (control characters or length)"
 
 #, no-c-format
 #~ msgid "unbekanntes URL-Schema „{scheme}“"

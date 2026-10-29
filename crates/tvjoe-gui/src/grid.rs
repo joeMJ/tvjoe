@@ -53,6 +53,50 @@ fn fixed(child: &impl IsA<gtk::Widget>, width: i32) -> adw::Clamp {
         .build()
 }
 
+/// Hinweis über dem Raster: Befunde der EPG-Prüfung (abgewiesene Quellen, verworfene Einträge),
+/// mit Knopf zum Wegklicken.
+fn warnings_notice(app: &Rc<App>) -> Option<gtk::Box> {
+    let warnings = app.epg_warnings();
+    if warnings.is_empty() {
+        return None;
+    }
+    let notice = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(12)
+        .margin_start(16)
+        .margin_end(8)
+        .margin_top(8)
+        .margin_bottom(4)
+        .build();
+    notice.append(&gtk::Image::from_icon_name("dialog-warning-symbolic"));
+    let text = gtk::Label::builder()
+        .label(format!("{}\n{}", tr("Prüfung der EPG-Quellen:"), warnings.join("\n")))
+        .css_classes(["tvjoe-sub"])
+        .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .xalign(0.0)
+        .hexpand(true)
+        .selectable(true)
+        .build();
+    notice.append(&text);
+    let close = gtk::Button::builder()
+        .icon_name("window-close-symbolic")
+        .tooltip_text(tr("Hinweis ausblenden"))
+        .css_classes(["flat", "circular"])
+        .valign(gtk::Align::Start)
+        .build();
+    let weak = Rc::downgrade(app);
+    let n = notice.clone();
+    close.connect_clicked(move |_| {
+        if let Some(app) = weak.upgrade() {
+            app.dismiss_epg_warnings();
+        }
+        n.set_visible(false);
+    });
+    notice.append(&close);
+    Some(notice)
+}
+
 pub fn open(app: &Rc<App>) {
     open_window(app);
 }
@@ -253,10 +297,15 @@ pub fn open_window(app: &Rc<App>) -> Option<gtk::Window> {
         .vexpand(true)
         .child(&rows)
         .build();
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    if let Some(notice) = warnings_notice(app) {
+        page.append(&notice);
+    }
+    page.append(&scroller);
     let stack = gtk::Stack::builder()
         .transition_type(gtk::StackTransitionType::Crossfade)
         .build();
-    stack.add_named(&scroller, Some("programm"));
+    stack.add_named(&page, Some("programm"));
     stack.add_named(&crate::ablageview::planned_page(app), Some("geplant"));
     let tabs = gtk::Box::builder().css_classes(["linked"]).build();
     let mut first: Option<gtk::ToggleButton> = None;

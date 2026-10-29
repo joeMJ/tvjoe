@@ -15,7 +15,7 @@ use gtk::{gdk, glib};
 use tvjoe_core::epg::{self, Guide};
 use tvjoe_core::jellyfin_lib::Item;
 use tvjoe_core::mediathek::Film;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tvjoe_core::adapter::Driver;
 use tvjoe_core::settings::{ADAPTER_TV, SRC_SAT, SRC_TV};
@@ -216,6 +216,8 @@ pub struct App {
     inhibit_cookie: Cell<Option<u32>>,
     /// EPG je Empfangsquelle (Nummer).
     guides: RefCell<HashMap<u32, Rc<Guide>>>,
+    /// Weggeklickte Befunde der EPG-Prüfung (bis zum Programmende).
+    epg_dismissed: RefCell<HashSet<String>>,
     epg_timer: Cell<bool>,
     /// Laufender Mediathek-Beitrag (statt eines Senders).
     vod: RefCell<Option<Vod>>,
@@ -418,6 +420,7 @@ impl App {
             sidebar_before_fullscreen: Cell::new(true),
             inhibit_cookie: Cell::new(None),
             guides: RefCell::new(HashMap::new()),
+            epg_dismissed: RefCell::new(HashSet::new()),
             epg_timer: Cell::new(false),
             vod: RefCell::new(None),
             held_live: Cell::new(None),
@@ -992,6 +995,20 @@ impl App {
     /// EPG der gezeigten Empfangsquelle.
     pub fn guide(&self) -> Option<Rc<Guide>> {
         self.guide_of(self.active.get())
+    }
+
+    /// Befunde der EPG-Prüfung für die gezeigte Empfangsquelle, ohne weggeklickte.
+    pub fn epg_warnings(&self) -> Vec<String> {
+        let dismissed = self.epg_dismissed.borrow();
+        self.guide()
+            .map(|g| g.warnings.iter().filter(|w| !dismissed.contains(*w)).cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Klickt die gezeigten Befunde der EPG-Prüfung weg; neue Befunde erscheinen wieder.
+    pub fn dismiss_epg_warnings(&self) {
+        let shown = self.epg_warnings();
+        self.epg_dismissed.borrow_mut().extend(shown);
     }
 
     /// EPG einer Empfangsquelle (Nummer).

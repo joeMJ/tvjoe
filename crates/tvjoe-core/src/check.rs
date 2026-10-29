@@ -161,7 +161,12 @@ pub fn analyze(entries: &mut [Entry]) -> Vec<Finding> {
             Some(_) => {}
             None => push(FindingKind::UnknownScheme(String::new())),
         }
-        let class = pruefung::host_class(&e.url);
+        // Abgelehnte Adressen brauchen keine weitere Einordnung.
+        let class = if pruefung::stream_scheme_allowed(&e.url) {
+            pruefung::host_class(&e.url)
+        } else {
+            HostClass::Public
+        };
         if class != HostClass::Public {
             push(FindingKind::LocalAddress(class));
         } else if pruefung::has_credentials(&e.url) {

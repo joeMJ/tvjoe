@@ -50,6 +50,10 @@ fn m3u_schemata_werden_abgelehnt() {
         assert!(rejected(&p, u), "nicht abgelehnt: {u}");
     }
     assert!(kinds(&p, "\u{1b}[2J").contains(&FindingKind::UnsafeUrl));
+    // Abgelehnte Einträge ohne zusätzliche Adresswarnung.
+    for u in ["av://lavfi", "file:///etc/passwd", "memory://"] {
+        assert!(!kinds(&p, u).iter().any(|k| matches!(k, FindingKind::LocalAddress(_))), "{u}");
+    }
 }
 
 #[test]
@@ -122,7 +126,8 @@ fn xmltv_markup_bleibt_text_und_wird_gesaeubert() {
     let desc = list[0].desc.as_deref().unwrap();
     assert!(!desc.contains('\u{1b}') && !desc.contains('\u{202e}'), "{desc:?}");
     assert_eq!(list[1].desc.as_deref().unwrap().chars().count(), 16_001);
-    assert!(g.warnings.iter().any(|w| w.contains("gesäubert")), "{:?}", g.warnings);
+    assert_eq!(g.cleaned, 2, "{:?}", g.warnings);
+    assert!(g.warnings.is_empty(), "{:?}", g.warnings);
 }
 
 #[test]
@@ -174,6 +179,7 @@ fn echte_quellen() {
             match parse_xmltv(&bytes) {
                 Ok(g) => {
                     println!("Kanäle {}, Sendungen {}", g.channels.len(), g.programme_count());
+                    println!("  gesäubert: {}", g.cleaned);
                     for w in &g.warnings {
                         println!("  {w}");
                     }

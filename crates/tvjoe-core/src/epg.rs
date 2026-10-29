@@ -46,8 +46,11 @@ pub struct Guide {
     pub programmes: HashMap<String, Vec<Programme>>,
     /// Senderlogo je Kanal-ID (`<icon src>` im `<channel>`).
     pub icons: HashMap<String, String>,
-    /// Befunde der Sicherheitsprüfung beim Einlesen (gesäuberte Texte, verworfene Einträge).
+    /// Befunde der Sicherheitsprüfung für die Anzeige im EPG: verworfene Einträge, ungewöhnliche
+    /// Mengen; nach [`load_sources`] auch abgewiesene Quellen, je mit vorangestellter Quelle.
     pub warnings: Vec<String>,
+    /// Anzahl gesäuberter Texte (Steuerzeichen, Länge); nur fürs Protokoll.
+    pub cleaned: usize,
     by_id: HashMap<String, String>,
     by_name: HashMap<String, String>,
     /// Kurze Kürzel (2–3 Zeichen) der Kanal-IDs für die unscharfe Zuordnung, z. B. „swr“, „sr“.
@@ -494,11 +497,9 @@ pub fn parse_xmltv(bytes: &[u8]) -> Result<Guide, String> {
     for list in guide.programmes.values_mut() {
         list.sort_by_key(|p| p.start);
     }
+    guide.cleaned = cleaned;
     let w = &mut guide.warnings;
     let n = |c: usize| c as u64;
-    if cleaned > 0 {
-        w.push(trn("{n} Text gesäubert (Steuerzeichen oder Länge)", "{n} Texte gesäubert (Steuerzeichen oder Länge)", n(cleaned)));
-    }
     if icons_dropped > 0 {
         w.push(trn("{n} Logo-Adresse nicht erlaubt, verworfen", "{n} Logo-Adressen nicht erlaubt, verworfen", n(icons_dropped)));
     }
@@ -694,20 +695,41 @@ pub fn load_sources(
         } else {
             std::fs::read(src).map_err(|e| e.to_string())
         };
-        match bytes.and_then(|b| parse_xmltv(&b)) {
-            Ok(g) => {
+        let bytes = match bytes {
+            Ok(b) => b,
+            Err(e) => {
+                notes.push(tf!("{source}: {error}", source = src, error = e));
+                continue;
+            }
+        };
+        // Ab hier betreffen Fehler die Prüfung der Datei; sie erscheinen auch im EPG.
+        match parse_xmltv(&bytes) {
+            Ok(mut g) => {
                 notes.push(tf!(
                     "{source}: {channels} Kanäle, {programmes} Sendungen",
                     source = src,
                     channels = g.channels.len(),
                     programmes = g.programme_count()
                 ));
-                for w in &g.warnings {
-                    notes.push(tf!("{source}: {warning}", source = src, warning = w));
+                if g.cleaned > 0 {
+                    notes.push(tf!(
+                        "{source}: {count} Texte gesäubert (Steuerzeichen oder Länge)",
+                        source = src,
+                        count = g.cleaned
+                    ));
+                }
+                for w in std::mem::take(&mut g.warnings) {
+                    let w = tf!("{source}: {warning}", source = src, warning = w);
+                    notes.push(w.clone());
+                    guide.warnings.push(w);
                 }
                 guide.merge(g);
             }
-            Err(e) => notes.push(tf!("{source}: {error}", source = src, error = e)),
+            Err(e) => {
+                let w = tf!("{source}: {error}", source = src, error = e);
+                notes.push(w.clone());
+                guide.warnings.push(w);
+            }
         }
     }
     (guide, notes)

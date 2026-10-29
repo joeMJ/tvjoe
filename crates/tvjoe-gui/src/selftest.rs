@@ -13,6 +13,8 @@
 //! - `TVJOE_SELFTEST_UPDATE=1` (nur diese Schritte): Update-Dialog, Aufzeichnung der Bedienung.
 //! - `TVJOE_SELFTEST_ABLAGE=1` (nur diese Schritte): Reiter „Ablage“, Gruppe, Prüfen, Seite „Über“.
 //! - `TVJOE_SELFTEST_EMPFANG=1` (nur diese Schritte): Reiter „Empfang“ und Seiten der Quellen.
+//! - `TVJOE_SELFTEST_EPGPRUEFUNG=1` (nur diese Schritte): Hinweis der EPG-Prüfung im Raster,
+//!   wegklicken; mit eigener `TVJOE_CONFIG_DIR`, deren XMLTV-Quelle eine Attrappe ist.
 //! - `TVJOE_SELFTEST_README=1` (nur diese Schritte): Bilder für das README; mit neutralen Daten
 //!   starten (eigene `TVJOE_CONFIG_DIR`/`TVJOE_CACHE_DIR`, ohne Jellyfin und private Sender).
 
@@ -659,6 +661,22 @@ const WECHSEL_STEPS: &[Step] = &[
 
 /// Mediatheken (`TVJOE_SELFTEST_MEDIATHEKEN=1`, nur diese Schritte): Reiter „Mediatheken“,
 /// Seite der Jellyfin-Bibliothek, Unterseite „Mediathek hinzufügen“.
+/// EPG-Prüfung (`TVJOE_SELFTEST_EPGPRUEFUNG=1`, nur diese Schritte).
+const EPGPRUEFUNG_STEPS: &[Step] = &[
+    ("70-start", main_window, 8000),
+    ("71-epg-hinweis", |p| crate::grid::open_window(&p.app), 2000),
+    (
+        "72-epg-weggeklickt",
+        |p| {
+            trace(&format!("EPG-Prüfung: {:?}", p.app.epg_warnings()));
+            p.app.dismiss_epg_warnings();
+            close_all(p);
+            crate::grid::open_window(&p.app)
+        },
+        2000,
+    ),
+];
+
 const MEDIATHEKEN_STEPS: &[Step] = &[
     ("50-start", main_window, 4000),
     (
@@ -1203,6 +1221,8 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         JFPLAY_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_BAUCHBINDE").is_some() {
         BAUCHBINDE_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_EPGPRUEFUNG").is_some() {
+        EPGPRUEFUNG_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_README").is_some() {
         README_STEPS.to_vec()
     } else {
