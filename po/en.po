@@ -119,65 +119,105 @@ msgstr "not a tvjoe backup"
 msgid "Sicherung aus einer neueren Fassung (Format {version})"
 msgstr "Backup from a newer version (format {version})"
 
-#: crates/tvjoe-core/src/check.rs:58
-msgid "#EXTINF ohne URL"
-msgstr "#EXTINF without URL"
+#: crates/tvjoe-core/src/check.rs:100
+msgid "Logo-Adresse nicht erlaubt, entfernt"
+msgstr "logo address not allowed, removed"
 
-#: crates/tvjoe-core/src/check.rs:59
-msgid "URL ohne #EXTINF-Zeile, ignoriert"
-msgstr "URL without #EXTINF line, ignored"
+#: crates/tvjoe-core/src/check.rs:101
+msgid "Logo-Adresse im eigenen Netz"
+msgstr "logo address on the local network"
 
-#: crates/tvjoe-core/src/check.rs:60
-msgid "tvg-id fehlt"
-msgstr "tvg-id missing"
+#: crates/tvjoe-core/src/check.rs:102
+msgid "Steuerzeichen entfernt oder Text gekürzt"
+msgstr "control characters removed or text shortened"
 
-#: crates/tvjoe-core/src/check.rs:61
-msgid "tvg-logo fehlt"
-msgstr "tvg-logo missing"
-
-#: crates/tvjoe-core/src/check.rs:62
-msgid "group-title fehlt"
-msgstr "group-title missing"
-
-#: crates/tvjoe-core/src/check.rs:63
-msgid "tvg-id doppelt, ohne unterscheidende Qualität"
-msgstr "tvg-id duplicated, without distinguishing quality"
-
-#: crates/tvjoe-core/src/check.rs:64
-msgid "URL doppelt"
-msgstr "URL duplicated"
-
-#: crates/tvjoe-core/src/check.rs:65
-#, no-c-format
-msgid "Sender doppelt in der Qualität {quality}"
-msgstr "Channel duplicated at quality {quality}"
-
-#: crates/tvjoe-core/src/check.rs:67
-#, no-c-format
-msgid "Kanalnummer {old} doppelt, neu vergeben: {new}"
-msgstr "Channel number {old} duplicated, reassigned: {new}"
-
-#: crates/tvjoe-core/src/check.rs:69
-msgid "unverschlüsselte Quelle (http://)"
-msgstr "unencrypted source (http://)"
-
-#: crates/tvjoe-core/src/check.rs:70
-#, no-c-format
-msgid "unbekanntes URL-Schema „{scheme}“"
-msgstr "unknown URL scheme “{scheme}”"
-
-#: crates/tvjoe-core/src/check.rs:71
+#: crates/tvjoe-core/src/check.rs:103
 msgid "Quelltyp unbekannt (tvjoe-type)"
 msgstr "source type unknown (tvjoe-type)"
 
-#: crates/tvjoe-core/src/check.rs:72
+#: crates/tvjoe-core/src/check.rs:104
 #, no-c-format
 msgid "Qualitätswert „{value}“ unbekannt (erlaubt: sd, 720, 1080, uhd)"
 msgstr "Quality value “{value}” unknown (allowed: sd, 720, 1080, uhd)"
 
-#: crates/tvjoe-core/src/check.rs:76
+#: crates/tvjoe-core/src/check.rs:108
 msgid "Qualität unbekannt (tvjoe-quality fehlt)"
 msgstr "quality unknown (tvjoe-quality missing)"
+
+#: crates/tvjoe-core/src/check.rs:73
+msgid "#EXTINF ohne URL"
+msgstr "#EXTINF without URL"
+
+#: crates/tvjoe-core/src/check.rs:74
+msgid "URL ohne #EXTINF-Zeile, ignoriert"
+msgstr "URL without #EXTINF line, ignored"
+
+#: crates/tvjoe-core/src/check.rs:75
+msgid "tvg-id fehlt"
+msgstr "tvg-id missing"
+
+#: crates/tvjoe-core/src/check.rs:76
+msgid "tvg-logo fehlt"
+msgstr "tvg-logo missing"
+
+#: crates/tvjoe-core/src/check.rs:77
+msgid "group-title fehlt"
+msgstr "group-title missing"
+
+#: crates/tvjoe-core/src/check.rs:78
+msgid "tvg-id doppelt, ohne unterscheidende Qualität"
+msgstr "tvg-id duplicated, without distinguishing quality"
+
+#: crates/tvjoe-core/src/check.rs:79
+msgid "URL doppelt"
+msgstr "URL duplicated"
+
+#: crates/tvjoe-core/src/check.rs:80
+#, no-c-format
+msgid "Sender doppelt in der Qualität {quality}"
+msgstr "Channel duplicated at quality {quality}"
+
+#: crates/tvjoe-core/src/check.rs:82
+#, no-c-format
+msgid "Kanalnummer {old} doppelt, neu vergeben: {new}"
+msgstr "Channel number {old} duplicated, reassigned: {new}"
+
+#: crates/tvjoe-core/src/check.rs:84
+msgid "unverschlüsselte Quelle (http://)"
+msgstr "unencrypted source (http://)"
+
+#: crates/tvjoe-core/src/check.rs:86
+msgid "keine Adresse mit Schema (lokaler Pfad?), abgelehnt"
+msgstr "no address with a scheme (local path?), rejected"
+
+#: crates/tvjoe-core/src/check.rs:89
+#, no-c-format
+msgid "URL-Schema „{scheme}“ nicht erlaubt, abgelehnt"
+msgstr "URL scheme “{scheme}” not allowed, rejected"
+
+#: crates/tvjoe-core/src/check.rs:91
+msgid "Steuerzeichen in der Adresse, abgelehnt"
+msgstr "control characters in the address, rejected"
+
+#: crates/tvjoe-core/src/check.rs:92
+msgid ""
+"Zugangsdaten in der Adresse – für die Nutzung dieser Quelle bist du "
+"rechtlich selbst verantwortlich"
+msgstr ""
+"credentials in the address – you are legally responsible yourself for using "
+"this source"
+
+#: crates/tvjoe-core/src/check.rs:95
+msgid "Adresse im eigenen Netz"
+msgstr "address on the local network"
+
+#: crates/tvjoe-core/src/check.rs:97
+msgid "link-lokale Adresse (169.254.x.x / fe80::)"
+msgstr "link-local address (169.254.x.x / fe80::)"
+
+#: crates/tvjoe-core/src/check.rs:99
+msgid "Adresse auf diesem Rechner (localhost)"
+msgstr "address on this computer (localhost)"
 
 #: crates/tvjoe-core/src/detail.rs:314
 msgid "Anfrage der Zusatzangaben unvollständig"
@@ -218,35 +258,87 @@ msgstr "no reception on this channel"
 msgid "keine Programmdaten empfangen"
 msgstr "no guide data received"
 
-#: crates/tvjoe-core/src/epg.rs:333
+#: crates/tvjoe-core/src/epg.rs:307
+#, no-c-format
+msgid "entpackt größer als {limit} MiB, abgelehnt"
+msgstr "larger than {limit} MiB when unpacked, rejected"
+
+#: crates/tvjoe-core/src/epg.rs:352
 #, no-c-format
 msgid "XML bei Byte {position}: {error}"
 msgstr "XML at byte {position}: {error}"
 
-#: crates/tvjoe-core/src/epg.rs:559 crates/tvjoe-gui/src/manage.rs:340
+#: crates/tvjoe-core/src/epg.rs:487
+msgid "legt eigene Entities fest (DOCTYPE mit ENTITY), abgelehnt"
+msgstr "defines its own entities (DOCTYPE with ENTITY), rejected"
+
+#: crates/tvjoe-core/src/epg.rs:500
+#, no-c-format
+msgid "{n} Text gesäubert (Steuerzeichen oder Länge)"
+msgid_plural "{n} Texte gesäubert (Steuerzeichen oder Länge)"
+msgstr[0] "{n} text cleaned (control characters or length)"
+msgstr[1] "{n} texts cleaned (control characters or length)"
+
+#: crates/tvjoe-core/src/epg.rs:503
+#, no-c-format
+msgid "{n} Logo-Adresse nicht erlaubt, verworfen"
+msgid_plural "{n} Logo-Adressen nicht erlaubt, verworfen"
+msgstr[0] "{n} logo address not allowed, discarded"
+msgstr[1] "{n} logo addresses not allowed, discarded"
+
+#: crates/tvjoe-core/src/epg.rs:506
+#, no-c-format
+msgid "{n} Sendung mit unmöglicher Zeit verworfen"
+msgid_plural "{n} Sendungen mit unmöglichen Zeiten verworfen"
+msgstr[0] "{n} programme with impossible time discarded"
+msgstr[1] "{n} programmes with impossible times discarded"
+
+#: crates/tvjoe-core/src/epg.rs:509
+#, no-c-format
+msgid "{n} Sendung länger als 24 Stunden"
+msgid_plural "{n} Sendungen länger als 24 Stunden"
+msgstr[0] "{n} programme longer than 24 hours"
+msgstr[1] "{n} programmes longer than 24 hours"
+
+#: crates/tvjoe-core/src/epg.rs:512
+#, no-c-format
+msgid "ungewöhnlich viele Kanäle: {count}"
+msgstr "unusually many channels: {count}"
+
+#: crates/tvjoe-core/src/epg.rs:516
+#, no-c-format
+msgid "ungewöhnlich viele Sendungen: {count}"
+msgstr "unusually many programmes: {count}"
+
+#: crates/tvjoe-core/src/epg.rs:629 crates/tvjoe-gui/src/manage.rs:340
 msgid "SAT-Empfang"
 msgstr "SAT reception"
 
-#: crates/tvjoe-core/src/epg.rs:563
+#: crates/tvjoe-core/src/epg.rs:633
 msgid "Aus dem Signal"
 msgstr "From the signal"
 
-#: crates/tvjoe-core/src/epg.rs:608
+#: crates/tvjoe-core/src/epg.rs:678
 #, no-c-format
 msgid "{source}: neu geladen"
 msgstr "{source}: reloaded"
 
-#: crates/tvjoe-core/src/epg.rs:613
+#: crates/tvjoe-core/src/epg.rs:683
 #, no-c-format
 msgid "{source}: Laden fehlgeschlagen ({error}), alter Stand"
 msgstr "{source}: loading failed ({error}), keeping old data"
 
-#: crates/tvjoe-core/src/epg.rs:629
+#: crates/tvjoe-core/src/epg.rs:699
 #, no-c-format
 msgid "{source}: {channels} Kanäle, {programmes} Sendungen"
 msgstr "{source}: {channels} channels, {programmes} shows"
 
-#: crates/tvjoe-core/src/epg.rs:637
+#: crates/tvjoe-core/src/epg.rs:706
+#, no-c-format
+msgid "{source}: {warning}"
+msgstr "{source}: {warning}"
+
+#: crates/tvjoe-core/src/epg.rs:710
 #, no-c-format
 msgid "{source}: {error}"
 msgstr "{source}: {error}"
@@ -4402,7 +4494,9 @@ msgstr ""
 msgid ""
 "Kabel- bzw. Antennen-Empfänger im Netz (SAT>IP-Protokoll). Eigene "
 "Gerätebeschreibungen liegen im Ordner „adapter“ der Konfiguration."
-msgstr "Cable or terrestrial receiver on the network (SAT>IP protocol). Your own device descriptions go into the “adapter” folder of the configuration."
+msgstr ""
+"Cable or terrestrial receiver on the network (SAT>IP protocol). Your own "
+"device descriptions go into the “adapter” folder of the configuration."
 
 #: crates/tvjoe-gui/src/satip.rs:411
 msgid "Prüfe Tuner …"
@@ -4843,6 +4937,10 @@ msgstr ""
 #, no-c-format
 msgid "Fehlt: {packages}. Zum Bauen in MSYS2 installieren: pacman -S {msys}"
 msgstr "Missing: {packages}. To build, install in MSYS2: pacman -S {msys}"
+
+#, no-c-format
+#~ msgid "unbekanntes URL-Schema „{scheme}“"
+#~ msgstr "unknown URL scheme “{scheme}”"
 
 #, no-c-format
 #~ msgid "{title} · Extras"

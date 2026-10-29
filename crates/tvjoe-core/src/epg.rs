@@ -16,9 +16,18 @@ use quick_xml::events::Event;
 use crate::ids::normalize_id;
 use crate::library::Channel;
 use crate::net;
-use crate::tf;
+use crate::pruefung::{self, HostClass};
+use crate::{tf, tr, trn};
 
 const MAX_XMLTV_BYTES: u64 = 256 * 1024 * 1024;
+/// Ab diesen Mengen meldet das Einlesen eine Warnung (übernommen wird trotzdem).
+const MANY_CHANNELS: usize = 20_000;
+const MANY_PROGRAMMES: usize = 2_000_000;
+/// Längste plausible Sendung.
+const MAX_DURATION: i64 = 24 * 3_600;
+/// Sendungen vor 2000 oder weiter als das in der Zukunft werden verworfen.
+const MIN_START: i64 = 946_684_800;
+const MAX_AHEAD: i64 = 366 * 86_400;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Programme {
@@ -37,6 +46,8 @@ pub struct Guide {
     pub programmes: HashMap<String, Vec<Programme>>,
     /// Senderlogo je Kanal-ID (`<icon src>` im `<channel>`).
     pub icons: HashMap<String, String>,
+    /// Befunde der Sicherheitsprüfung beim Einlesen (gesäuberte Texte, verworfene Einträge).
+    pub warnings: Vec<String>,
     by_id: HashMap<String, String>,
     by_name: HashMap<String, String>,
     /// Kurze Kürzel (2–3 Zeichen) der Kanal-IDs für die unscharfe Zuordnung, z. B. „swr“, „sr“.
@@ -289,9 +300,15 @@ pub fn decompress(bytes: &[u8]) -> Result<std::borrow::Cow<'_, [u8]>, String> {
     if bytes.starts_with(&[0x1f, 0x8b]) {
         let mut out = Vec::new();
         flate2::read::MultiGzDecoder::new(bytes)
-            .take(MAX_XMLTV_BYTES)
+            .take(MAX_XMLTV_BYTES + 1)
             .read_to_end(&mut out)
             .map_err(|e| format!("gzip: {e}"))?;
+        if out.len() as u64 > MAX_XMLTV_BYTES {
+            return Err(tf!(
+                "entpackt größer als {limit} MiB, abgelehnt",
+                limit = MAX_XMLTV_BYTES >> 20
+            ));
+        }
         Ok(out.into())
     } else {
         Ok(bytes.into())
@@ -326,6 +343,8 @@ pub fn parse_xmltv(bytes: &[u8]) -> Result<Guide, String> {
     let mut draft: Option<Draft> = None;
     let mut field: Option<Field> = None;
     let mut text = String::new();
+    let now = now();
+    let (mut cleaned, mut icons_dropped, mut times_dropped, mut long) = (0usize, 0usize, 0usize, 0usize);
 
     loop {
         let ev = reader
@@ -370,7 +389,15 @@ pub fn parse_xmltv(bytes: &[u8]) -> Result<Guide, String> {
                         .flatten()
                         .and_then(|a| a.unescape_value().ok().map(|v| v.into_owned())),
                 ) {
-                    guide.icons.entry(id.clone()).or_insert(src);
+                    let class = pruefung::host_class(&src);
+                    if pruefung::image_scheme_allowed(&src)
+                        && !pruefung::has_control(&src)
+                        && (class == HostClass::Public || class == HostClass::Private)
+                    {
+                        guide.icons.entry(id.clone()).or_insert(src);
+                    } else {
+                        icons_dropped += 1;
+                    }
                 }
             }
             Event::Text(t) if field.is_some() => {
@@ -388,7 +415,16 @@ pub fn parse_xmltv(bytes: &[u8]) -> Result<Guide, String> {
                 }
             }
             Event::End(e) => {
-                let value = text.trim().replace("\\n", "\n");
+                let (max, multiline) = match field {
+                    Some(Field::Desc) => (pruefung::MAX_DESC, true),
+                    Some(Field::Name) => (pruefung::MAX_NAME, false),
+                    _ => (pruefung::MAX_TITLE, false),
+                };
+                let (value, c) =
+                    pruefung::clean_text(&text.trim().replace("\\n", "\n"), max, multiline);
+                if c && field.is_some() {
+                    cleaned += 1;
+                }
                 match (e.local_name().as_ref(), field) {
                     (b"display-name", Some(Field::Name)) => {
                         if let Some((_, names)) = channel.as_mut() {
@@ -418,17 +454,25 @@ pub fn parse_xmltv(bytes: &[u8]) -> Result<Guide, String> {
                     (b"programme", _) => {
                         if let Some(d) = draft.take() {
                             if let (Some(start), Some(title)) = (d.start, d.title) {
-                                guide
-                                    .programmes
-                                    .entry(d.channel)
-                                    .or_default()
-                                    .push(Programme {
-                                        start,
-                                        stop: d.stop.unwrap_or(start),
-                                        title,
-                                        subtitle: d.subtitle.filter(|s| !s.is_empty()),
-                                        desc: d.desc.filter(|s| !s.is_empty()),
-                                    });
+                                let stop = d.stop.unwrap_or(start);
+                                if start < MIN_START || start > now + MAX_AHEAD || stop < start {
+                                    times_dropped += 1;
+                                } else {
+                                    if stop - start > MAX_DURATION {
+                                        long += 1;
+                                    }
+                                    guide
+                                        .programmes
+                                        .entry(d.channel)
+                                        .or_default()
+                                        .push(Programme {
+                                            start,
+                                            stop,
+                                            title,
+                                            subtitle: d.subtitle.filter(|s| !s.is_empty()),
+                                            desc: d.desc.filter(|s| !s.is_empty()),
+                                        });
+                                }
                             }
                         }
                     }
@@ -437,6 +481,11 @@ pub fn parse_xmltv(bytes: &[u8]) -> Result<Guide, String> {
                 field = None;
                 text.clear();
             }
+            // Eigene Entities (Vervielfachung, externe Dateien) werden nicht aufgelöst; eine Datei,
+            // die welche festlegt, wird abgewiesen.
+            Event::DocType(d) if d.windows(8).any(|w| w.eq_ignore_ascii_case(b"<!ENTITY")) => {
+                return Err(tr("legt eigene Entities fest (DOCTYPE mit ENTITY), abgelehnt").to_string());
+            }
             Event::Eof => break,
             _ => {}
         }
@@ -444,6 +493,27 @@ pub fn parse_xmltv(bytes: &[u8]) -> Result<Guide, String> {
     }
     for list in guide.programmes.values_mut() {
         list.sort_by_key(|p| p.start);
+    }
+    let w = &mut guide.warnings;
+    let n = |c: usize| c as u64;
+    if cleaned > 0 {
+        w.push(trn("{n} Text gesäubert (Steuerzeichen oder Länge)", "{n} Texte gesäubert (Steuerzeichen oder Länge)", n(cleaned)));
+    }
+    if icons_dropped > 0 {
+        w.push(trn("{n} Logo-Adresse nicht erlaubt, verworfen", "{n} Logo-Adressen nicht erlaubt, verworfen", n(icons_dropped)));
+    }
+    if times_dropped > 0 {
+        w.push(trn("{n} Sendung mit unmöglicher Zeit verworfen", "{n} Sendungen mit unmöglichen Zeiten verworfen", n(times_dropped)));
+    }
+    if long > 0 {
+        w.push(trn("{n} Sendung länger als 24 Stunden", "{n} Sendungen länger als 24 Stunden", n(long)));
+    }
+    if guide.channels.len() > MANY_CHANNELS {
+        w.push(tf!("ungewöhnlich viele Kanäle: {count}", count = guide.channels.len()));
+    }
+    let total: usize = guide.programmes.values().map(Vec::len).sum();
+    if total > MANY_PROGRAMMES {
+        w.push(tf!("ungewöhnlich viele Sendungen: {count}", count = total));
     }
     guide.index();
     Ok(guide)
@@ -632,6 +702,9 @@ pub fn load_sources(
                     channels = g.channels.len(),
                     programmes = g.programme_count()
                 ));
+                for w in &g.warnings {
+                    notes.push(tf!("{source}: {warning}", source = src, warning = w));
+                }
                 guide.merge(g);
             }
             Err(e) => notes.push(tf!("{source}: {error}", source = src, error = e)),

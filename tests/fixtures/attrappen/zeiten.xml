@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+<channel id="A.test"><display-name>A</display-name></channel>
+<programme start="20261024150000 +0000" stop="20261024160000 +0000" channel="A.test"><title>Normal</title></programme>
+<programme start="19700101000000 +0000" stop="19700101010000 +0000" channel="A.test"><title>Neunzehnhundertsiebzig</title></programme>
+<programme start="99991231000000 +0000" stop="99991231010000 +0000" channel="A.test"><title>Jahr9999</title></programme>
+<programme start="20261024180000 +0000" stop="20261024170000 +0000" channel="A.test"><title>EndeVorBeginn</title></programme>
+<programme start="20261025000000 +0000" stop="20261027000000 +0000" channel="A.test"><title>Achtundvierzig</title></programme>
+</tv>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+<channel id="I0.test"><display-name>I0</display-name><icon src="file:///etc/logo.png"/></channel>
+<channel id="I1.test"><display-name>I1</display-name><icon src="javascript:alert(1)"/></channel>
+<channel id="I2.test"><display-name>I2</display-name><icon src="http://169.254.169.254/x.png"/></channel>
+<channel id="I3.test"><display-name>I3</display-name><icon src="http://127.0.0.1/x.png"/></channel>
+<channel id="I4.test"><display-name>I4</display-name><icon src="https://logos.example/ok.png"/></channel>
+<channel id="I5.test"><display-name>I5</display-name><icon src="http://10.0.0.5/lan.png"/></channel>
+</tv>

@@ -26,6 +26,7 @@ pub mod net;
 pub mod paths;
 pub mod plex;
 pub mod plan;
+pub mod pruefung;
 pub mod satip;
 pub mod settings;
 pub mod store;

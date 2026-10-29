@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::ids::normalize_id;
+use crate::pruefung::{self, HostClass};
 use crate::{tf, tr};
 use crate::m3u::{Entry, Quality};
 
@@ -37,7 +38,21 @@ pub enum FindingKind {
     },
     /// `http://` statt `https://`.
     Http,
+    /// Fehler: Schema außerhalb der erlaubten Liste (`file://`, `av://`, `edl://` …) oder keine
+    /// Adresse mit Schema (lokaler Pfad).
     UnknownScheme(String),
+    /// Fehler: Steuerzeichen in der Adresse.
+    UnsafeUrl,
+    /// Benutzer/Passwort in der Adresse eines fremden Hosts.
+    Credentials,
+    /// Adresse im eigenen Netz, auf diesem Rechner oder link-lokal.
+    LocalAddress(HostClass),
+    /// Logo-Adresse nicht erlaubt (Schema oder Ziel auf diesem Rechner), Logo entfernt.
+    LogoRemoved,
+    /// Logo-Adresse im eigenen Netz.
+    LocalLogo,
+    /// Steuerzeichen aus Name, Gruppe oder Kennung entfernt, oder Text gekürzt.
+    TextCleaned,
     UnknownType,
     UnknownQuality(String),
     MissingQuality,
@@ -46,7 +61,7 @@ pub enum FindingKind {
 impl FindingKind {
     pub fn severity(&self) -> Severity {
         match self {
-            Self::ExtinfWithoutUrl => Severity::Error,
+            Self::ExtinfWithoutUrl | Self::UnknownScheme(_) | Self::UnsafeUrl => Severity::Error,
             _ => Severity::Warning,
         }
     }
@@ -67,7 +82,24 @@ impl fmt::Display for FindingKind {
                 f.write_str(&tf!("Kanalnummer {old} doppelt, neu vergeben: {new}", old = old, new = new))
             }
             Self::Http => f.write_str(tr("unverschlüsselte Quelle (http://)")),
-            Self::UnknownScheme(s) => f.write_str(&tf!("unbekanntes URL-Schema „{scheme}“", scheme = s)),
+            Self::UnknownScheme(s) if s.is_empty() => {
+                f.write_str(tr("keine Adresse mit Schema (lokaler Pfad?), abgelehnt"))
+            }
+            Self::UnknownScheme(s) => {
+                f.write_str(&tf!("URL-Schema „{scheme}“ nicht erlaubt, abgelehnt", scheme = s))
+            }
+            Self::UnsafeUrl => f.write_str(tr("Steuerzeichen in der Adresse, abgelehnt")),
+            Self::Credentials => f.write_str(tr(
+                "Zugangsdaten in der Adresse – für die Nutzung dieser Quelle bist du rechtlich selbst verantwortlich"
+            )),
+            Self::LocalAddress(HostClass::Private) => f.write_str(tr("Adresse im eigenen Netz")),
+            Self::LocalAddress(HostClass::LinkLocal) => {
+                f.write_str(tr("link-lokale Adresse (169.254.x.x / fe80::)"))
+            }
+            Self::LocalAddress(_) => f.write_str(tr("Adresse auf diesem Rechner (localhost)")),
+            Self::LogoRemoved => f.write_str(tr("Logo-Adresse nicht erlaubt, entfernt")),
+            Self::LocalLogo => f.write_str(tr("Logo-Adresse im eigenen Netz")),
+            Self::TextCleaned => f.write_str(tr("Steuerzeichen entfernt oder Text gekürzt")),
             Self::UnknownType => f.write_str(tr("Quelltyp unbekannt (tvjoe-type)")),
             Self::UnknownQuality(v) => f.write_str(&tf!(
                 "Qualitätswert „{value}“ unbekannt (erlaubt: sd, 720, 1080, uhd)",
@@ -104,6 +136,7 @@ pub fn analyze(entries: &mut [Entry]) -> Vec<Finding> {
     let mut seen_url: HashMap<String, Vec<(String, Option<Quality>)>> = HashMap::new();
     let mut seen_id: HashMap<(String, Option<Quality>), usize> = HashMap::new();
 
+    sanitize(entries, &mut out);
     for (i, e) in entries.iter().enumerate() {
         let mut push = |kind: FindingKind| out.push(Finding::new(kind, e.line, Some(i)));
 
@@ -117,12 +150,22 @@ pub fn analyze(entries: &mut [Entry]) -> Vec<Finding> {
             push(FindingKind::MissingGroup);
         }
 
-        match e.scheme().as_deref() {
-            // rtp/udp: Multicast-IPTV im Heimnetz.
-            Some("https") | Some("rtsp") | Some("rtsps") | Some("rtp") | Some("udp") => {}
-            Some("http") => push(FindingKind::Http),
-            Some(other) => push(FindingKind::UnknownScheme(other.to_string())),
+        if pruefung::has_control(&e.url) {
+            push(FindingKind::UnsafeUrl);
+        }
+        match pruefung::scheme(&e.url) {
+            Some(s) if !pruefung::STREAM_SCHEMES.contains(&s.as_str()) => {
+                push(FindingKind::UnknownScheme(s))
+            }
+            Some(s) if s == "http" => push(FindingKind::Http),
+            Some(_) => {}
             None => push(FindingKind::UnknownScheme(String::new())),
+        }
+        let class = pruefung::host_class(&e.url);
+        if class != HostClass::Public {
+            push(FindingKind::LocalAddress(class));
+        } else if pruefung::has_credentials(&e.url) {
+            push(FindingKind::Credentials);
         }
 
         if e.kind().is_none() {
@@ -156,6 +199,39 @@ pub fn analyze(entries: &mut [Entry]) -> Vec<Finding> {
 
     assign_free_chnos(entries, &mut out);
     out
+}
+
+/// Säubert Name, Gruppe und Kennungen; entfernt unzulässige Logo-Adressen.
+fn sanitize(entries: &mut [Entry], out: &mut Vec<Finding>) {
+    for (i, e) in entries.iter_mut().enumerate() {
+        let mut cleaned = false;
+        let (name, c) = pruefung::clean_text(&e.name, pruefung::MAX_NAME, false);
+        e.name = name;
+        cleaned |= c;
+        for (k, v) in e.attrs.iter_mut() {
+            if matches!(k.as_str(), "tvg-logo") {
+                continue;
+            }
+            let (t, c) = pruefung::clean_text(v, pruefung::MAX_NAME, false);
+            *v = t;
+            cleaned |= c;
+        }
+        if cleaned {
+            out.push(Finding::new(FindingKind::TextCleaned, e.line, Some(i)));
+        }
+        if let Some(logo) = e.tvg_logo().map(str::to_string) {
+            let class = pruefung::host_class(&logo);
+            if !pruefung::image_scheme_allowed(&logo)
+                || pruefung::has_control(&logo)
+                || class.is_host_local()
+            {
+                e.attrs.retain(|(k, _)| k != "tvg-logo");
+                out.push(Finding::new(FindingKind::LogoRemoved, e.line, Some(i)));
+            } else if class == HostClass::Private {
+                out.push(Finding::new(FindingKind::LocalLogo, e.line, Some(i)));
+            }
+        }
+    }
 }
 
 /// Gleiche Nummer bei verschiedenen Sendern: der erste behält sie, die übrigen bekommen die nächste freie.
