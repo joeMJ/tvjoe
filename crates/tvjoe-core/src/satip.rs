@@ -412,6 +412,59 @@ pub fn split_url(url: &str) -> Option<(String, String)> {
         .then(|| (host.to_string(), query.to_string()))
 }
 
+/// Angeforderte PIDs einer SAT>IP-Adresse (`None` bei `pids=all` oder ohne Angabe).
+pub fn requested_pids(query: &str) -> Option<Vec<u16>> {
+    let list = query.split('&').find_map(|p| p.strip_prefix("pids="))?;
+    if list == "all" {
+        return None;
+    }
+    let pids: Vec<u16> = list.split(',').filter_map(|p| p.parse().ok()).collect();
+    (!pids.is_empty()).then_some(pids)
+}
+
+/// SAT>IP-Adresse mit anderer PID-Liste.
+pub fn with_pids(url: &str, pids: &[u16]) -> String {
+    let list: Vec<String> = pids.iter().map(u16::to_string).collect();
+    let list = list.join(",");
+    match url.split_once("pids=") {
+        Some((a, rest)) => match rest.split_once('&') {
+            Some((_, tail)) => format!("{a}pids={list}&{tail}"),
+            None => format!("{a}pids={list}"),
+        },
+        None => format!("{url}&pids={list}"),
+    }
+}
+
+/// PIDs zum Abspielen eines Dienstes: PAT, PMT, PCR und alle abspielbaren Spuren.
+pub(crate) fn service_pids(pmt: u16, pcr: u16, es: &[crate::ts::EsInfo]) -> Vec<u16> {
+    let mut pids = vec![0, pmt];
+    if pcr != 0x1fff {
+        pids.push(pcr);
+    }
+    pids.extend(es.iter().filter(|e| e.playable).map(|e| e.pid));
+    pids.sort_unstable();
+    pids.dedup();
+    pids
+}
+
+/// Neue PID-Liste, wenn die PMT des angeforderten Dienstes auf Spuren zeigt, die nicht
+/// angefordert sind (Regionalfenster wie die WDR-Lokalzeit wechseln die Spuren je Sendung).
+/// Der Dienst ist der einzige Eintrag der PAT, dessen PMT-PID in der Liste steht.
+pub fn changed_pids(
+    pat: &[(u16, u16)],
+    pmts: &[(u16, u16, Vec<crate::ts::EsInfo>)],
+    requested: &[u16],
+) -> Option<Vec<u16>> {
+    let mut own = pat.iter().filter(|(prog, pid)| *prog != 0 && requested.contains(pid));
+    let (prog, pmt) = *own.next()?;
+    if own.next().is_some() {
+        return None;
+    }
+    let (_, pcr, es) = pmts.iter().find(|(p, _, _)| *p == prog)?;
+    let wanted = service_pids(pmt, *pcr, es);
+    wanted.iter().any(|p| !requested.contains(p)).then_some(wanted)
+}
+
 /// Nutzdaten (Transportstrom) eines RTP-Pakets.
 fn rtp_payload(p: &[u8]) -> Option<&[u8]> {
     if p.len() < 12 || p[0] >> 6 != 2 {
@@ -438,12 +491,17 @@ pub struct Relay {
     /// Programmdaten (EIT, PID 18), die beim Ansehen mitgelesen wurden; abholen mit
     /// [`Relay::take_eit`].
     eit: std::sync::Arc<std::sync::Mutex<Vec<crate::ts::EitSection>>>,
+    /// Adresse mit den Spuren laut aktueller PMT, wenn sie von den angeforderten abweichen;
+    /// abholen mit [`Relay::retune`].
+    retune: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Relay {
     pub fn start(url: &str) -> Result<Self, String> {
+        let requested = requested_pids(url);
+        let original = url.to_string();
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::{Arc, Mutex};
         let (host, query) = split_url(url).ok_or(tr("keine SAT>IP-Adresse"))?;
@@ -468,7 +526,9 @@ impl Relay {
         let stop = Arc::new(AtomicBool::new(false));
         let packets = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let eit: Arc<Mutex<Vec<crate::ts::EitSection>>> = Arc::default();
-        let (st, sp, pk, ei) = (status.clone(), stop.clone(), packets.clone(), eit.clone());
+        let retune: Arc<Mutex<Option<String>>> = Arc::default();
+        let (st, sp, pk, ei, rt) =
+            (status.clone(), stop.clone(), packets.clone(), eit.clone(), retune.clone());
         let thread = std::thread::Builder::new().name("satip-weitergabe".into()).spawn(move || {
             let stopped = || sp.load(Ordering::Relaxed);
             let Ok(sock) = bind_rtp() else { return };
@@ -491,6 +551,10 @@ impl Relay {
             let mut next_status = Instant::now() + Duration::from_secs(2);
             let mut next_eit = Instant::now() + Duration::from_secs(20);
             let mut col = crate::ts::SectionCollector::default();
+            // PAT und PMT des Senders, alle 2 s frisch (der Sammler übergeht neue Versionen).
+            let mut tables = crate::ts::SectionCollector::default();
+            let mut next_tables = Instant::now() + Duration::from_secs(2);
+            let watched = |pid: u16| pid == 0 || requested.as_ref().is_some_and(|r| r.contains(&pid));
             let mut buf = [0u8; 2048];
             // Erste Verbindung des Players abwarten; trennt er (z. B. erneutes Öffnen beim
             // Erkennen des Formats), kurz auf eine neue warten.
@@ -541,6 +605,7 @@ impl Relay {
                         if let Some(ts) = rtp_payload(&buf[..n]) {
                             for p in ts.chunks(188) {
                                 col.push_packet(p, &|pid| pid == 18);
+                                tables.push_packet(p, &watched);
                             }
                             if let Err(e) = client.write_all(ts) {
                                 crate::diag::log(
@@ -556,6 +621,24 @@ impl Relay {
                         next_status = Instant::now() + Duration::from_secs(5);
                         if let Ok((_, s)) = session.describe() {
                             *st.lock().unwrap_or_else(|e| e.into_inner()) = s;
+                        }
+                    }
+                    if Instant::now() >= next_tables {
+                        next_tables = Instant::now() + Duration::from_secs(2);
+                        let done = std::mem::take(&mut tables);
+                        if let Some(req) = &requested {
+                            let pat: Vec<(u16, u16)> =
+                                done.tables(0x00).flat_map(crate::ts::parse_pat).collect();
+                            let pmts: Vec<_> =
+                                done.tables(0x02).filter_map(crate::ts::parse_pmt).collect();
+                            if let Some(pids) = changed_pids(&pat, &pmts, req) {
+                                let new = with_pids(&original, &pids);
+                                crate::diag::log(
+                                    "satip-weitergabe",
+                                    &format!("Spuren laut PMT geändert: {pids:?}"),
+                                );
+                                *rt.lock().unwrap_or_else(|e| e.into_inner()) = Some(new);
+                            }
                         }
                     }
                     if Instant::now() >= next_eit {
@@ -584,9 +667,16 @@ impl Relay {
             status,
             packets,
             eit,
+            retune,
             stop,
             thread: thread.ok(),
         })
+    }
+
+    /// Adresse mit den Spuren laut aktueller PMT, falls sie sich geändert haben (einmalig):
+    /// der Sender ist damit neu zu starten.
+    pub fn retune(&self) -> Option<String> {
+        self.retune.lock().unwrap_or_else(|e| e.into_inner()).take()
     }
 
     /// Seit dem letzten Abholen mitgelesene Programmdaten.
@@ -843,13 +933,7 @@ pub(crate) fn found_services(col: &crate::ts::SectionCollector, pat: &[(u16, u16
             .get(&svc.service_id)
             .cloned()
             .unwrap_or((0x1fff, Vec::new()));
-        let mut pids = vec![0, pmt];
-        if pcr != 0x1fff {
-            pids.push(pcr);
-        }
-        pids.extend(es.iter().filter(|e| e.playable).map(|e| e.pid));
-        pids.sort_unstable();
-        pids.dedup();
+        let pids = service_pids(pmt, pcr, &es);
         let hd = matches!(svc.service_type, 0x19 | 0x1f)
             || es.iter().any(|e| matches!(e.stream_type, 0x1b | 0x24));
         out.push(Found {
@@ -1574,5 +1658,34 @@ mod tests {
         };
         let r = check(&host, Duration::from_secs(3)).unwrap();
         println!("{r:#?}");
+    }
+
+    /// WDR HD Düsseldorf (PMT 160) am 2026-10-29 gemessen: zur Tagesschau Kölner Spuren,
+    /// zur Lokalzeit eigene.
+    #[test]
+    fn regionalfenster_wechselt_spuren() {
+        use crate::ts::EsInfo;
+        let es = |list: &[(u8, u16)]| -> Vec<EsInfo> {
+            list.iter().map(|&(t, pid)| EsInfo { stream_type: t, pid, playable: t != 0x05 && t != 0x0b && t != 0x0c }).collect()
+        };
+        let pat = [(0, 16), (28332, 100), (28338, 160), (28339, 170)];
+        let tagesschau = es(&[(0x1b, 101), (0x03, 102), (0x03, 103), (0x03, 107), (0x06, 104), (0x06, 106), (0x06, 105), (0x0b, 2171), (0x05, 2371)]);
+        let lokalzeit = es(&[(0x1b, 161), (0x03, 162), (0x06, 104), (0x06, 105), (0x0b, 2171), (0x05, 2371)]);
+        let gespeichert = requested_pids("src=1&freq=11523&pol=h&pids=0,101,102,103,104,105,106,107,160").unwrap();
+        // Tagesschau: Liste passt.
+        assert_eq!(changed_pids(&pat, &[(28338, 101, tagesschau.clone())], &gespeichert), None);
+        // Lokalzeit: eigene Spuren fehlen, neue Liste.
+        let neu = changed_pids(&pat, &[(28338, 161, lokalzeit)], &gespeichert).unwrap();
+        assert_eq!(neu, vec![0, 104, 105, 160, 161, 162]);
+        assert_eq!(
+            with_pids("rtsp://192.0.2.5:554/?src=1&freq=11523&pids=0,101,160", &neu),
+            "rtsp://192.0.2.5:554/?src=1&freq=11523&pids=0,104,105,160,161,162"
+        );
+        // Zurück zur Tagesschau: wieder Kölner Spuren.
+        let zurueck = changed_pids(&pat, &[(28338, 101, tagesschau)], &neu).unwrap();
+        assert!(zurueck.contains(&101) && zurueck.contains(&160));
+        // Ohne eindeutige PMT in der Liste oder bei pids=all nichts.
+        assert_eq!(changed_pids(&pat, &[], &[0, 100, 160]), None);
+        assert_eq!(requested_pids("src=1&pids=all"), None);
     }
 }

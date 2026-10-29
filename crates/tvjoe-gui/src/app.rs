@@ -1956,6 +1956,7 @@ impl App {
         match tvjoe_core::satip::Relay::start(url) {
             Ok(r) => {
                 player.load_ts(&r.local_url);
+                self.watch_pids(url, &r.local_url);
                 self.relay.replace(Some(LiveRelay::Sat(r)));
             }
             Err(e) => {
@@ -2001,6 +2002,41 @@ impl App {
                     ),
                     app.overlay_secs() * 2,
                 );
+            }
+        });
+    }
+
+    /// Wechselt die PMT des SAT-Senders auf andere Spuren (Regionalfenster wie die
+    /// WDR-Lokalzeit), wird der Sender mit den neuen Spuren neu gestartet. Endet, sobald ein
+    /// anderer Sender läuft oder das Relay ersetzt wurde.
+    fn watch_pids(self: &Rc<Self>, url: &str, local: &str) {
+        let weak = Rc::downgrade(self);
+        let url = url.to_string();
+        let mut local = local.to_string();
+        glib::timeout_add_local(Duration::from_secs(1), move || {
+            let Some(app) = weak.upgrade() else { return glib::ControlFlow::Break };
+            let same = app.current_stream.borrow().as_ref().map(|(u, _)| u.as_str()) == Some(url.as_str());
+            if !same || app.vod.borrow().is_some() {
+                return glib::ControlFlow::Break;
+            }
+            let new = match app.relay.borrow().as_ref() {
+                Some(LiveRelay::Sat(r)) if r.local_url == local => r.retune(),
+                _ => return glib::ControlFlow::Break,
+            };
+            let Some(new) = new else { return glib::ControlFlow::Continue };
+            let Some(player) = app.player.as_ref() else { return glib::ControlFlow::Break };
+            match tvjoe_core::satip::Relay::start(&new) {
+                Ok(r) => {
+                    trace(&format!("SAT>IP: Spuren gewechselt, neu gestartet ({new})"));
+                    player.load_ts(&r.local_url);
+                    local = r.local_url.clone();
+                    app.relay.replace(Some(LiveRelay::Sat(r)));
+                    glib::ControlFlow::Continue
+                }
+                Err(e) => {
+                    app.msg.show(&tf!("SAT>IP: {error}", error = e), app.overlay_secs());
+                    glib::ControlFlow::Break
+                }
             }
         });
     }
