@@ -6,9 +6,10 @@
 
 [Deutsch](README.de.md) · **English**
 
-> **Lightweight streaming client for live TV on Linux and Windows.**
-> TV from your own M3U lists, satellite through a SAT>IP receiver on your home network, the
-> Mediathek of the German public broadcasters and your own Jellyfin server – in one window.
+> **Lightweight streaming client for live TV and media servers on Linux and Windows.**
+> Live TV from various sources such as SAT>IP, M3U lists, Tvheadend and DVB cards (Linux; Windows
+> via BDA planned) plus various media libraries, including Jellyfin, Plex, Emby and the Mediathek of
+> the German public broadcasters – with recordings and downloads, all in one window.
 
 <p align="center">
   <a href="https://www.johnlose.de/unterstutzung-fur-john-joe-lose/"><img src="docs/knoepfe/danke.svg" alt="Say thanks to John" width="300"></a>

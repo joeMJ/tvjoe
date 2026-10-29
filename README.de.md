@@ -6,9 +6,11 @@
 
 **Deutsch** · [English](README.md)
 
-> **Schlanker Streaming-Client für Live-TV unter Linux und Windows.**
-> Fernsehen aus eigenen M3U-Listen, Satellit über einen SAT>IP-Empfänger im Heimnetz, die Mediathek
-> der öffentlich-rechtlichen Sender und der eigene Jellyfin-Server – in einem Fenster.
+> **Schlanker Streaming-Client für Live-TV und Medienserver unter Linux und Windows.**
+> Live-TV aus unterschiedlichen Quellen wie SAT>IP, M3U-Listen, Tvheadend und DVB-Karten (Linux;
+> Windows über BDA geplant) sowie verschiedene Medienbibliotheken, u. a. Jellyfin, Plex, Emby und
+> die Mediathek der öffentlich-rechtlichen Sender – mit Aufnahmen und Downloads, alles in einem
+> Fenster.
 
 <p align="center">
   <a href="https://www.johnlose.de/unterstutzung-fur-john-joe-lose/"><img src="docs/knoepfe/danke.svg" alt="Danke sagen an John" width="300"></a>
