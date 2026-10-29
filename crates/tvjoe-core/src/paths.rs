@@ -140,6 +140,8 @@ mod tests {
         }
     }
 
+    // Linux-Pfade: unter Windows gilt „/x/cfg“ nicht als absolut.
+    #[cfg(unix)]
     #[test]
     fn linux_nimmt_xdg_sonst_home() {
         let e = env(&[("XDG_CONFIG_HOME", "/x/cfg"), ("HOME", "/h")]);
