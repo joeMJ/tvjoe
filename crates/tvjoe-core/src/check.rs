@@ -65,6 +65,15 @@ impl FindingKind {
             _ => Severity::Warning,
         }
     }
+
+    /// Nur ein Hinweis aus der Sicherheitsprüfung: der Eintrag bleibt beim Import angewählt
+    /// (Adressen im eigenen Netz sind bei FRITZ!Box oder Tvheadend der Normalfall).
+    pub fn is_notice(&self) -> bool {
+        matches!(
+            self,
+            Self::LocalAddress(_) | Self::LocalLogo | Self::LogoRemoved | Self::TextCleaned
+        )
+    }
 }
 
 impl fmt::Display for FindingKind {

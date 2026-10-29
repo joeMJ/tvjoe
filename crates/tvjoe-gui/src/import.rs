@@ -250,7 +250,7 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
             .collect();
         let has_error = own.iter().any(|f| f.kind.severity() == Severity::Error);
         let check = gtk::CheckButton::builder()
-            .active(own.is_empty())
+            .active(own.iter().all(|f| f.kind.is_notice()))
             .sensitive(!has_error)
             .build();
         let label = |t: &str, w: i32, class: &str| {
@@ -382,7 +382,7 @@ fn preview(mgr: &Rc<Manager>, bytes: &[u8], location: String, name: String) -> O
     let w = Rc::downgrade(&p);
     p.import_button.connect_clicked(move |_| {
         if let Some(p) = w.upgrade() {
-            p.apply();
+            p.confirm_credentials();
         }
     });
     // Die Signale halten nur schwache Referenzen; Ebene bzw. Fenster halten die Vorschau.
@@ -520,6 +520,51 @@ impl Preview {
                 stop.set_sensitive(false);
             }
         });
+    }
+
+    /// Namen der gewählten Einträge (Selbstprobe).
+    pub fn selected_names(&self) -> Vec<String> {
+        self.selected()
+            .into_iter()
+            .map(|i| self.playlist.entries[i].name.clone())
+            .collect()
+    }
+
+    /// Gewählte Einträge mit Zugangsdaten in der Adresse: erst der Hinweis auf die eigene
+    /// Verantwortung, übernommen wird nur nach Bestätigung.
+    pub fn confirm_credentials(self: &Rc<Self>) {
+        let n = self
+            .selected()
+            .into_iter()
+            .filter(|&i| {
+                self.playlist
+                    .findings
+                    .iter()
+                    .any(|f| f.entry == Some(i) && f.kind == FindingKind::Credentials)
+            })
+            .count();
+        if n == 0 {
+            self.apply();
+            return;
+        }
+        let dialog = adw::AlertDialog::new(
+            Some(tr("Zugangsdaten in der Adresse")),
+            Some(&tf!(
+                "{n} der gewählten Einträge enthalten Benutzername und Passwort in der Adresse. Für die Nutzung dieser Quelle bist du rechtlich selbst verantwortlich.",
+                n = n
+            )),
+        );
+        dialog.add_response("cancel", tr("Abbrechen"));
+        dialog.add_response("ok", tr("Trotzdem übernehmen"));
+        dialog.set_response_appearance("ok", adw::ResponseAppearance::Destructive);
+        dialog.set_close_response("cancel");
+        let w = Rc::downgrade(self);
+        dialog.connect_response(Some("ok"), move |_, _| {
+            if let Some(p) = w.upgrade() {
+                p.apply();
+            }
+        });
+        dialog.present(Some(&self.mgr.app.window));
     }
 
     pub fn apply(&self) {

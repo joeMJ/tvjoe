@@ -72,6 +72,12 @@ fn m3u_lokale_adressen_und_zugangsdaten_nur_warnung() {
     assert!(k.contains(&FindingKind::Credentials));
     assert!(k.iter().all(|f| f.severity() == Severity::Warning));
     assert!(FindingKind::Credentials.to_string().contains("rechtlich selbst verantwortlich"));
+    // Heimnetz-Adressen sind nur ein Hinweis (Eintrag bleibt beim Import angewählt),
+    // Zugangsdaten nicht.
+    assert!(FindingKind::LocalAddress(HostClass::Private).is_notice());
+    assert!(FindingKind::LocalLogo.is_notice());
+    assert!(!FindingKind::Credentials.is_notice());
+    assert!(!FindingKind::Http.is_notice());
 }
 
 #[test]

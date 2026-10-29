@@ -109,99 +109,99 @@ msgid "Sicherung aus einer neueren Fassung (Format {version})"
 msgstr ""
 
 #: crates/tvjoe-core/src/check.rs:100
-msgid "Logo-Adresse nicht erlaubt, entfernt"
+msgid "Steuerzeichen in der Adresse, abgelehnt"
 msgstr ""
 
 #: crates/tvjoe-core/src/check.rs:101
-msgid "Logo-Adresse im eigenen Netz"
-msgstr ""
-
-#: crates/tvjoe-core/src/check.rs:102
-msgid "Steuerzeichen entfernt oder Text gekürzt"
-msgstr ""
-
-#: crates/tvjoe-core/src/check.rs:103
-msgid "Quelltyp unbekannt (tvjoe-type)"
+msgid "Zugangsdaten in der Adresse – für die Nutzung dieser Quelle bist du rechtlich selbst verantwortlich"
 msgstr ""
 
 #: crates/tvjoe-core/src/check.rs:104
+msgid "Adresse im eigenen Netz"
+msgstr ""
+
+#: crates/tvjoe-core/src/check.rs:106
+msgid "link-lokale Adresse (169.254.x.x / fe80::)"
+msgstr ""
+
+#: crates/tvjoe-core/src/check.rs:108
+msgid "Adresse auf diesem Rechner (localhost)"
+msgstr ""
+
+#: crates/tvjoe-core/src/check.rs:109
+msgid "Logo-Adresse nicht erlaubt, entfernt"
+msgstr ""
+
+#: crates/tvjoe-core/src/check.rs:110
+msgid "Logo-Adresse im eigenen Netz"
+msgstr ""
+
+#: crates/tvjoe-core/src/check.rs:111
+msgid "Steuerzeichen entfernt oder Text gekürzt"
+msgstr ""
+
+#: crates/tvjoe-core/src/check.rs:112
+msgid "Quelltyp unbekannt (tvjoe-type)"
+msgstr ""
+
+#: crates/tvjoe-core/src/check.rs:113
 #, no-c-format
 msgid "Qualitätswert „{value}“ unbekannt (erlaubt: sd, 720, 1080, uhd)"
 msgstr ""
 
-#: crates/tvjoe-core/src/check.rs:108
+#: crates/tvjoe-core/src/check.rs:117
 msgid "Qualität unbekannt (tvjoe-quality fehlt)"
 msgstr ""
 
-#: crates/tvjoe-core/src/check.rs:73
+#: crates/tvjoe-core/src/check.rs:82
 msgid "#EXTINF ohne URL"
 msgstr ""
 
-#: crates/tvjoe-core/src/check.rs:74
+#: crates/tvjoe-core/src/check.rs:83
 msgid "URL ohne #EXTINF-Zeile, ignoriert"
 msgstr ""
 
-#: crates/tvjoe-core/src/check.rs:75
+#: crates/tvjoe-core/src/check.rs:84
 msgid "tvg-id fehlt"
 msgstr ""
 
-#: crates/tvjoe-core/src/check.rs:76
+#: crates/tvjoe-core/src/check.rs:85
 msgid "tvg-logo fehlt"
 msgstr ""
 
-#: crates/tvjoe-core/src/check.rs:77
+#: crates/tvjoe-core/src/check.rs:86
 msgid "group-title fehlt"
 msgstr ""
 
-#: crates/tvjoe-core/src/check.rs:78
+#: crates/tvjoe-core/src/check.rs:87
 msgid "tvg-id doppelt, ohne unterscheidende Qualität"
 msgstr ""
 
-#: crates/tvjoe-core/src/check.rs:79
+#: crates/tvjoe-core/src/check.rs:88
 msgid "URL doppelt"
-msgstr ""
-
-#: crates/tvjoe-core/src/check.rs:80
-#, no-c-format
-msgid "Sender doppelt in der Qualität {quality}"
-msgstr ""
-
-#: crates/tvjoe-core/src/check.rs:82
-#, no-c-format
-msgid "Kanalnummer {old} doppelt, neu vergeben: {new}"
-msgstr ""
-
-#: crates/tvjoe-core/src/check.rs:84
-msgid "unverschlüsselte Quelle (http://)"
-msgstr ""
-
-#: crates/tvjoe-core/src/check.rs:86
-msgid "keine Adresse mit Schema (lokaler Pfad?), abgelehnt"
 msgstr ""
 
 #: crates/tvjoe-core/src/check.rs:89
 #, no-c-format
-msgid "URL-Schema „{scheme}“ nicht erlaubt, abgelehnt"
+msgid "Sender doppelt in der Qualität {quality}"
 msgstr ""
 
 #: crates/tvjoe-core/src/check.rs:91
-msgid "Steuerzeichen in der Adresse, abgelehnt"
+#, no-c-format
+msgid "Kanalnummer {old} doppelt, neu vergeben: {new}"
 msgstr ""
 
-#: crates/tvjoe-core/src/check.rs:92
-msgid "Zugangsdaten in der Adresse – für die Nutzung dieser Quelle bist du rechtlich selbst verantwortlich"
+#: crates/tvjoe-core/src/check.rs:93
+msgid "unverschlüsselte Quelle (http://)"
 msgstr ""
 
 #: crates/tvjoe-core/src/check.rs:95
-msgid "Adresse im eigenen Netz"
+msgid "keine Adresse mit Schema (lokaler Pfad?), abgelehnt"
 msgstr ""
 
-#: crates/tvjoe-core/src/check.rs:97
-msgid "link-lokale Adresse (169.254.x.x / fe80::)"
-msgstr ""
-
-#: crates/tvjoe-core/src/check.rs:99
-msgid "Adresse auf diesem Rechner (localhost)"
+#: crates/tvjoe-core/src/check.rs:98
+#, no-c-format
+msgid "URL-Schema „{scheme}“ nicht erlaubt, abgelehnt"
 msgstr ""
 
 #: crates/tvjoe-core/src/detail.rs:314
@@ -776,7 +776,7 @@ msgstr ""
 msgid "Ablageordner"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:1503 crates/tvjoe-gui/src/icons.rs:129 crates/tvjoe-gui/src/selftest.rs:705
+#: crates/tvjoe-gui/src/ablage.rs:1503 crates/tvjoe-gui/src/icons.rs:129 crates/tvjoe-gui/src/selftest.rs:736
 msgid "Ändern …"
 msgstr ""
 
@@ -926,7 +926,7 @@ msgstr ""
 msgid "„{title}“ wird nicht weiter geladen. Was schon da ist, bleibt; „Fortsetzen“ lädt später den Rest."
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablage.rs:541 crates/tvjoe-gui/src/ablageview.rs:1134 crates/tvjoe-gui/src/backup.rs:149 crates/tvjoe-gui/src/empfang.rs:545 crates/tvjoe-gui/src/empfang.rs:671 crates/tvjoe-gui/src/empfang.rs:808 crates/tvjoe-gui/src/import.rs:76 crates/tvjoe-gui/src/import.rs:157 crates/tvjoe-gui/src/jellyfin.rs:508 crates/tvjoe-gui/src/jellyfin.rs:600 crates/tvjoe-gui/src/jellyfin.rs:660 crates/tvjoe-gui/src/manage.rs:621 crates/tvjoe-gui/src/manage.rs:926 crates/tvjoe-gui/src/prefs.rs:675 crates/tvjoe-gui/src/prefs.rs:699 crates/tvjoe-gui/src/satip.rs:327 crates/tvjoe-gui/src/umzug.rs:93 crates/tvjoe-gui/src/umzug.rs:203
+#: crates/tvjoe-gui/src/ablage.rs:541 crates/tvjoe-gui/src/ablageview.rs:1134 crates/tvjoe-gui/src/backup.rs:149 crates/tvjoe-gui/src/empfang.rs:545 crates/tvjoe-gui/src/empfang.rs:671 crates/tvjoe-gui/src/empfang.rs:808 crates/tvjoe-gui/src/import.rs:76 crates/tvjoe-gui/src/import.rs:157 crates/tvjoe-gui/src/import.rs:557 crates/tvjoe-gui/src/jellyfin.rs:508 crates/tvjoe-gui/src/jellyfin.rs:600 crates/tvjoe-gui/src/jellyfin.rs:660 crates/tvjoe-gui/src/manage.rs:621 crates/tvjoe-gui/src/manage.rs:926 crates/tvjoe-gui/src/prefs.rs:675 crates/tvjoe-gui/src/prefs.rs:699 crates/tvjoe-gui/src/satip.rs:327 crates/tvjoe-gui/src/umzug.rs:93 crates/tvjoe-gui/src/umzug.rs:203
 msgid "Abbrechen"
 msgstr ""
 
@@ -1382,7 +1382,7 @@ msgstr ""
 msgid "Belegt {used}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/ablageview.rs:928 crates/tvjoe-gui/src/selftest.rs:586
+#: crates/tvjoe-gui/src/ablageview.rs:928 crates/tvjoe-gui/src/selftest.rs:588
 msgid "Alles prüfen"
 msgstr ""
 
@@ -1977,7 +1977,7 @@ msgstr ""
 msgid "Suchlauf über"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dvbcard.rs:85 crates/tvjoe-gui/src/selftest.rs:300
+#: crates/tvjoe-gui/src/dvbcard.rs:85 crates/tvjoe-gui/src/selftest.rs:302
 msgid "Radiosender übernehmen"
 msgstr ""
 
@@ -1985,7 +1985,7 @@ msgstr ""
 msgid "Suchlauf"
 msgstr ""
 
-#: crates/tvjoe-gui/src/dvbcard.rs:92 crates/tvjoe-gui/src/satip.rs:101 crates/tvjoe-gui/src/selftest.rs:301
+#: crates/tvjoe-gui/src/dvbcard.rs:92 crates/tvjoe-gui/src/satip.rs:101 crates/tvjoe-gui/src/selftest.rs:303
 msgid "Suchlauf starten"
 msgstr ""
 
@@ -2143,7 +2143,7 @@ msgstr ""
 msgid "Stunden; 0 = nur nach Änderungen an den XMLTV-Quellen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:49 crates/tvjoe-gui/src/selftest.rs:192
+#: crates/tvjoe-gui/src/empfang.rs:49 crates/tvjoe-gui/src/selftest.rs:194
 msgid "Internet-TV"
 msgstr ""
 
@@ -2322,7 +2322,7 @@ msgstr ""
 msgid "Die Kanäle kommen von Tvheadend (dort vorher Suchlauf und Kanalzuordnung); ein erneutes Holen behält Nummern und eigene Namen. Programm von Tvheadend; je Sender in „Sender verwalten“ auf XMLTV umstellbar."
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:881 crates/tvjoe-gui/src/selftest.rs:485
+#: crates/tvjoe-gui/src/empfang.rs:881 crates/tvjoe-gui/src/selftest.rs:487
 msgid "Kanäle holen"
 msgstr ""
 
@@ -2340,7 +2340,7 @@ msgstr ""
 msgid "Nicht verbunden: {error}"
 msgstr ""
 
-#: crates/tvjoe-gui/src/empfang.rs:94 crates/tvjoe-gui/src/empfang.rs:202 crates/tvjoe-gui/src/selftest.rs:368
+#: crates/tvjoe-gui/src/empfang.rs:94 crates/tvjoe-gui/src/empfang.rs:202 crates/tvjoe-gui/src/selftest.rs:370
 msgid "Empfangsquelle hinzufügen"
 msgstr ""
 
@@ -2426,7 +2426,7 @@ msgstr ""
 msgid "Symbol wählen"
 msgstr ""
 
-#: crates/tvjoe-gui/src/import.rs:104 crates/tvjoe-gui/src/import.rs:552
+#: crates/tvjoe-gui/src/import.rs:104 crates/tvjoe-gui/src/import.rs:597
 msgid "Liste"
 msgstr ""
 
@@ -2537,12 +2537,25 @@ msgstr ""
 msgid "Erreichbarkeit geprüft: {done} von {total} geprüft, {ok} erreichbar"
 msgstr ""
 
-#: crates/tvjoe-gui/src/import.rs:569
+#: crates/tvjoe-gui/src/import.rs:551
+msgid "Zugangsdaten in der Adresse"
+msgstr ""
+
+#: crates/tvjoe-gui/src/import.rs:552
+#, no-c-format
+msgid "{n} der gewählten Einträge enthalten Benutzername und Passwort in der Adresse. Für die Nutzung dieser Quelle bist du rechtlich selbst verantwortlich."
+msgstr ""
+
+#: crates/tvjoe-gui/src/import.rs:558
+msgid "Trotzdem übernehmen"
+msgstr ""
+
+#: crates/tvjoe-gui/src/import.rs:614
 #, no-c-format
 msgid "Übernommen: {added} neu, {updated} aktualisiert, {missing} fehlen in der Quelle"
 msgstr ""
 
-#: crates/tvjoe-gui/src/import.rs:576
+#: crates/tvjoe-gui/src/import.rs:621
 #, no-c-format
 msgid "Übernommen: {added} neu, {updated} aktualisiert"
 msgstr ""

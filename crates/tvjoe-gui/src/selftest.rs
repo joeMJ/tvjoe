@@ -15,6 +15,8 @@
 //! - `TVJOE_SELFTEST_EMPFANG=1` (nur diese Schritte): Reiter „Empfang“ und Seiten der Quellen.
 //! - `TVJOE_SELFTEST_EPGPRUEFUNG=1` (nur diese Schritte): Hinweis der EPG-Prüfung im Raster,
 //!   wegklicken; mit eigener `TVJOE_CONFIG_DIR`, deren XMLTV-Quelle eine Attrappe ist.
+//! - `TVJOE_SELFTEST_ZUGANG=1` (nur diese Schritte, mit `TVJOE_SELFTEST_IMPORT`): Vorauswahl
+//!   der Vorschau, Dialog zu Zugangsdaten beim Übernehmen.
 //! - `TVJOE_SELFTEST_README=1` (nur diese Schritte): Bilder für das README; mit neutralen Daten
 //!   starten (eigene `TVJOE_CONFIG_DIR`/`TVJOE_CACHE_DIR`, ohne Jellyfin und private Sender).
 
@@ -677,6 +679,35 @@ const EPGPRUEFUNG_STEPS: &[Step] = &[
     ),
 ];
 
+/// Vorauswahl und Zugangsdaten-Dialog (`TVJOE_SELFTEST_ZUGANG=1`, nur diese Schritte).
+const ZUGANG_STEPS: &[Step] = &[
+    ("80-start", main_window, 6000),
+    (
+        "81-vorschau-vorauswahl",
+        |p| {
+            let m = crate::manage::open_manager(&p.app)?;
+            *p.mgr.borrow_mut() = Some(m.clone());
+            let pr = crate::import::preview_path(&m, p.list.as_deref()?)?;
+            trace(&format!("Vorauswahl: {:?}", pr.selected_names()));
+            let w = crate::layer::window_of(&p.app, &(pr.clone() as Rc<dyn crate::layer::View>))?;
+            *p.preview.borrow_mut() = Some(pr);
+            Some(w)
+        },
+        4000,
+    ),
+    (
+        "82-zugang-dialog",
+        |p| {
+            let pr = p.preview.borrow().clone()?;
+            pr.set_where(|e| e.url.contains('@'), true);
+            trace(&format!("Gewählt: {:?}", pr.selected_names()));
+            pr.confirm_credentials();
+            Some(p.app.window.clone().upcast())
+        },
+        2000,
+    ),
+];
+
 const MEDIATHEKEN_STEPS: &[Step] = &[
     ("50-start", main_window, 4000),
     (
@@ -1223,12 +1254,14 @@ pub fn run(app: Rc<App>, dir: PathBuf) {
         BAUCHBINDE_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_EPGPRUEFUNG").is_some() {
         EPGPRUEFUNG_STEPS.to_vec()
+    } else if std::env::var_os("TVJOE_SELFTEST_ZUGANG").is_some() {
+        ZUGANG_STEPS.to_vec()
     } else if std::env::var_os("TVJOE_SELFTEST_README").is_some() {
         README_STEPS.to_vec()
     } else {
         STEPS.to_vec()
     };
-    if list.is_some() {
+    if list.is_some() && std::env::var_os("TVJOE_SELFTEST_ZUGANG").is_none() {
         steps.extend_from_slice(IMPORT_STEPS);
     }
     if std::env::var_os("TVJOE_SELFTEST_MEDIATHEK").is_some() {
